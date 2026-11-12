@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import type { LiveBook, LiveCosting, LiveOrderType, LiveProduct, LiveSide, LiveTradeMark, PlaceOrderInput, TrackedSymbol } from '@/api/live'
+import type { LiveBarPage, LiveBook, LiveCandle, LiveCosting, LiveOrderType, LiveProduct, LiveSide, LiveTradeMark, PlaceOrderInput, TrackedSymbol } from '@/api/live'
 import type { WalletInfo } from '@/api/types'
+import { useRoute, useRouter } from 'vue-router'
 import ChartMenu from '@/components/live/ChartMenu.vue'
+import ChartToolbar from '@/components/live/ChartToolbar.vue'
 import LiveChart from '@/components/live/LiveChart.vue'
 import ProductSelect from '@/components/live/ProductSelect.vue'
 import TradingPanel from '@/components/live/TradingPanel.vue'
@@ -13,7 +14,11 @@ import { useLiveStream } from '@/composables/useLiveStream'
 import { useTheme } from '@/composables/useTheme'
 import { formatMenuPrice } from '@/lib/chartMenu'
 import type { ChartHit } from '@/lib/chartMenu'
-import { applyTick, barsToPoints, bucketSeconds, type SeriesPoint } from '@/lib/liveSeries'
+import { readChartPrefs, rememberInterval, removeCustomInterval, writeChartPrefs, type ChartPrefs } from '@/lib/chartPrefs'
+import { chartQuery, rangeBounds, readChartQuery, type ChartRange } from '@/lib/chartRange'
+import { baselineValue, mergeCandles, type BaselineSource, type CandleBar, type ChartType, type DeltaMode } from '@/lib/chartSeries'
+import { chartZone, unixFromWall, wallInput, zoneAbbrev, type ChartZoneMode } from '@/lib/chartTime'
+import { applyCandleTick, bucketSeconds, toCandleBars } from '@/lib/liveSeries'
 import { quoteLots } from '@/lib/lotQuote'
 import { readPanelTab, readPanelWidth, readShowTrades, writePanelTab, writePanelWidth, writeShowTrades, type PanelTab, type PanelWidth } from '@/lib/livePanel'
 import { liveQuery, readLiveSelection } from '@/lib/liveQuery'
@@ -28,8 +33,12 @@ const { isDark } = useTheme()
 
 const products = ref<LiveProduct[]>([])
 const product = ref('BTC-USD')
-const granularity = ref('5m')
-const points = ref<SeriesPoint[]>([])
+const prefs = ref<ChartPrefs>(readChartPrefs(localStorage))
+const fromSec = ref<number | null>(null)
+const toSec = ref<number | null>(null)
+const candles = ref<CandleBar[]>([])
+const bucket = ref(bucketSeconds(prefs.value.interval))
+const hint = ref('')
 const price = ref<number | null>(null)
 const wallets = ref<WalletInfo[]>([])
 const walletKey = ref('')
@@ -52,12 +61,22 @@ const ready = ref(false)
 const menu = ref<{ x: number; y: number; hit: ChartHit } | null>(null)
 const pendingMoveId = ref<number | null>(null)
 const chart = ref<{ zoom: (factor: number) => void; fit: () => void } | null>(null)
+const historyBusy = ref(false)
+const historyDone = ref(false)
 let timer = 0
 let stopStream: (() => void) | null = null
 let sawLive = false
 let booting = true
 
-const fitKey = computed(() => `${product.value}:${granularity.value}`)
+const points = computed(() => candles.value.map((bar) => ({ time: bar.time, value: bar.close })))
+const fitKey = computed(() => `${product.value}:${prefs.value.interval}:${prefs.value.type}:${prefs.value.range}:${fromSec.value ?? ''}:${toSec.value ?? ''}`)
+const zoneName = computed(() => chartZone(prefs.value.timeZone))
+const zoneLabel = computed(() => zoneAbbrev(Math.floor(Date.now() / 1000), zoneName.value))
+const averageCost = computed(() => (book.value && book.value.average.avgCost > 0 ? book.value.average.avgCost : null))
+const baseline = computed(() => baselineValue(candles.value, prefs.value.baselineSource, averageCost.value, prefs.value.baselinePrice))
+const showBaseline = computed(() => prefs.value.type === 'baseline' || prefs.value.type === 'vertex-baseline')
+const fromInput = computed(() => (fromSec.value == null ? '' : wallInput(fromSec.value, zoneName.value)))
+const toInput = computed(() => (toSec.value == null ? '' : wallInput(toSec.value, zoneName.value)))
 const realWallet = computed(() => wallets.value.find((item) => item.key === walletKey.value)?.mode === 'real')
 const shownLots = computed(() =>
     quoteLots(book.value?.lots ?? [], price.value).map((lot) => ({
@@ -113,11 +132,56 @@ async function loadSymbols() {
     if (!products.value.some((item) => item.productId === product.value) && products.value[0]) product.value = products.value[0].productId
 }
 
-async function loadBars() {
-    const next = barsToPoints(await live.bars(product.value, granularity.value))
-    points.value = next
-    const last = next[next.length - 1]
-    if (price.value == null && last) price.value = last.value
+function bounds() {
+    if (prefs.value.range === 'custom') return { from: fromSec.value, to: toSec.value }
+    return rangeBounds(prefs.value.range, Math.floor(Date.now() / 1000), zoneName.value)
+}
+
+function syncQuery() {
+    const chart = chartQuery({ range: prefs.value.range, from: fromSec.value, to: toSec.value, interval: prefs.value.interval })
+    const selection = liveQuery(walletKey.value, product.value, unknownWallet.value || null)
+    const next: Record<string, string> = {}
+    for (const [key, value] of Object.entries(route.query)) {
+        if (typeof value === 'string' && key !== 'from' && key !== 'to') next[key] = value
+    }
+    if (!selection.wallet) delete next.wallet
+    if (!selection.symbol) delete next.symbol
+    Object.assign(next, selection, chart)
+    const current: Record<string, string> = {}
+    for (const [key, value] of Object.entries(route.query)) {
+        if (typeof value === 'string') current[key] = value
+    }
+    const keys = new Set([...Object.keys(next), ...Object.keys(current)])
+    if ([...keys].every((key) => (next[key] ?? '') === (current[key] ?? ''))) return
+    void router.replace({ query: next })
+}
+
+function savePrefs(next: ChartPrefs) {
+    prefs.value = next
+    writeChartPrefs(localStorage, next)
+    syncQuery()
+}
+
+function readPayload(payload: LiveBarPage | LiveCandle[]) {
+    if (Array.isArray(payload)) return { rows: payload, hint: '', seconds: bucketSeconds(prefs.value.interval) }
+    return {
+        rows: payload.results,
+        hint: payload.hint,
+        seconds: payload.seconds > 0 ? payload.seconds : bucketSeconds(payload.granularity || prefs.value.interval),
+    }
+}
+
+async function loadBars(append = false) {
+    const previous = candles.value
+    const payload = (await live.bars(product.value, prefs.value.interval, bounds())) as LiveBarPage | LiveCandle[]
+    const page = readPayload(payload)
+    const next = toCandleBars(page.rows)
+    candles.value = append ? mergeCandles(previous, next) : next
+    if (append && candles.value.length === previous.length) historyDone.value = true
+    hint.value = page.hint
+    bucket.value = page.seconds
+    const last = candles.value[candles.value.length - 1]
+    if (price.value == null && last) price.value = last.close
 }
 
 function follow(next: string) {
@@ -125,7 +189,7 @@ function follow(next: string) {
     stopStream = stream.subscribe(next, (tick) => {
         if (tick.productId && tick.productId.toUpperCase() !== product.value.toUpperCase()) return
         price.value = tick.price
-        points.value = applyTick(points.value, tick, bucketSeconds(granularity.value))
+        candles.value = applyCandleTick(candles.value, tick, bucket.value)
     })
 }
 
@@ -209,7 +273,7 @@ function onMenu(action: { id: string; qty?: number }) {
         if (id === 'zoom-in') chart.value?.zoom(0.7)
         else if (id === 'zoom-out') chart.value?.zoom(1.4)
         else if (id === 'fit') chart.value?.fit()
-        else granularity.value = id
+        else savePrefs({ ...prefs.value, interval: id })
         menu.value = null
         return
     }
@@ -320,14 +384,6 @@ function applyQuery() {
     walletNotice.value = selection.unknownWallet ? 'That wallet is not available.' : ''
 }
 
-function syncQuery() {
-    const next = liveQuery(walletKey.value, product.value, unknownWallet.value || null)
-    const currentWallet = typeof route.query.wallet === 'string' ? route.query.wallet : ''
-    const currentSymbol = typeof route.query.symbol === 'string' ? route.query.symbol : ''
-    if (currentWallet === (next.wallet ?? '') && currentSymbol === (next.symbol ?? '')) return
-    void router.replace({ query: next })
-}
-
 function onProduct(id: string) {
     if (id === product.value) return
     product.value = id
@@ -363,10 +419,103 @@ watch(
     { flush: 'sync' },
 )
 
-watch(granularity, () => {
-    if (!ready.value) return
+watch(
+    () => prefs.value.interval,
+    () => {
+        if (!ready.value) return
+        historyDone.value = false
+        void loadBars().catch(fail)
+    },
+)
+
+function onType(value: ChartType) {
+    savePrefs({ ...prefs.value, type: value })
+}
+
+function onInterval(value: string) {
+    savePrefs({ ...prefs.value, interval: value })
+}
+
+function onAddInterval(value: string) {
+    const next = rememberInterval(prefs.value, value)
+    if (next) savePrefs(next)
+}
+
+function onRemoveInterval(value: string) {
+    savePrefs(removeCustomInterval(prefs.value, value))
+}
+
+function onRange(value: ChartRange) {
+    historyDone.value = false
+    if (value !== 'custom') {
+        fromSec.value = null
+        toSec.value = null
+    }
+    savePrefs({ ...prefs.value, range: value })
     void loadBars().catch(fail)
-})
+}
+
+function onFrom(value: string) {
+    const unix = unixFromWall(value, zoneName.value)
+    if (unix == null) return
+    fromSec.value = unix
+    if (toSec.value == null) toSec.value = Math.floor(Date.now() / 1000) + 60
+    historyDone.value = false
+    savePrefs({ ...prefs.value, range: 'custom' })
+    void loadBars().catch(fail)
+}
+
+function onTo(value: string) {
+    const unix = unixFromWall(value, zoneName.value)
+    if (unix == null) return
+    toSec.value = unix
+    if (fromSec.value == null) fromSec.value = unix - 86400
+    historyDone.value = false
+    savePrefs({ ...prefs.value, range: 'custom' })
+    void loadBars().catch(fail)
+}
+
+function onZone() {
+    const timeZone: ChartZoneMode = prefs.value.timeZone === 'local' ? 'utc' : 'local'
+    savePrefs({ ...prefs.value, timeZone })
+}
+
+function onBaselineSource(value: BaselineSource) {
+    savePrefs({ ...prefs.value, baselineSource: value })
+}
+
+function onBaselinePrice(value: number) {
+    if (!(value > 0)) return
+    savePrefs({ ...prefs.value, baselineSource: 'typed', baselinePrice: value })
+}
+
+function onDeltaMode(value: DeltaMode) {
+    savePrefs({ ...prefs.value, deltaMode: value })
+}
+
+function onHistory() {
+    if (!ready.value || historyBusy.value || historyDone.value) return
+    const first = candles.value[0]
+    if (!first) return
+    const current = bounds()
+    const span = current.from != null && current.to != null ? Math.max(60, current.to - current.from) : 7 * 86400
+    const nextFrom = first.time - span
+    if (current.from != null && nextFrom >= current.from) {
+        historyDone.value = true
+        return
+    }
+    historyBusy.value = true
+    fromSec.value = nextFrom
+    toSec.value = current.to ?? Math.floor(Date.now() / 1000) + 60
+    prefs.value = { ...prefs.value, range: 'custom' }
+    writeChartPrefs(localStorage, prefs.value)
+    syncQuery()
+    void loadBars(true)
+        .catch(fail)
+        .finally(() => {
+            historyBusy.value = false
+        })
+}
 
 watch(stream.link, (value) => {
     if (value === 'live') {
@@ -379,6 +528,17 @@ onMounted(async () => {
     width.value = readPanelWidth(localStorage)
     tab.value = readPanelTab(localStorage)
     showTrades.value = readShowTrades(localStorage)
+    const located = readChartQuery(route.query as Record<string, unknown>)
+    if (located.interval || located.range) {
+        prefs.value = {
+            ...prefs.value,
+            interval: located.interval ?? prefs.value.interval,
+            range: located.range ?? prefs.value.range,
+        }
+    }
+    if (located.from != null) fromSec.value = located.from
+    if (located.to != null) toSec.value = located.to
+    bucket.value = bucketSeconds(prefs.value.interval)
     try {
         await loadSymbols()
         await loadWallets()
@@ -425,7 +585,7 @@ onUnmounted(() => {
                     {{ price == null ? 'Waiting for a public price' : formatMenuPrice(price) }}
                 </p>
                 <p class="text-xs text-gray-500" data-testid="live-link">{{ linkLabel }}</p>
-                <p class="text-xs text-gray-500">{{ granularity }} · public Coinbase</p>
+                <p class="text-xs text-gray-500">{{ prefs.interval }} · public Coinbase</p>
                 <p v-if="walletNotice" data-testid="wallet-notice" class="text-xs font-medium text-warning-600">{{ walletNotice }}</p>
                 <label class="ms-auto flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
                     <input
@@ -438,17 +598,55 @@ onUnmounted(() => {
                     Show my trades
                 </label>
             </div>
+            <ChartToolbar
+                :chart-type="prefs.type"
+                :favorite-types="prefs.favoriteTypes"
+                :interval="prefs.interval"
+                :favorite-intervals="prefs.favoriteIntervals"
+                :custom-intervals="prefs.customIntervals"
+                :range="prefs.range"
+                :from-input="fromInput"
+                :to-input="toInput"
+                :zone-label="zoneLabel"
+                :show-volume="prefs.showVolume"
+                :baseline-source="prefs.baselineSource"
+                :baseline-price="prefs.baselinePrice"
+                :delta-mode="prefs.deltaMode"
+                :hint="hint"
+                :show-baseline="showBaseline"
+                @type="onType"
+                @interval="onInterval"
+                @add-interval="onAddInterval"
+                @remove-interval="onRemoveInterval"
+                @range="onRange"
+                @from="onFrom"
+                @to="onTo"
+                @zone="onZone"
+                @volume="savePrefs({ ...prefs, showVolume: !prefs.showVolume })"
+                @baseline-source="onBaselineSource"
+                @baseline-price="onBaselinePrice"
+                @delta-mode="onDeltaMode"
+            />
             <div class="relative min-h-0 flex-1" @click.stop>
                 <LiveChart
                     ref="chart"
                     :points="points"
+                    :candles="candles"
                     :markers="chartMarkers"
                     :price="price"
                     :lots="showTrades ? shownLots : []"
                     :orders="shownBook?.orders ?? []"
                     :dark="isDark"
                     :fit-key="fitKey"
+                    :chart-type="prefs.type"
+                    :show-volume="prefs.showVolume"
+                    :baseline-price="baseline"
+                    :delta-mode="prefs.deltaMode"
+                    :time-zone="prefs.timeZone"
+                    :interval-seconds="bucket"
                     @menu="menu = $event"
+                    @history="onHistory"
+                    @baseline="onBaselinePrice"
                 />
                 <ChartMenu
                     v-if="menu"
@@ -483,6 +681,7 @@ onUnmounted(() => {
             :status="status"
             :error="error"
             :auth="auth"
+            :time-zone="prefs.timeZone"
             @width="rememberWidth"
             @tab="rememberTab"
             @wallet="onWallet"

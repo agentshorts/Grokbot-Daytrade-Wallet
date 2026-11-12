@@ -41,13 +41,21 @@ public class LiveServices(
     public object Any(GetLiveBars request)
     {
         var product = RequireSymbol(request.Product);
-        var key = CoinbaseMessages.GranularityKey(request.Granularity);
-        market.Watch(product, key);
+        if (!CandleInterval.TryParse(request.Granularity, emptyIsDefault: true, out var interval, out var error))
+            throw Fail(400, "InvalidInterval", error);
+        if (request.From is long from && request.To is long to && from >= to)
+            throw Fail(400, "InvalidRange", "Range start must be before range end.");
+        market.Watch(product, interval.Key);
+        var page = bars.Window(product, interval, request.From, request.To);
         return new GetLiveBarsResponse
         {
             Product = product,
-            Granularity = key,
-            Results = bars.Candles(product, CoinbaseMessages.GranularitySeconds(key)),
+            Granularity = page.Key,
+            Requested = page.Requested,
+            Seconds = page.Seconds,
+            Capped = page.Capped,
+            Hint = page.Hint,
+            Results = page.Candles,
         };
     }
 
