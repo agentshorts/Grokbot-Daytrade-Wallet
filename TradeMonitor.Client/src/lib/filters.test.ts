@@ -85,4 +85,15 @@ describe('useFilterQuery', () => {
         expect(router.currentRoute.value.query.range).toBeUndefined()
         expect(wrapper.vm.api.filters.range).toBe('30d')
     })
+
+    it('keeps the open trade across pages and drops table filters off the trades page', async () => {
+        const { wrapper } = await mountHarness('/trades?mode=paper&side=buy&page=2&trade=4&symbol=BTC-USD&order=pnl')
+        expect(wrapper.vm.api.shellLocation('/').query).toEqual({ mode: 'paper', trade: '4' })
+        const stay = wrapper.vm.api.shellLocation('/trades')
+        expect(stay.query.side).toBe('buy')
+        expect(stay.query.page).toBe('2')
+        expect(stay.query.trade).toBe('4')
+        expect(stay.query.symbol).toBe('BTC-USD')
+        expect(stay.query.order).toBe('pnl')
+    })
 })
