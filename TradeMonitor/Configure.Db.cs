@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using ServiceStack.Data;
 using ServiceStack.OrmLite;
+using ServiceStack.OrmLite.Sqlite;
 using TradeMonitor.Data;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
@@ -17,6 +18,7 @@ public class ConfigureDb : IHostingStartup
             var connectionString = context.Configuration.GetConnectionString("DefaultConnection")
                                    ?? $"DataSource={Path.Combine(appData, "app.db")};Cache=Shared";
             
+            LedgerDialect.Configure(SqliteDialect.Provider);
             services.AddOrmLite(options => options.UseSqlite(connectionString));
             // Retry deadlocks, throttling and lost connections on PostgreSQL, SQL Server and MySQL (SQLite isn't retried)
             OrmLiteConfig.RetryPolicy = OrmLiteRetry.Exponential(maxRetries: 3);
