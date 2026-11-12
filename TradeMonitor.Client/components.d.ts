@@ -31,6 +31,8 @@ declare module 'vue' {
     ThemeToggle: typeof import('./src/components/shell/ThemeToggle.vue')['default']
     TimeCell: typeof import('./src/components/TimeCell.vue')['default']
     TradeList: typeof import('./src/components/TradeList.vue')['default']
+    TransferList: typeof import('./src/components/TransferList.vue')['default']
     WalletCard: typeof import('./src/components/WalletCard.vue')['default']
+    WalletPositions: typeof import('./src/components/WalletPositions.vue')['default']
   }
 }

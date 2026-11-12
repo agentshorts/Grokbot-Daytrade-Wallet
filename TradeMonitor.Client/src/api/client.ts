@@ -80,14 +80,22 @@ export function withQuery(path: string, query: LedgerQuery = {}): string {
     return qs ? `${path}?${qs}` : path
 }
 
-export function fetchTransport(fetchImpl: typeof fetch = fetch): LedgerTransport {
+export function fetchTransport(fetchImpl?: typeof fetch): LedgerTransport {
     return {
         async get(path: string) {
-            const response = await fetchImpl(path, {
+            const request = fetchImpl ?? globalThis.fetch
+            const response = await request(path, {
                 method: 'GET',
                 credentials: 'same-origin',
+                redirect: 'manual',
                 headers: { Accept: 'application/json' },
             })
+            if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+                return {
+                    status: 401,
+                    body: { responseStatus: { errorCode: 'Unauthorized', message: 'Sign in as an admin to read the ledger.' } },
+                }
+            }
             const text = await response.text()
             if (!text) return { status: response.status, body: null }
             try {
@@ -100,8 +108,15 @@ export function fetchTransport(fetchImpl: typeof fetch = fetch): LedgerTransport
     }
 }
 
+/** Empty while custom read routes stay at the site root. Set to `/api` when the host moves them. */
+const ledgerPrefix = ''
+
+function readPath(path: string): string {
+    return `${ledgerPrefix}${path}`
+}
+
 function walletPath(key: string, rest = ''): string {
-    return `/wallets/${encodeURIComponent(key)}${rest}`
+    return readPath(`/wallets/${encodeURIComponent(key)}${rest}`)
 }
 
 async function request<T>(transport: LedgerTransport, path: string, query: LedgerQuery | undefined, parse: (body: unknown) => T): Promise<T> {
@@ -115,22 +130,22 @@ async function request<T>(transport: LedgerTransport, path: string, query: Ledge
 /** GET-only client for `/summary`, `/pnl/*`, `/positions`, `/fees`, `/trades`, and wallet reads. */
 export function createLedgerClient(transport: LedgerTransport = fetchTransport()): LedgerClient {
     return {
-        summary: (query) => request(transport, '/summary', query, parseSummary),
-        equity: (query) => request(transport, '/equity', query, parseEquity),
-        pnlDaily: (query) => request(transport, '/pnl/daily', query, parsePnlDaily),
-        pnlBySymbol: (query) => request(transport, '/pnl/symbols', query, parseSymbols),
-        fees: (query) => request(transport, '/fees', query, parseFees),
-        positions: (query) => request(transport, '/positions', query, parsePositions),
-        trades: (query) => request(transport, '/trades', query, parseTrades),
+        summary: (query) => request(transport, readPath('/summary'), query, parseSummary),
+        equity: (query) => request(transport, readPath('/equity'), query, parseEquity),
+        pnlDaily: (query) => request(transport, readPath('/pnl/daily'), query, parsePnlDaily),
+        pnlBySymbol: (query) => request(transport, readPath('/pnl/symbols'), query, parseSymbols),
+        fees: (query) => request(transport, readPath('/fees'), query, parseFees),
+        positions: (query) => request(transport, readPath('/positions'), query, parsePositions),
+        trades: (query) => request(transport, readPath('/trades'), query, parseTrades),
         trade: (id) => {
             if (!Number.isInteger(id) || id <= 0) return Promise.reject(new LedgerReadError(404, 'UnknownTrade', `Unknown trade '${id}'.`))
-            return request(transport, `/trades/${id}`, {}, parseTradeDetail)
+            return request(transport, readPath(`/trades/${id}`), {}, parseTradeDetail)
         },
-        wallets: (query) => request(transport, '/wallets', query, parseWallets),
+        wallets: (query) => request(transport, readPath('/wallets'), query, parseWallets),
         wallet: (key) => request(transport, walletPath(key), {}, parseWallet),
         walletBalances: (key) => request(transport, walletPath(key, '/balances'), {}, parseWalletBalances),
         walletHistory: (key, query) => request(transport, walletPath(key, '/history'), query, parseWalletHistory),
-        priceMarks: (query) => request(transport, '/price-marks', query, parsePriceMarks),
+        priceMarks: (query) => request(transport, readPath('/price-marks'), query, parsePriceMarks),
     }
 }
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Header adapted from TailAdmin Vue (MIT): https://github.com/TailAdmin/vue-tailwind-admin-dashboard
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '@servicestack/vue'
 import SegmentedControl from '@/components/shell/SegmentedControl.vue'
 import ThemeToggle from '@/components/shell/ThemeToggle.vue'
@@ -9,22 +9,26 @@ import NavIcon from '@/components/shell/NavIcon.vue'
 import TimeCell from '@/components/TimeCell.vue'
 import { signout } from '@/lib/auth'
 import type { DateRangeKey, LedgerMode } from '@/lib/filters'
+import { walletLabelFor, walletRecordedAt } from '@/lib/walletNames'
 import { useDashboard } from '@/composables/useDashboard'
 import { useFilterQuery } from '@/composables/useFilterQuery'
 import { useSidebar } from '@/composables/useSidebar'
 
 const router = useRouter()
+const route = useRoute()
 const { user } = useAuth()
 const { open, openMobile, isMobile, toggleSidebar } = useSidebar()
 const { filters, setMode, setRange, setWallet } = useFilterQuery()
 const { view } = useDashboard()
 
 const expanded = computed(() => (isMobile.value ? openMobile.value : open.value))
+const walletPage = computed(() => route.path === '/wallets' || route.path.startsWith('/wallet/'))
 const walletLabel = computed(() => {
     const key = filters.wallet
     if (!key) return ''
-    return view.value?.walletNames[key] ?? key
+    return walletLabelFor(key) || view.value?.walletNames[key] || key
 })
+const recordedAt = computed(() => (walletPage.value ? walletRecordedAt() : (view.value?.lastRecordedAt ?? '')))
 
 const modes = [
     { value: 'all', label: 'All' },
@@ -101,7 +105,7 @@ function onSignOut() {
             </button>
             <p class="text-sm text-gray-500 sm:ms-auto dark:text-gray-400" data-testid="last-recorded">
                 Last recorded
-                <TimeCell v-if="view" class="text-gray-800 dark:text-gray-100" :value="view.lastRecordedAt" />
+                <TimeCell v-if="recordedAt" class="text-gray-800 dark:text-gray-100" :value="recordedAt" />
                 <span v-else>n/a</span>
             </p>
         </div>

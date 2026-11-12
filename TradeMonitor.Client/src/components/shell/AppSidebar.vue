@@ -21,6 +21,7 @@ const showLabels = computed(() => (isMobile.value ? true : open.value))
 
 function active(path: string) {
     if (path === '/') return route.path === '/'
+    if (path === '/wallets') return route.path === '/wallets' || route.path.startsWith('/wallet/')
     return route.path === path || route.path.startsWith(`${path}/`)
 }
 </script>

@@ -7,8 +7,9 @@ const props = withDefaults(
         value: number | null | undefined
         signed?: boolean
         currency?: string
+        empty?: string
     }>(),
-    { signed: true, currency: 'USD' },
+    { signed: true, currency: 'USD', empty: UNKNOWN_AMOUNT },
 )
 
 const text = computed(() => formatMoney(props.value, { signed: props.signed, currency: props.currency }))
@@ -21,5 +22,5 @@ const tone = computed(() => {
 </script>
 
 <template>
-    <span class="tabular-nums" :class="tone">{{ text || UNKNOWN_AMOUNT }}</span>
+    <span class="tabular-nums" :class="tone">{{ text || empty }}</span>
 </template>

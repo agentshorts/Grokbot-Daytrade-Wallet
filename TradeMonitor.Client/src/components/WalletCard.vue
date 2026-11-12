@@ -67,7 +67,12 @@ const emit = defineEmits<{ select: [] }>()
                 {{ wallet.mode === 'real' ? 'Real' : 'Paper' }}
             </span>
         </div>
-        <p v-if="wallet.isArchived" class="mt-2 text-xs font-medium tracking-wide text-gray-400 uppercase">Archived</p>
+        <span
+            v-if="wallet.isArchived"
+            class="mt-2 inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-white/10 dark:text-gray-300"
+        >
+            Archived
+        </span>
         <div class="mt-4 flex items-end justify-between gap-3">
             <MoneyCell class="text-lg font-semibold" :value="wallet.value" :signed="false" :currency="wallet.currency" />
             <PctCell :value="wallet.changePct" />
