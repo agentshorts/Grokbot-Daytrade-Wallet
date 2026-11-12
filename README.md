@@ -40,6 +40,20 @@ Open `https://127.0.0.1:5051`. Sign in from the header. The first run creates th
 
 The trading agent writes through MCP at `http://127.0.0.1:5050/mcp`. Tool names, example calls, and API key setup are in [docs/mcp.md](docs/mcp.md). Copy `.env.example` to `.env` and set `MCP_API_KEY` there, or put the same value in gitignored `appsettings.Local.json`. Do not commit the key.
 
+## Host PC (Windows)
+
+From the repository root:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run.ps1
+```
+
+The script copies `.env.example` to `.env` when `.env` is missing, generates `MCP_API_KEY` when that value is empty, builds the client and the server in Release, and starts the app at `http://127.0.0.1:5050` with `ASPNETCORE_ENVIRONMENT=Production`. It refuses any URL that is not a loopback address. The full key stays in `.env` and is not printed.
+
+`http://127.0.0.1:5050/api/health` reports database status, the last ledger write time, and the app version.
+
+Trading agent setup, example calls, backups, and the logon task are in [docs/agent-onboarding.md](docs/agent-onboarding.md).
+
 ## Checks
 
 ```bash

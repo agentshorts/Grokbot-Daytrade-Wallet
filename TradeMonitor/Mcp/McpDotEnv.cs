@@ -2,7 +2,9 @@ namespace TradeMonitor;
 
 /// <summary>
 /// Loads a gitignored .env file into the process environment.
-/// Existing environment variables win, so a shell value overrides the file.
+/// A non-empty environment variable wins, so a shell value overrides the file.
+/// The search starts at the working directory and the app directory and walks
+/// up to the repository root. The first .env found on each path is the one used.
 /// </summary>
 public static class McpDotEnv
 {
@@ -17,8 +19,25 @@ public static class McpDotEnv
 
     static IEnumerable<string> Candidates()
     {
-        yield return Path.Combine(Directory.GetCurrentDirectory(), ".env");
-        yield return Path.Combine(AppContext.BaseDirectory, ".env");
+        // dotnet run uses the project directory as the working directory, while
+        // .env lives in the repository root, one level above TradeMonitor.
+        foreach (var start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
+        {
+            var dir = start;
+            for (var depth = 0; depth < 6 && !string.IsNullOrEmpty(dir); depth++)
+            {
+                var candidate = Path.Combine(dir, ".env");
+                if (File.Exists(candidate))
+                {
+                    yield return candidate;
+                    break;
+                }
+                var parent = Directory.GetParent(dir)?.FullName;
+                if (string.IsNullOrEmpty(parent) || parent == dir)
+                    break;
+                dir = parent;
+            }
+        }
     }
 
     static void Apply(string path)
@@ -33,7 +52,7 @@ public static class McpDotEnv
                 continue;
 
             var name = line[..split].Trim();
-            if (name.Length == 0 || Environment.GetEnvironmentVariable(name) != null)
+            if (name.Length == 0 || !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(name)))
                 continue;
 
             var value = line[(split + 1)..].Trim();

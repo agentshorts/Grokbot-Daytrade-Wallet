@@ -14,6 +14,7 @@ using ServiceStack.Jobs;
 using ServiceStack.OrmLite;
 using ServiceStack.Web;
 using TradeMonitor.ServiceModel;
+using TradeMonitor.ServiceModel.Types;
 
 namespace TradeMonitor.Tests;
 
@@ -496,6 +497,106 @@ public class McpServerTests
         if (File.Exists(path))
             File.Delete(path);
     }
+
+    [Test]
+    public async Task Health_is_ok_and_reports_the_latest_write()
+    {
+        using var http = factory.CreateClient();
+        var before = await http.GetAsync("/api/health");
+        var beforeBody = await before.Content.ReadAsStringAsync();
+        Assert.That((int)before.StatusCode, Is.EqualTo(200), beforeBody);
+        using var fresh = JsonDocument.Parse(beforeBody);
+        Assert.That(Text(Prop(fresh.RootElement, "status")), Is.EqualTo("ok"));
+        Assert.That(Text(Prop(fresh.RootElement, "database")), Is.EqualTo("ok"));
+        Assert.That(Text(Prop(fresh.RootElement, "version")), Is.EqualTo(AppVersion.Current));
+
+        var at = new DateTime(2099, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        using var scope = factory.Services.CreateScope();
+        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbConnectionFactory>();
+        using (var db = dbFactory.Open())
+        {
+            db.Insert(new Wallet
+            {
+                Key = "health-mark",
+                Name = "Health",
+                Mode = WalletMode.Paper,
+                BaseCurrency = "USD",
+                CreatedAt = at,
+            });
+        }
+
+        var after = await http.GetAsync("/api/health");
+        var afterBody = await after.Content.ReadAsStringAsync();
+        Assert.That((int)after.StatusCode, Is.EqualTo(200), afterBody);
+        using var document = JsonDocument.Parse(afterBody);
+        Assert.That(Text(Prop(document.RootElement, "lastWriteAt")), Is.EqualTo("2099-01-02T03:04:05Z"));
+    }
+
+    [Test]
+    public async Task Command_line_handshake_can_call_a_tool()
+    {
+        using var http = factory.CreateClient();
+        var init = await PostMcp(http, """
+            {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"mcp-call","version":"1.0"}}}
+            """);
+        Assert.That(init.Status, Is.LessThan(400), init.Body);
+        using var initJson = ParseMcpMessage(init.Body);
+        var protocol = initJson.RootElement.GetProperty("result").GetProperty("protocolVersion").GetString();
+        Assert.That(protocol, Is.Not.Empty);
+
+        var notice = await PostMcp(http, """{"jsonrpc":"2.0","method":"notifications/initialized"}""", init.Session, protocol);
+        Assert.That(notice.Status, Is.Not.EqualTo(401));
+        Assert.That(notice.Status, Is.Not.EqualTo(403));
+
+        var call = await PostMcp(http, """
+            {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"wallet_create","arguments":{"key":"cli-paper","name":"CLI Paper","mode":"Paper","base_currency":"USD"}}}
+            """, init.Session, protocol);
+        Assert.That(call.Status, Is.LessThan(400), call.Body);
+        using var called = ParseMcpMessage(call.Body);
+        Assert.That(called.RootElement.ToString(), Does.Contain("cli-paper"));
+    }
+
+    async Task<McpReply> PostMcp(HttpClient http, string json, string? session = null, string? protocol = null)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/mcp")
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json"),
+        };
+        request.Headers.TryAddWithoutValidation("Accept", "application/json, text/event-stream");
+        request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + adminKey);
+        if (!string.IsNullOrEmpty(session))
+            request.Headers.TryAddWithoutValidation("Mcp-Session-Id", session);
+        if (!string.IsNullOrEmpty(protocol))
+            request.Headers.TryAddWithoutValidation("MCP-Protocol-Version", protocol);
+
+        var response = await http.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+        response.Headers.TryGetValues("Mcp-Session-Id", out var sessions);
+        return new McpReply((int)response.StatusCode, body, sessions?.FirstOrDefault());
+    }
+
+    static JsonDocument ParseMcpMessage(string body)
+    {
+        var trim = body.Trim();
+        if (trim.StartsWith('{') || trim.StartsWith('['))
+            return JsonDocument.Parse(trim);
+
+        string? last = null;
+        foreach (var line in body.Split('\n'))
+        {
+            var text = line.Trim();
+            if (!text.StartsWith("data:", StringComparison.Ordinal))
+                continue;
+            var payload = text["data:".Length..].Trim();
+            if (payload.StartsWith('{'))
+                last = payload;
+        }
+
+        Assert.That(last, Is.Not.Null, body);
+        return JsonDocument.Parse(last!);
+    }
+
+    sealed record McpReply(int Status, string Body, string? Session);
 
     async Task<HttpResponseMessage> Send(string path, string? header, bool bearer = false, string? body = null)
     {

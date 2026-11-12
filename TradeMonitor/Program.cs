@@ -86,7 +86,9 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapCleanUrls();
 
-if (!app.Environment.IsEnvironment("Testing"))
+// The host PC listens on http://127.0.0.1:5050. Redirecting that HTTP
+// binding to HTTPS fails /api/health when no certificate is configured.
+if (!app.Environment.IsEnvironment("Testing") && LoopbackBinding.UsesHttps(app.Configuration))
     app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapRazorPages();
@@ -112,6 +114,8 @@ else
 {
     app.MapFallbackToFile("index.html"); // Fallback to index.html in production (TradeMonitor.Client/dist > wwwroot)
 }
+
+LedgerHealthEndpoint.Map(app);
 
 app.Run();
 

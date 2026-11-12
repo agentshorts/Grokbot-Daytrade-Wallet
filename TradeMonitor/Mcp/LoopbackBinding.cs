@@ -23,6 +23,9 @@ public static class LoopbackBinding
         builder.WebHost.UseUrls(rewritten);
     }
 
+    public static bool UsesHttps(IConfiguration configuration) =>
+        ReadUrls(configuration).Any(url => url.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
+
     public static IReadOnlyList<string> ReadUrls(IConfiguration configuration)
     {
         var raw = configuration["urls"] ?? configuration["ASPNETCORE_URLS"];
