@@ -43,6 +43,7 @@ const emit = defineEmits<{ select: [] }>()
                 : 'border-gray-200 hover:shadow-theme-sm dark:border-gray-800'
         "
         :aria-pressed="selected"
+        :data-testid="wallet ? `wallet-${wallet.key}` : undefined"
         @click="emit('select')"
     >
         <div class="flex items-start justify-between gap-3">
@@ -80,8 +81,10 @@ const emit = defineEmits<{ select: [] }>()
         </div>
         <div class="mt-3 flex items-center justify-between gap-2 text-xs text-gray-500 dark:text-gray-400">
             <span>{{ wallet.openPositions }} open</span>
-            <span v-if="wallet.unmarked" class="text-warning-600 dark:text-warning-400">No price mark</span>
-            <TimeCell v-else :value="wallet.lastActivityAt" />
+            <span class="flex items-center gap-2">
+                <span v-if="wallet.unmarked" class="text-warning-600 dark:text-warning-400">No price mark</span>
+                <TimeCell :value="wallet.lastActivityAt" />
+            </span>
         </div>
     </button>
 </template>

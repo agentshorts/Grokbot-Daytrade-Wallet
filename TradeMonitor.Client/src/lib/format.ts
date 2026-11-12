@@ -47,6 +47,9 @@ export function chicagoDateTime(now: Date, dayOffset: number, hour: number, minu
     return new Date(start.getTime() + dayOffset * 86_400_000 + hour * 3_600_000 + minute * 60_000)
 }
 
+/** Shown when an amount is unknown. A missing price mark is not zero. */
+export const UNKNOWN_AMOUNT = '—'
+
 export function formatMoney(value: number | null | undefined, options?: { signed?: boolean; currency?: string }): string {
     if (value == null || Number.isNaN(value)) return ''
     const currency = options?.currency ?? 'USD'

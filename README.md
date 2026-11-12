@@ -24,7 +24,7 @@ The app never places orders or moves money. Upstream clients are GET-only.
 
 ## UI shell
 
-Overview, Trades and Wallets share one read-only shell. The mode (All, Real, Paper), the date range (Today, 7D, 30D, All) and the selected wallet live in the URL query, so a view can be reloaded or shared. The page refreshes every 15 seconds. Until the ledger read API is connected, the shell renders a built-in sample book.
+Overview, Trades and Wallets share one read-only shell. The mode (All, Real, Paper), the date range (Today, 7D, 30D, All) and the selected wallet live in the URL query, so a view can be reloaded or shared. The page refreshes every 15 seconds. The shell reads wallets, trades, positions, and P&L from the ledger read API. It does not record trades or move money.
 
 Times are shown in America/Chicago with a CT label.
 

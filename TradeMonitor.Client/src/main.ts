@@ -61,11 +61,5 @@ const { client, load } = useApp()
 const pinia = createPinia()
 
 void load().then(() => {
-    app.use(head)
-        .use(router)
-        .use(pinia)
-        .use(ServiceStackVue)
-        .provide('client', client)
-        .component('Iconify', Icon)
-        .mount('#app')
+    app.use(head).use(router).use(pinia).use(ServiceStackVue).provide('client', client).component('Iconify', Icon).mount('#app')
 })

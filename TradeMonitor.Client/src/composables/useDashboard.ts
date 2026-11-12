@@ -1,5 +1,5 @@
-import { computed, inject, onMounted, onUnmounted, provide, ref, type ComputedRef, type InjectionKey, type Ref } from 'vue'
-import { applyFilters, type DashboardSnapshot, type DashboardView } from '@/lib/book'
+import { computed, inject, onMounted, onUnmounted, provide, ref, watch, type ComputedRef, type InjectionKey, type Ref } from 'vue'
+import type { DashboardView } from '@/lib/book'
 import { loadDashboard } from '@/lib/loadDashboard'
 import { REFRESH_MS, startPolling } from '@/lib/refresh'
 import { useFiltersStore } from '@/stores/filters'
@@ -13,31 +13,51 @@ export interface DashboardContext {
 
 export const dashboardKey: InjectionKey<DashboardContext> = Symbol('dashboard')
 
+function filterKey(mode: string, range: string, wallet: string | null): string {
+    return `${mode}|${range}|${wallet ?? ''}`
+}
+
 export function provideDashboard(): DashboardContext {
     const filters = useFiltersStore()
-    const snapshot = ref<DashboardSnapshot | null>(null)
+    const viewState = ref<DashboardView | null>(null)
     const status = ref<'loading' | 'ready' | 'error'>('loading')
     const error = ref<string | null>(null)
-
-    const view = computed(() => {
-        if (!snapshot.value) return null
-        return applyFilters(snapshot.value, { mode: filters.mode, range: filters.range, wallet: filters.wallet }, new Date())
-    })
+    const view = computed(() => viewState.value)
+    let generation = 0
+    let appliedKey = ''
 
     async function refresh() {
+        const current = filters.current()
+        const key = filterKey(current.mode, current.range, current.wallet)
+        if (appliedKey !== key) {
+            viewState.value = null
+            status.value = 'loading'
+            error.value = null
+        }
+        const ticket = ++generation
         try {
-            snapshot.value = await loadDashboard(new Date())
+            const next = await loadDashboard(current, new Date())
+            if (ticket !== generation) return
+            viewState.value = next
+            appliedKey = key
             status.value = 'ready'
             error.value = null
         } catch (err) {
+            if (ticket !== generation) return
             error.value = err instanceof Error ? err.message : 'Could not load the book'
-            if (!snapshot.value) status.value = 'error'
+            if (!viewState.value) status.value = 'error'
         }
     }
 
     let stop = () => {}
+    watch(
+        () => [filters.mode, filters.range, filters.wallet] as const,
+        () => {
+            void refresh()
+        },
+        { immediate: true },
+    )
     onMounted(() => {
-        void refresh()
         stop = startPolling(() => {
             void refresh()
         }, REFRESH_MS)

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test'
+import { UNKNOWN_AMOUNT } from '@/lib/format'
 import { equityOption, pnlBarsOption } from './chartOptions'
 import type { EquitySeries } from './book'
 import mainTs from '../main.ts?raw'
@@ -29,9 +30,22 @@ describe('chart options', () => {
             ],
             true,
         )
-        const barSeries = (bars.series as { itemStyle: { color: (params: { value?: unknown }) => string } }[])[0]
+        const barSeries = (bars.series as { data: (number | null)[]; itemStyle: { color: (params: { value?: unknown }) => string } }[])[0]
         expect(barSeries?.itemStyle.color({ value: 12 })).toBe('#12b76a')
         expect(barSeries?.itemStyle.color({ value: -4 })).toBe('#f04438')
+
+        const blank = pnlBarsOption(
+            [
+                { label: 'Nov 1', pnl: null },
+                { label: 'Nov 2', pnl: 0 },
+            ],
+            false,
+        )
+        const blankSeries = (blank.series as { data: (number | null)[] }[])[0]
+        expect(blankSeries?.data).toEqual([null, 0])
+        const tooltip = blank.tooltip as { valueFormatter: (value: unknown) => string }
+        expect(tooltip.valueFormatter(null)).toBe(UNKNOWN_AMOUNT)
+        expect(tooltip.valueFormatter(0)).toBe('$0.00')
     })
 })
 

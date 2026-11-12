@@ -6,7 +6,7 @@ import KpiCard from '@/components/KpiCard.vue'
 import StatePanel from '@/components/shell/StatePanel.vue'
 import TradeList from '@/components/TradeList.vue'
 import WalletCard from '@/components/WalletCard.vue'
-import { equityOption, pnlBarsOption, symbolPnlOption } from '@/lib/chartOptions'
+import { equityOption, feesOption, pnlBarsOption, symbolPnlOption } from '@/lib/chartOptions'
 import type { TradeRecord } from '@/lib/book'
 import { useDashboard } from '@/composables/useDashboard'
 import { useFilterQuery } from '@/composables/useFilterQuery'
@@ -23,19 +23,29 @@ const { view, status, error, refresh } = useDashboard()
 const { filters, setWallet, shellLocation } = useFilterQuery()
 const { isDark } = useTheme()
 
-const recent = computed(() => view.value?.trades.slice(0, 8) ?? [])
+const recent = computed(() => view.value?.trades.slice(0, 20) ?? [])
 const equity = computed(() =>
     view.value && view.value.equity.some((series) => series.points.length > 0) ? equityOption(view.value.equity, isDark.value) : null,
 )
-const bars = computed(() => (view.value && view.value.pnlBars.length > 0 ? pnlBarsOption(view.value.pnlBars, isDark.value) : null))
-const bySymbol = computed(() => (view.value && view.value.pnlBySymbol.length > 0 ? symbolPnlOption(view.value.pnlBySymbol, isDark.value) : null))
+const bars = computed(() => {
+    const rows = view.value?.pnlBars ?? []
+    return rows.length > 0 ? pnlBarsOption(rows, isDark.value) : null
+})
+const bySymbol = computed(() => {
+    const rows = view.value?.pnlBySymbol ?? []
+    return rows.length > 0 ? symbolPnlOption(rows, isDark.value) : null
+})
+const fees = computed(() => {
+    const rows = view.value?.fees ?? []
+    return rows.length > 0 ? feesOption(rows, isDark.value) : null
+})
 
-function selectWallet(key: string) {
-    void setWallet(filters.wallet === key ? null : key)
+function openWallet(key: string) {
+    void router.push(shellLocation(`/wallet/${key}`, { wallet: key }))
 }
 
 function openTrade(trade: TradeRecord) {
-    void router.push(shellLocation('/trades', { symbol: trade.symbol }))
+    void router.push(shellLocation('/trades', { trade: String(trade.id), symbol: trade.symbol }))
 }
 </script>
 
@@ -80,7 +90,7 @@ function openTrade(trade: TradeRecord) {
                     :key="wallet.key"
                     :wallet="wallet"
                     :selected="filters.wallet === wallet.key"
-                    @select="selectWallet(wallet.key)"
+                    @select="openWallet(wallet.key)"
                 />
             </section>
             <section class="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -91,15 +101,22 @@ function openTrade(trade: TradeRecord) {
                 </article>
                 <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
                     <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">P&L</h2>
-                    <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">Green is up, red is down. Transfers are left out.</p>
+                    <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">
+                        Green is up, red is down. Transfers are left out. A day with no mark is left blank.
+                    </p>
                     <EChart :option="bars" :empty="!bars" />
                 </article>
+                <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+                    <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">P&L by symbol</h2>
+                    <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">Top moves in this range. Unknown P&L is left blank.</p>
+                    <EChart :option="bySymbol" :empty="!bySymbol" />
+                </article>
+                <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+                    <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Fees</h2>
+                    <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">Fees paid on fills in this range.</p>
+                    <EChart :option="fees" :empty="!fees" />
+                </article>
             </section>
-            <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-                <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">P&L by symbol</h2>
-                <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">Realized in this range, plus open unrealized.</p>
-                <EChart :option="bySymbol" :empty="!bySymbol" />
-            </article>
             <section class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
                 <div class="flex items-center justify-between gap-3 px-4 py-4 md:px-5">
                     <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Recent trades</h2>
