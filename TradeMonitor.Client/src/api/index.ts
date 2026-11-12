@@ -24,6 +24,7 @@ export type {
     SymbolPnlRow,
     TradeDetailResponse,
     TradeFill,
+    TradeKindName,
     TradeRow,
     TradeSideName,
     TradesResponse,

@@ -7,8 +7,10 @@ namespace TradeMonitor.ServiceInterface;
 // The last share of a lot takes whatever cost remains so partial fills do not leave dust.
 // On a time tie, a wallet-specific price mark wins over a global mark.
 // An open position with no mark has unknown unrealized P&L and is valued at cost.
+// Cash within 0.000000001 below zero is stored as zero so float dust does not leave a negative balance.
 public static class LedgerBook
 {
+    public const decimal CashDust = 0.000000001m;
     public static LedgerReplay Replay(
         int walletId,
         IEnumerable<Trade> trades,
@@ -126,6 +128,9 @@ public static class LedgerBook
             {
                 Consider(markChoices, mark);
             }
+
+            if (cash < 0m && cash >= -CashDust)
+                cash = 0m;
 
             var snaps = SnapshotSymbols(symbols, markChoices);
             var positionsValue = 0m;

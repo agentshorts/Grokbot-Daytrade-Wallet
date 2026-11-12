@@ -138,7 +138,7 @@ Record starting cash. `kind` is `deposit`, `withdrawal`, or `sweep`. `amount` is
 .\scripts\mcp-call.ps1 transfer_record '{"wallet":"paper","client_id":"dep-2026-06-01","kind":"deposit","amount":1000,"at":"2026-06-01T15:00:00Z","note":"Starting cash"}'
 ```
 
-Record a buy that already happened. `qty` is the instrument quantity. `price` is quote currency per unit. `fee` is in the wallet base currency. Use `0` when there was no fee. A buy is rejected when `qty` times `price`, plus `fee`, is more than the cash in the wallet. The deposit above covers this fill (0.01 times 64000, plus a 0.5 fee).
+Record a buy that already happened. `qty` is the instrument quantity. `price` is quote currency per unit and must be greater than zero on a buy. `fee` is in the wallet base currency. Use `0` when there was no fee. A buy is rejected when `qty` times `price`, plus `fee`, is more than the cash in the wallet by more than 0.000000001. A smaller shortfall is accepted and the cash is recorded as 0. The deposit above covers this fill (0.01 times 64000, plus a 0.5 fee).
 
 ```powershell
 .\scripts\mcp-call.ps1 trade_record '{"wallet":"paper","client_id":"fill-2026-06-01-1","symbol":"BTC-USD","side":"Buy","qty":0.01,"price":64000,"fee":0.5,"executed_at":"2026-06-01T15:04:00Z","title":"First clip","order_ref":"ord-1","target_price":64500,"note":"Paper fill"}'
@@ -182,7 +182,7 @@ List wallets:
 
 ## Trades
 
-A sell uses the same tool. `side` is `Buy` or `Sell`. A sell larger than the open quantity is rejected. An unknown wallet is rejected.
+A sell uses the same tool. `side` is `Buy` or `Sell`. A sell price may be zero. Set `kind` to `settlement` when the contract settled, or omit `kind` for a fill. A sell larger than the open quantity is rejected. An unknown wallet is rejected.
 
 ```powershell
 .\scripts\mcp-call.ps1 trade_record '{"wallet":"paper","client_id":"fill-2026-06-01-2","symbol":"BTC-USD","side":"Sell","qty":0.004,"price":65000,"fee":0.25,"executed_at":"2026-06-01T16:00:00Z","title":"Trim","note":"Paper sell"}'

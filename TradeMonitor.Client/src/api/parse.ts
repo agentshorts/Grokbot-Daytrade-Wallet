@@ -18,6 +18,7 @@ import type {
     SymbolPnlRow,
     TradeDetailResponse,
     TradeFill,
+    TradeKindName,
     TradeRow,
     TradeSideName,
     TradesResponse,
@@ -105,6 +106,12 @@ function enumText(value: unknown): string {
 function mode(value: unknown): WalletModeName {
     const textValue = enumText(value)
     return textValue === 'real' || textValue === '1' ? 'real' : 'paper'
+}
+
+function tradeKind(value: unknown): TradeKindName {
+    const textValue = enumText(value)
+    if (textValue === 'settlement' || textValue === '1') return 'settlement'
+    return 'fill'
 }
 
 function side(value: unknown): TradeSideName | null {
@@ -363,6 +370,7 @@ export function parseTradeRow(row: Record<string, unknown>): TradeRow | null {
         symbol,
         title: text(row, 'title'),
         side: side(pick(row, 'side')) ?? 'buy',
+        kind: tradeKind(pick(row, 'kind')),
         qty: amount(row, 'qty'),
         price: amount(row, 'price'),
         fee: amount(row, 'fee'),

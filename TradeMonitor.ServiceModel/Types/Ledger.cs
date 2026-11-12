@@ -14,6 +14,12 @@ public enum TradeSide
     Sell,
 }
 
+public enum TradeKind
+{
+    Fill,
+    Settlement,
+}
+
 public enum TransferKind
 {
     Deposit,
@@ -78,6 +84,10 @@ public class Trade
     public string? Title { get; set; }
 
     public TradeSide Side { get; set; }
+
+    // Existing rows are fills. A settlement is a contract that resolved, including a loss at price 0.
+    [Default("'Fill'")]
+    public TradeKind Kind { get; set; } = TradeKind.Fill;
 
     public decimal Qty { get; set; }
 

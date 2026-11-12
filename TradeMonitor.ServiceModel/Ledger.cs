@@ -231,11 +231,14 @@ public class RecordTrade : IPost, IReturn<RecordTradeResponse>
     [Description("Quantity of the instrument. Must be greater than zero.")]
     public decimal Qty { get; set; }
 
-    [Description("Quote currency per unit, in the wallet base currency.")]
+    [Description("Quote currency per unit, in the wallet base currency. A sell may be zero. A buy must be greater than zero.")]
     public decimal Price { get; set; }
 
     [Description("Fee in the wallet base currency. Zero when the fill had no fee.")]
     public decimal Fee { get; set; }
+
+    [Description("fill or settlement. Defaults to fill.")]
+    public TradeKind? Kind { get; set; }
 
     [Description("Fee currency. Defaults to the wallet base currency and must match it.")]
     public string? FeeCurrency { get; set; }
@@ -447,6 +450,10 @@ public class TradeView
     public string Symbol { get; set; } = "";
     public string? Title { get; set; }
     public TradeSide Side { get; set; }
+
+    [Description("fill or settlement.")]
+    public TradeKind Kind { get; set; } = TradeKind.Fill;
+
     public decimal Qty { get; set; }
     public decimal Price { get; set; }
     public decimal Fee { get; set; }

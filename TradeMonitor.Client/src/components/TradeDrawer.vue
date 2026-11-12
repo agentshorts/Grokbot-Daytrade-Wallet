@@ -12,7 +12,7 @@ import type { TradeDetailResponse, TradeFill, TradeRow } from '@/api'
 import { explainLedgerError, useLedger } from '@/composables/useLedger'
 import { chartMarkersAttr, chartPointsAttr, tradeChartModel } from '@/lib/tradeChart'
 import { loadPriceChart } from '@/lib/loadPriceChart'
-import { modeLabel, parseTradeQuery, priceKindTitle, sideLabel, statusLabel, writeTradeQuery } from '@/lib/tradeQuery'
+import { modeLabel, parseTradeQuery, priceKindTitle, sideLabel, statusLabel, tradeKindLabel, writeTradeQuery } from '@/lib/tradeQuery'
 import { REFRESH_MS, startPolling } from '@/lib/refresh'
 
 const PriceChart = defineAsyncComponent({
@@ -187,6 +187,10 @@ onUnmounted(() => {
                         <dd class="mt-1 text-sm font-medium" :class="trade.side === 'buy' ? 'text-success-600' : 'text-error-500'">
                             {{ sideLabel(trade.side) }} {{ formatQty(trade.qty) }}
                         </dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-medium tracking-wide text-gray-400 uppercase">Kind</dt>
+                        <dd class="mt-1 text-sm text-gray-800 dark:text-gray-100" data-testid="trade-kind">{{ tradeKindLabel(trade.kind) }}</dd>
                     </div>
                     <div>
                         <dt class="text-xs font-medium tracking-wide text-gray-400 uppercase">Time</dt>

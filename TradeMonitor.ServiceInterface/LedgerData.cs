@@ -93,6 +93,7 @@ public static class TradeMaps
             Symbol = trade.Symbol,
             Title = trade.Title,
             Side = trade.Side,
+            Kind = trade.Kind,
             Qty = trade.Qty,
             Price = trade.Price,
             Fee = trade.Fee,
