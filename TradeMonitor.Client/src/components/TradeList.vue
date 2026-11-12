@@ -20,6 +20,7 @@ function pnlText(trade: TradeRecord) {
             <button
                 type="button"
                 class="flex w-full flex-col gap-2 px-4 py-3 text-start focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand-500"
+                :data-testid="`trade-${trade.id}`"
                 :class="selectedSymbol === trade.symbol ? 'bg-brand-50/60 dark:bg-brand-500/10' : ''"
                 @click="emit('select', trade)"
             >
@@ -60,6 +61,7 @@ function pnlText(trade: TradeRecord) {
                     v-for="trade in trades"
                     :key="`row-${trade.id}`"
                     class="cursor-pointer border-b border-gray-50 last:border-0 hover:bg-gray-50 dark:border-gray-800/80 dark:hover:bg-white/[0.03]"
+                    :data-testid="`trade-${trade.id}`"
                     :class="selectedSymbol === trade.symbol ? 'bg-brand-50/50 dark:bg-brand-500/10' : ''"
                     @click="emit('select', trade)"
                 >

@@ -3,7 +3,7 @@ import MoneyCell from '@/components/MoneyCell.vue'
 import PctCell from '@/components/PctCell.vue'
 import TimeCell from '@/components/TimeCell.vue'
 import type { PositionRecord } from '@/lib/book'
-import { formatPrice, formatQty } from '@/lib/format'
+import { formatPrice, formatQty, UNKNOWN_AMOUNT } from '@/lib/format'
 
 defineProps<{ positions: PositionRecord[] }>()
 
@@ -57,7 +57,7 @@ function pnlPct(position: PositionRecord): number | null {
                         <MoneyCell v-else :value="position.lastMark" :signed="false" />
                     </td>
                     <td class="px-4 py-3 text-end">
-                        <span v-if="position.unmarked" class="text-gray-400">n/a</span>
+                        <span v-if="position.unmarked" class="text-gray-400">{{ UNKNOWN_AMOUNT }}</span>
                         <span v-else class="inline-flex items-center justify-end gap-2">
                             <MoneyCell :value="position.unrealizedPnl" />
                             <PctCell :value="pnlPct(position)" />

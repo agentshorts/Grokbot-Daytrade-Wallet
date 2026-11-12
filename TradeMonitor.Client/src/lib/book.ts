@@ -101,7 +101,7 @@ export interface WalletSummary {
     currency: string
     value: number
     change: number
-    changePct: number
+    changePct: number | null
     sparkline: number[]
     openPositions: number
     lastActivityAt: string | null
@@ -118,7 +118,12 @@ export interface EquitySeries {
 export interface SymbolPnl {
     symbol: string
     title: string
-    pnl: number
+    pnl: number | null
+}
+
+export interface FeeBar {
+    label: string
+    amount: number
 }
 
 export interface DashboardView {
@@ -131,8 +136,9 @@ export interface DashboardView {
     positions: PositionRecord[]
     marks: PriceMarkRecord[]
     equity: EquitySeries[]
-    pnlBars: { label: string; pnl: number }[]
+    pnlBars: { label: string; pnl: number | null }[]
     pnlBySymbol: SymbolPnl[]
+    fees: FeeBar[]
     lastRecordedAt: string
     grain: SeriesGrain
 }
@@ -228,7 +234,7 @@ export function applyFilters(snapshot: DashboardSnapshot, filters: Filters, now:
     }
     const pnlBars = [...barMap.values()].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime()).map(({ label, pnl }) => ({ label, pnl }))
 
-    const symbolTotals = new Map<string, SymbolPnl>()
+    const symbolTotals = new Map<string, { symbol: string; title: string; pnl: number }>()
     const addSymbol = (symbol: string, title: string, pnl: number) => {
         const row = symbolTotals.get(symbol) ?? { symbol, title, pnl: 0 }
         row.pnl = roundTo(row.pnl + pnl)
@@ -305,6 +311,7 @@ export function applyFilters(snapshot: DashboardSnapshot, filters: Filters, now:
         equity,
         pnlBars,
         pnlBySymbol,
+        fees: [],
         lastRecordedAt: snapshot.lastRecordedAt,
         grain,
     }

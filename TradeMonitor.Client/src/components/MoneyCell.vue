@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { formatMoney } from '@/lib/format'
+import { formatMoney, UNKNOWN_AMOUNT } from '@/lib/format'
 
 const props = withDefaults(
     defineProps<{
@@ -21,5 +21,5 @@ const tone = computed(() => {
 </script>
 
 <template>
-    <span class="tabular-nums" :class="tone">{{ text || 'n/a' }}</span>
+    <span class="tabular-nums" :class="tone">{{ text || UNKNOWN_AMOUNT }}</span>
 </template>

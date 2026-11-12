@@ -7,7 +7,7 @@ defineProps<{ kpi: Kpi; loading?: boolean; error?: string | null }>()
 </script>
 
 <template>
-    <article class="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+    <article class="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]" :data-testid="`kpi-${kpi.id}`">
         <p class="text-sm text-gray-500 dark:text-gray-400">{{ kpi.label }}</p>
         <div v-if="loading" class="mt-3 h-7 w-24 animate-pulse rounded bg-gray-100 dark:bg-gray-800" role="status">
             <span class="sr-only">Loading {{ kpi.label }}</span>
