@@ -10,6 +10,7 @@
         <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
         <PackageReference Include="Microsoft.AspNetCore.Diagnostics.EntityFrameworkCore" Version="10.*" />
         <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.*" />
+        <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.23.2" />
         <PackageReference Include="ServiceStack" Version="10.*" />
         <PackageReference Include="ServiceStack.Extensions" Version="10.*" />
         <PackageReference Include="ServiceStack.Ormlite" Version="10.*" />
