@@ -44,7 +44,14 @@ A healthy process looks like this:
 
 `database` is `ok` when SQLite answers. `lastWriteAt` is the latest wallet create time or the latest `RecordedAt` on a trade, transfer, or price mark, as UTC ISO-8601. It is null until the first write. `version` is the running app version. If the database cannot be opened, the status is `unavailable` and the HTTP status is 503.
 
-Open `http://127.0.0.1:5050` in a browser on this PC for the UI.
+The health check is `http://127.0.0.1:5050/api/health`. Page URLs are not under `/api`. Open these in a browser on this PC:
+
+- `http://127.0.0.1:5050/` for the overview
+- `http://127.0.0.1:5050/trades?trade=<id>` for the trades page with that trade's drawer open
+- `http://127.0.0.1:5050/wallets`
+- `http://127.0.0.1:5050/wallet/<key>`
+
+Those return the app. Ledger JSON uses the `/api` prefix, for example `http://127.0.0.1:5050/api/summary`, `http://127.0.0.1:5050/api/trades`, and `http://127.0.0.1:5050/api/wallets/<key>`. An unknown `/api` path returns 404. `/mcp` is unchanged.
 
 ## API key
 

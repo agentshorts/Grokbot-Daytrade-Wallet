@@ -20,13 +20,13 @@ function memory(routes: Record<string, { status?: number; body: unknown }>) {
 
 describe('ledger query strings', () => {
     it('writes only populated read filters', () => {
-        expect(withQuery('/summary', { mode: 'paper', wallet: 'paper', from: '2026-11-01T06:00:00.000Z', to: '2026-11-12T02:18:00.000Z' })).toBe(
-            '/summary?mode=paper&wallet=paper&from=2026-11-01T06%3A00%3A00.000Z&to=2026-11-12T02%3A18%3A00.000Z',
+        expect(withQuery('/api/summary', { mode: 'paper', wallet: 'paper', from: '2026-11-01T06:00:00.000Z', to: '2026-11-12T02:18:00.000Z' })).toBe(
+            '/api/summary?mode=paper&wallet=paper&from=2026-11-01T06%3A00%3A00.000Z&to=2026-11-12T02%3A18%3A00.000Z',
         )
-        expect(withQuery('/summary', { mode: 'all' })).toBe('/summary?mode=all')
-        expect(withQuery('/trades', { take: 200, descending: true, orderBy: 'time' })).toBe('/trades?orderBy=time&take=200&descending=true')
-        expect(withQuery('/wallets', { includeArchived: false })).toBe('/wallets')
-        expect(withQuery('/wallets', { includeArchived: true })).toBe('/wallets?includeArchived=true')
+        expect(withQuery('/api/summary', { mode: 'all' })).toBe('/api/summary?mode=all')
+        expect(withQuery('/api/trades', { take: 200, descending: true, orderBy: 'time' })).toBe('/api/trades?orderBy=time&take=200&descending=true')
+        expect(withQuery('/api/wallets', { includeArchived: false })).toBe('/api/wallets')
+        expect(withQuery('/api/wallets', { includeArchived: true })).toBe('/api/wallets?includeArchived=true')
     })
 })
 
@@ -37,12 +37,12 @@ describe('ledger client', () => {
         await reader.wallets()
         expect(fetchImpl).toHaveBeenCalledTimes(1)
         const [path, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
-        expect(path).toBe('/wallets')
+        expect(path).toBe('/api/wallets')
         expect(init).toMatchObject({ method: 'GET', credentials: 'same-origin', redirect: 'manual' })
         expect(JSON.stringify(init)).not.toMatch(/POST|PUT|PATCH|DELETE/)
 
         const { transport, calls } = memory({
-            '/summary': {
+            '/api/summary': {
                 body: {
                     totals: {
                         totalValue: 1000,
@@ -63,12 +63,12 @@ describe('ledger client', () => {
                     ],
                 },
             },
-            '/positions': {
+            '/api/positions': {
                 body: {
                     results: [{ wallet: 'paper', symbol: 'ETH-USD', qty: 1, unrealizedPnl: null, lastMarkPrice: null, valuedAtCost: true, status: 'open' }],
                 },
             },
-            '/trades/4': {
+            '/api/trades/4': {
                 body: {
                     result: { id: 4, wallet: 'paper', symbol: 'BTC-USD', side: 'Buy', pnl: null, unrealizedPnl: null, executedAt: '2026-11-02T15:04:00Z' },
                     hasPriceMarks: false,
@@ -77,7 +77,7 @@ describe('ledger client', () => {
         })
         const client = createLedgerClient(transport)
         const summary = await client.summary({ mode: 'all', wallet: 'paper' })
-        expect(calls[0]).toContain('/summary?')
+        expect(calls[0]).toContain('/api/summary?')
         expect(summary.totals.totalValue).toBe(1000)
         expect(summary.totals.unrealizedPnl).toBeNull()
         expect(summary.totals.realizedPnl).toBe(12.5)
@@ -99,7 +99,7 @@ describe('ledger client', () => {
 
     it('accepts PascalCase and does not turn a missing or explicit zero into the other', async () => {
         const { transport } = memory({
-            '/summary': {
+            '/api/summary': {
                 body: {
                     Totals: { TotalValue: 10, UnrealizedPnl: null, RealizedPnl: 0 },
                     Wallets: [{ Key: 'coinbase', Name: 'Coinbase', Mode: 'Real', UnrealizedPnl: 0, TotalValue: 10 }],
@@ -113,7 +113,7 @@ describe('ledger client', () => {
         expect(summary.wallets[0]?.mode).toBe('real')
         expect(summary.wallets[0]?.unrealizedPnl).toBe(0)
 
-        const omitted = memory({ '/summary': { body: { totals: { totalValue: 3 } } } })
+        const omitted = memory({ '/api/summary': { body: { totals: { totalValue: 3 } } } })
         const missing = await createLedgerClient(omitted.transport).summary()
         expect(missing.totals.unrealizedPnl).toBeNull()
         expect(missing.totals.totalValue).toBe(3)
@@ -129,7 +129,7 @@ describe('ledger client', () => {
 
     it('reports auth and unknown wallet failures', async () => {
         const denied = memory({
-            '/summary': { status: 401, body: { responseStatus: { errorCode: 'Unauthorized', message: 'nope' } } },
+            '/api/summary': { status: 401, body: { responseStatus: { errorCode: 'Unauthorized', message: 'nope' } } },
         })
         await expect(createLedgerClient(denied.transport).summary()).rejects.toMatchObject({
             status: 401,
@@ -137,7 +137,7 @@ describe('ledger client', () => {
         })
 
         const missing = memory({
-            '/equity': { status: 404, body: { responseStatus: { errorCode: 'UnknownWallet', message: "Unknown wallet 'nope'." } } },
+            '/api/equity': { status: 404, body: { responseStatus: { errorCode: 'UnknownWallet', message: "Unknown wallet 'nope'." } } },
         })
         await expect(createLedgerClient(missing.transport).equity({ wallet: 'nope' })).rejects.toMatchObject({
             status: 404,
@@ -147,16 +147,16 @@ describe('ledger client', () => {
 
     it('builds wallet, trade, fee, and pnl paths', async () => {
         const { transport, calls } = memory({
-            '/pnl/daily': { body: { results: [{ date: '2026-11-02T00:00:00Z', pnl: null, fees: 1 }] } },
-            '/pnl/symbols': { body: { results: [{ symbol: 'BTC-USD', pnl: null, realizedPnl: 4 }] } },
-            '/fees': { body: { total: 1, days: [{ date: '2026-11-02T00:00:00Z', fees: 1 }] } },
-            '/trades': { body: { total: 1, results: [{ id: 9, symbol: 'BTC-USD', side: 'Sell', pnl: 4, wallet: 'paper' }] } },
-            '/wallets/paper': { body: { result: { key: 'paper', name: 'Paper', mode: 'Paper' } } },
-            '/wallets/paper%20book/balances': {
+            '/api/pnl/daily': { body: { results: [{ date: '2026-11-02T00:00:00Z', pnl: null, fees: 1 }] } },
+            '/api/pnl/symbols': { body: { results: [{ symbol: 'BTC-USD', pnl: null, realizedPnl: 4 }] } },
+            '/api/fees': { body: { total: 1, days: [{ date: '2026-11-02T00:00:00Z', fees: 1 }] } },
+            '/api/trades': { body: { total: 1, results: [{ id: 9, symbol: 'BTC-USD', side: 'Sell', pnl: 4, wallet: 'paper' }] } },
+            '/api/wallets/paper': { body: { result: { key: 'paper', name: 'Paper', mode: 'Paper' } } },
+            '/api/wallets/paper%20book/balances': {
                 body: { result: { key: 'paper book', unrealizedPnl: null, cash: 10, positions: [{ symbol: 'ETH-USD', unrealizedPnl: null }] } },
             },
-            '/wallets/paper%20book/history': { body: { results: [{ kind: 'deposit', at: '2026-11-01T00:00:00Z', amount: 50 }] } },
-            '/price-marks': { body: { results: [{ id: 1, symbol: 'BTC-USD', price: 64100, at: '2026-11-03T00:00:00Z' }] } },
+            '/api/wallets/paper%20book/history': { body: { results: [{ kind: 'deposit', at: '2026-11-01T00:00:00Z', amount: 50 }] } },
+            '/api/price-marks': { body: { results: [{ id: 1, symbol: 'BTC-USD', price: 64100, at: '2026-11-03T00:00:00Z' }] } },
         })
         const client = createLedgerClient(transport)
         const daily = await client.pnlDaily({ mode: 'paper' })
@@ -179,14 +179,14 @@ describe('ledger client', () => {
         expect((await client.priceMarks({ symbol: 'BTC-USD' })).results[0]?.price).toBe(64100)
 
         expect(calls).toEqual([
-            '/pnl/daily?mode=paper',
-            '/pnl/symbols?take=10',
-            '/fees',
-            '/trades?orderBy=time&take=20&descending=true',
-            '/wallets/paper',
-            '/wallets/paper%20book/balances',
-            '/wallets/paper%20book/history?kind=deposit&take=5',
-            '/price-marks?symbol=BTC-USD',
+            '/api/pnl/daily?mode=paper',
+            '/api/pnl/symbols?take=10',
+            '/api/fees',
+            '/api/trades?orderBy=time&take=20&descending=true',
+            '/api/wallets/paper',
+            '/api/wallets/paper%20book/balances',
+            '/api/wallets/paper%20book/history?kind=deposit&take=5',
+            '/api/price-marks?symbol=BTC-USD',
         ])
     })
 })

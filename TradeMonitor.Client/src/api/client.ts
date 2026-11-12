@@ -108,8 +108,8 @@ export function fetchTransport(fetchImpl?: typeof fetch): LedgerTransport {
     }
 }
 
-/** Empty while custom read routes stay at the site root. Set to `/api` when the host moves them. */
-const ledgerPrefix = ''
+/** Ledger reads live under /api so the Vue app can own /, /trades, /wallets, and /wallet/:key. */
+const ledgerPrefix = '/api'
 
 function readPath(path: string): string {
     return `${ledgerPrefix}${path}`
@@ -125,9 +125,7 @@ async function request<T>(transport: LedgerTransport, path: string, query: Ledge
     return parse(body)
 }
 
-// Custom read routes are at the site root. `/api/{RequestName}` is an alias.
-// `/api/summary` is not a route on this host; the SPA fallback would answer it.
-/** GET-only client for `/summary`, `/pnl/*`, `/positions`, `/fees`, `/trades`, and wallet reads. */
+/** GET-only client for `/api/summary`, `/api/pnl/*`, `/api/positions`, `/api/fees`, `/api/trades`, and wallet reads. */
 export function createLedgerClient(transport: LedgerTransport = fetchTransport()): LedgerClient {
     return {
         summary: (query) => request(transport, readPath('/summary'), query, parseSummary),

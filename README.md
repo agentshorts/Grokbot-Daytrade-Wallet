@@ -44,13 +44,38 @@ The app never places orders or moves money. Upstream clients are GET-only.
 
 ## UI shell
 
-Overview, Trades and Wallets share one read-only shell. The mode (All, Real, Paper), the date range (Today, 7D, 30D, All) and the selected wallet live in the URL query, so a view can be reloaded or shared. The page refreshes every 15 seconds. The shell reads wallets, trades, positions, and P&L from the ledger read API. It does not record trades or move money.
+Overview, Trades and Wallets share one read-only shell. The mode (All, Real, Paper), the date range (Today, 7D, 30D, All) and the selected wallet live in the URL query, so a view can be reloaded or shared. The page refreshes every 15 seconds. The shell reads wallets, trades, positions, and P&L from the ledger read API under `/api`. It does not record trades or move money.
 
 Times are shown in America/Chicago with a CT label.
 
 Layout, sidebar, header, card and table styles are adapted from [TailAdmin Vue](https://github.com/TailAdmin/vue-tailwind-admin-dashboard) (Vue 3, Tailwind CSS 4, TypeScript). TailAdmin Vue is MIT licensed, Copyright (c) 2026 TailAdmin.
 
 Analytics charts use [vue-echarts](https://github.com/ecomfe/vue-echarts) 8 and [Apache ECharts](https://echarts.apache.org/) 6. Price charts use [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts) v5, with buy and sell markers. Those libraries load only on the pages that draw them.
+
+## Routes
+
+The Vue app owns the site root. A fresh load or a shared link opens the app on the matching page:
+
+- `/` overview, including `/?mode=paper&range=7d`
+- `/trades` and `/trades?trade=<id>`, which opens that trade's drawer
+- `/wallets`
+- `/wallet/<key>`
+
+Ledger reads are JSON under `/api`:
+
+| Read | Path |
+|---|---|
+| Summary | `GET /api/summary` |
+| Equity | `GET /api/equity` |
+| Daily P&L | `GET /api/pnl/daily` |
+| P&L by symbol | `GET /api/pnl/symbols` |
+| Fees | `GET /api/fees` |
+| Positions | `GET /api/positions` |
+| Trades | `GET /api/trades` and `GET /api/trades/{id}` |
+| Wallets | `GET /api/wallets`, `GET /api/wallets/{key}`, `GET /api/wallets/{key}/balances`, `GET /api/wallets/{key}/history` |
+| Price marks | `GET /api/price-marks` |
+
+An `/api` path that is not a ledger read and is not `/api/health` returns 404. It does not return the app. `/mcp` is unchanged.
 
 ## Run locally
 
@@ -80,7 +105,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run.ps1
 
 The script copies `.env.example` to `.env` when `.env` is missing, generates `MCP_API_KEY` when that value is empty, builds the client and the server in Release, and starts the app at `http://127.0.0.1:5050` with `ASPNETCORE_ENVIRONMENT=Production`. It refuses any URL that is not a loopback address. The full key stays in `.env` and is not printed.
 
-`http://127.0.0.1:5050/api/health` reports database status, the last ledger write time, and the app version.
+`http://127.0.0.1:5050/api/health` reports database status, the last ledger write time, and the app version. That check stays on `/api/health`. Page links such as `http://127.0.0.1:5050/trades?trade=123` open the app. Ledger JSON for the same list is `http://127.0.0.1:5050/api/trades`.
 
 Trading agent setup, example calls, backups, and the logon task are in [docs/agent-onboarding.md](docs/agent-onboarding.md).
 

@@ -67,7 +67,7 @@ public class UpdateWalletResponse
 [Api("Get one wallet by slug")]
 [Tag("ledger")]
 [ValidateIsAdmin]
-[Route("/wallets/{Key}", "GET")]
+[Route("/api/wallets/{Key}", "GET")]
 public class GetWallet : IGet, IReturn<GetWalletResponse>
 {
     public string? Key { get; set; }
@@ -82,7 +82,7 @@ public class GetWalletResponse
 [Api("List agent-defined wallets")]
 [Tag("ledger")]
 [ValidateIsAdmin]
-[Route("/wallets", "GET")]
+[Route("/api/wallets", "GET")]
 public class QueryWallets : IGet, IReturn<QueryWalletsResponse>
 {
     [Description("Include archived wallets. Defaults to false.")]
@@ -98,7 +98,7 @@ public class QueryWalletsResponse
 [Api("Cash, swept amount, fees, and open positions for one wallet")]
 [Tag("ledger")]
 [ValidateIsAdmin]
-[Route("/wallets/{Wallet}/balances", "GET")]
+[Route("/api/wallets/{Wallet}/balances", "GET")]
 public class GetWalletBalances : IGet, IReturn<GetWalletBalancesResponse>
 {
     [Description("Wallet slug.")]
@@ -160,7 +160,7 @@ public class PositionBalance
 [Api("Trades and transfers for one wallet, newest first")]
 [Tag("ledger")]
 [ValidateIsAdmin]
-[Route("/wallets/{Wallet}/history", "GET")]
+[Route("/api/wallets/{Wallet}/history", "GET")]
 public class QueryWalletHistory : IGet, IReturn<QueryWalletHistoryResponse>
 {
     public string? Wallet { get; set; }
@@ -360,7 +360,7 @@ public class RecordedPriceMark
 [Api("Query recorded price marks, newest first")]
 [Tag("ledger")]
 [ValidateIsAdmin]
-[Route("/price-marks", "GET")]
+[Route("/api/price-marks", "GET")]
 public class QueryPriceMarks : IGet, IReturn<QueryPriceMarksResponse>
 {
     public string? Symbol { get; set; }
@@ -399,7 +399,7 @@ public class PriceMarkView
 [Api("Query recorded trades, newest first")]
 [Tag("ledger")]
 [ValidateIsAdmin]
-[Route("/trades", "GET")]
+[Route("/api/trades", "GET")]
 public class QueryTrades : IGet, IReturn<QueryTradesResponse>
 {
     public string? Wallet { get; set; }
