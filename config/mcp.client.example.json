@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "trademonitor": {
+      "type": "http",
+      "url": "http://127.0.0.1:5050/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_MCP_API_KEY"
+      }
+    }
+  }
+}

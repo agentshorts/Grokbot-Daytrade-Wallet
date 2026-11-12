@@ -1,6 +1,10 @@
-using System.Net;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
+using ModelContextProtocol;
+using ModelContextProtocol.AspNetCore;
+using ModelContextProtocol.Server;
 using TradeMonitor.Data;
 using TradeMonitor.ServiceInterface;
 
@@ -8,8 +12,27 @@ AppHost.RegisterKey();
 
 Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(), "App_Data"));
 
+McpDotEnv.Load();
+
 var builder = WebApplication.CreateBuilder(args);
+McpConfiguredKey.AddLocalSources(builder.Configuration);
+LoopbackBinding.Apply(builder);
 var services = builder.Services;
+
+var mcpJson = new JsonSerializerOptions(McpJsonUtilities.DefaultOptions);
+mcpJson.Converters.Add(new JsonStringEnumConverter());
+services.AddHttpContextAccessor();
+services.AddMcpServer(options =>
+{
+    options.ServerInstructions =
+        "TradeMonitor ledger on 127.0.0.1. Record fills and cash that already happened. " +
+        "This server does not place orders, move money, or call a venue. " +
+        "Prices are quote currency per unit. Amounts are in the wallet base currency, USD unless the wallet says otherwise. " +
+        "Times are UTC ISO-8601. client_id is an idempotency key: repeat the same values to retry, and do not reuse it for a different fill.";
+})
+.WithTools<LedgerMcpTools>(mcpJson)
+.WithHttpTransport(options => options.Stateless = true);
+services.AddHostedService<McpConfiguredKeyHostedService>();
 
 services.AddAuthorization();
 services.AddAuthentication(options =>
@@ -63,13 +86,25 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapCleanUrls();
 
-app.UseHttpsRedirection();
+// The host PC listens on http://127.0.0.1:5050. Redirecting that HTTP
+// binding to HTTPS fails /api/health when no certificate is configured.
+if (!app.Environment.IsEnvironment("Testing") && LoopbackBinding.UsesHttps(app.Configuration))
+    app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapRazorPages();
+
+app.UseMiddleware<McpRequestLogMiddleware>();
+app.UseMiddleware<McpAuthMiddleware>();
 
 app.UseServiceStack(new AppHost(), options => {
     options.MapEndpoints();
 });
+
+app.MapMcp("/mcp");
+
+// Unknown /api paths stay on the API. They must not fall through to the Vue shell.
+app.MapFallback("/api", ApiMiss).WithOrder(int.MaxValue - 2);
+app.MapFallback("/api/{**path}", ApiMiss).WithOrder(int.MaxValue - 1);
 
 // Proxy HMR WebSocket and fallback routes to Node dev server in Development
 if (app.Environment.IsDevelopment())
@@ -84,4 +119,16 @@ else
     app.MapFallbackToFile("index.html"); // Fallback to index.html in production (TradeMonitor.Client/dist > wwwroot)
 }
 
+LedgerHealthEndpoint.Map(app);
+
 app.Run();
+
+public partial class Program
+{
+    static Task ApiMiss(HttpContext context)
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        context.Response.ContentType = "application/json; charset=utf-8";
+        return context.Response.WriteAsync("""{"responseStatus":{"errorCode":"NotFound","message":"No API at this path."}}""");
+    }
+}

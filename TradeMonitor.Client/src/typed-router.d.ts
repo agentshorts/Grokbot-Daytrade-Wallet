@@ -86,6 +86,27 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/trades': RouteRecordInfo<
+      '/trades',
+      '/trades',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/wallet/[key]': RouteRecordInfo<
+      '/wallet/[key]',
+      '/wallet/:key',
+      { key: ParamValue<true> },
+      { key: ParamValue<false> },
+      | never
+    >,
+    '/wallets': RouteRecordInfo<
+      '/wallets',
+      '/wallets',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
   }
 
   /**
@@ -150,6 +171,24 @@ declare module 'vue-router/auto-routes' {
     'src/pages/signup-confirm.vue': {
       routes:
         | '/signup-confirm'
+      views:
+        | never
+    }
+    'src/pages/trades.vue': {
+      routes:
+        | '/trades'
+      views:
+        | never
+    }
+    'src/pages/wallet/[key].vue': {
+      routes:
+        | '/wallet/[key]'
+      views:
+        | never
+    }
+    'src/pages/wallets.vue': {
+      routes:
+        | '/wallets'
       views:
         | never
     }

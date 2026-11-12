@@ -88,6 +88,10 @@ CodeCoverage/
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*
 
+# Playwright
+playwright-report/
+blob-report/
+
 # NUnit
 *.VisualState.xml
 TestResult.xml
@@ -107,6 +111,8 @@ wallet.json
 *.sqlite3
 **/App_Data/**
 !**/App_Data/.gitkeep
+backups/
+mcp.client.json
 .vs/
 .idea/
 .vscode/

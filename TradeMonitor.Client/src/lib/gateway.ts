@@ -21,10 +21,7 @@ export const Routes = {
     forbidden: () => '/forbidden',
 
     // Use Route Guards to guard against access to pages
-    guards: [
-        Requires.auth('/profile'),
-        Requires.role('/admin', 'Admin'),
-    ],
+    guards: [Requires.auth('/profile'), Requires.role('/admin', 'Admin')],
 }
 
 export const client = new JsonServiceClient()

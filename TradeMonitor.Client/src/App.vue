@@ -8,7 +8,7 @@ useHead({
     title: 'TradeMonitor',
     meta: [{ name: 'description', content: 'Local dashboard for trading wallets.' }],
     bodyAttrs: {
-        class: 'bg-white dark:bg-black dark:text-white',
+        class: 'bg-gray-50 font-outfit text-gray-800 antialiased dark:bg-gray-900 dark:text-gray-100',
     },
 })
 </script>
