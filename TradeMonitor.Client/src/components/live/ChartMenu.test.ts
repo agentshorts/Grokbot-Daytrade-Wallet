@@ -41,6 +41,7 @@ describe('chart context menu', () => {
         expect(labels({ kind: 'lot', lotId: 3, price: 15 })).toEqual(['Quick sell this lot'])
         expect(labels({ kind: 'order', orderId: 9, price: 20 })).toEqual(['Cancel order', 'Move order here'])
         expect(labels({ kind: 'time' })).toEqual(['1 minute', '5 minutes', '15 minutes', '1 hour', '1 day', 'Zoom in', 'Zoom out', 'Fit chart'])
+        expect(labels({ kind: 'level', price: 72410 })).toEqual(['Limit sell here at $72,410', 'Take-profit here at $72,410', 'Stop here at $72,410'])
     })
 
     it('keeps the spend slider and the amount box on the same value', async () => {
@@ -96,5 +97,6 @@ describe('chart context menu', () => {
         expect(hitTest({ y: 147, height: 400, timeAxisHeight: 28, price: 20, lines })).toEqual({ kind: 'order', orderId: 9, price: 20 })
         expect(hitTest({ y: 120, height: 400, timeAxisHeight: 28, price: 18, lines })).toEqual({ kind: 'price', price: 18 })
         expect(hitTest({ y: 380, height: 400, timeAxisHeight: 28, price: 18, lines })).toEqual({ kind: 'time' })
+        expect(hitTest({ y: 20, height: 400, timeAxisHeight: 28, price: 18, lines: [{ kind: 'level', id: 0, y: 22, price: 110 }] })).toEqual({ kind: 'level', price: 110 })
     })
 })

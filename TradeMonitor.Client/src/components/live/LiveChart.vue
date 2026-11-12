@@ -23,6 +23,7 @@ import { wantsOlderHistory } from '@/lib/chartRange'
 import { deltaPoints, priceBars, showsDeltaPane, usesOhlc, type CandleBar, type ChartType, type DeltaMode } from '@/lib/chartSeries'
 import { chartZone, formatChartCrosshair, formatChartTick, type ChartZoneMode } from '@/lib/chartTime'
 import type { SeriesPoint } from '@/lib/liveSeries'
+import { stackLabelYs, type ChartGuide } from '@/lib/swingLevels'
 import type { ChartTradeMark } from '@/lib/tradeMarkers'
 
 interface Plot {
@@ -52,6 +53,7 @@ const props = withDefaults(
         timeZone?: ChartZoneMode
         zoneName?: string
         intervalSeconds?: number
+        guides?: ChartGuide[]
     }>(),
     {
         chartType: 'candle',
@@ -61,6 +63,7 @@ const props = withDefaults(
         timeZone: 'local',
         zoneName: '',
         intervalSeconds: 300,
+        guides: () => [],
     },
 )
 
@@ -78,7 +81,7 @@ let delta: Plot | null = null
 let volume: Plot | null = null
 let plots: object[] = []
 let lines: IPriceLine[] = []
-let marks: { kind: 'lot' | 'order'; id: number; price: number }[] = []
+let marks: { kind: 'lot' | 'order' | 'level'; id: number; price: number }[] = []
 let stepMarkers: { setMarkers: (markers: object[]) => void } | null = null
 let observer: ResizeObserver | null = null
 let fitted = ''
@@ -88,6 +91,7 @@ let drawnFirst = 0
 let historyHooked = false
 const timeAxisHeight = 28
 const arrows = ref<{ id: number; x: number; y: number; side: 'buy' | 'sell'; simulated: boolean; text: string; color: string; clock: string }[]>([])
+const guideLabels = ref<{ id: string; y: number; text: string; color: string; title: string }[]>([])
 
 function zone(): string {
     return chartZone(props.timeZone, props.zoneName || undefined)
@@ -305,6 +309,23 @@ function placeMarkers() {
         })
     }
     arrows.value = placed
+    placeGuideLabels()
+}
+
+function placeGuideLabels() {
+    if (!main) {
+        guideLabels.value = []
+        return
+    }
+    const rows = []
+    for (const guide of props.guides) {
+        if (!guide.label) continue
+        const y = main.priceToCoordinate(guide.price)
+        if (y == null || Number.isNaN(y)) continue
+        rows.push({ id: guide.id, y, text: guide.label, color: guide.color, title: guide.title })
+    }
+    const ys = stackLabelYs(rows)
+    guideLabels.value = rows.map((row, index) => ({ ...row, y: ys[index] ?? row.y }))
 }
 
 function clearLines() {
@@ -347,6 +368,21 @@ function drawLines() {
             }),
         )
         marks.push({ kind: 'order', id: order.id, price: order.triggerPrice })
+    }
+    for (const guide of props.guides) {
+        if (guide.price <= 0) continue
+        const width = Math.min(4, Math.max(1, guide.width)) as 1 | 2 | 3 | 4
+        lines.push(
+            main.createPriceLine({
+                price: guide.price,
+                color: guide.color,
+                lineWidth: width,
+                lineStyle: LineStyle.Dashed,
+                axisLabelVisible: false,
+                title: '',
+            }),
+        )
+        marks.push({ kind: 'level', id: 0, price: guide.price })
     }
 }
 
@@ -401,7 +437,7 @@ function onMenu(event: MouseEvent) {
     for (const mark of marks) {
         const lineY = main.priceToCoordinate(mark.price)
         if (lineY == null) continue
-        hits.push({ kind: mark.kind, id: mark.id, y: lineY })
+        hits.push({ kind: mark.kind, id: mark.id, y: lineY, price: mark.price })
     }
     const hit = hitTest({ y, height: rect.height, timeAxisHeight, price, lines: hits })
     if (!hit) return
@@ -455,7 +491,7 @@ onMounted(() => {
 })
 
 watch(
-    () => [props.points, props.candles, props.price, props.lots, props.orders, props.markers, props.dark, props.fitKey, props.chartType, props.showVolume, props.baselinePrice, props.deltaMode, props.timeZone, props.zoneName, props.intervalSeconds],
+    () => [props.points, props.candles, props.price, props.lots, props.orders, props.markers, props.guides, props.dark, props.fitKey, props.chartType, props.showVolume, props.baselinePrice, props.deltaMode, props.timeZone, props.zoneName, props.intervalSeconds],
     () => {
         void render()
     },
@@ -501,6 +537,18 @@ onUnmounted(() => {
                     stroke-width="1.5"
                 />
             </svg>
+        </div>
+        <div class="pointer-events-none absolute inset-0 overflow-hidden">
+            <p
+                v-for="label in guideLabels"
+                :key="label.id"
+                data-testid="level-label"
+                class="absolute right-2 rounded bg-white/80 px-1 text-[11px] font-medium dark:bg-gray-950/80"
+                :style="{ top: `${label.y}px`, color: label.color }"
+                :title="label.title"
+            >
+                {{ label.text }}
+            </p>
         </div>
         <ul class="sr-only" data-testid="trade-markers">
             <li v-for="mark in markers" :key="mark.id" :data-side="mark.side" :data-simulated="String(mark.simulated)">{{ mark.text }}</li>
