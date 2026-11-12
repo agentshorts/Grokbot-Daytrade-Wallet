@@ -96,7 +96,7 @@ Sells record how they were matched. FIFO, the existing rule, consumes the oldest
 
 Stop-limit orders are not in this version.
 
-A later step can read a Coinbase key from `C:\DevCurrent\WalletSync\.env` on the owner's machine. This repository does not contain that file, and Live does not use a Coinbase key.
+Live does not use a Coinbase key. The wallet sync, when enabled, reads its key from Windows Credential Manager. See Coinbase wallet sync below.
 
 ## Run locally
 
@@ -181,7 +181,7 @@ This repository is public. Never commit keys, `.env` files, `*.pem` files, datab
 - Keep API keys in `MCP_API_KEY`, `dotnet user-secrets` (project `TradeMonitor`), or a gitignored `appsettings.Local.json`. `.env.example` shows the variable names with empty values.
 - `App_Data/` (the SQLite database) is gitignored.
 - Every push and pull request runs a gitleaks secret scan (`.github/workflows/gitleaks.yml`, config in `.gitleaks.toml`).
-- A future Coinbase read can use the key in `C:\DevCurrent\WalletSync\.env` on the owner's machine. Do not copy that file into this repository.
+- The Coinbase sync key is not stored in `.env` or in this repository. It stays in Windows Credential Manager. See Coinbase wallet sync.
 
 ## Branches
 
