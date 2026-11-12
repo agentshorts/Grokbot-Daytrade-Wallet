@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
+import TradeDrawer from '@/components/TradeDrawer.vue'
 import AppHeader from '@/components/shell/AppHeader.vue'
 import AppSidebar from '@/components/shell/AppSidebar.vue'
 import { provideDashboard } from '@/composables/useDashboard'
@@ -26,5 +27,6 @@ onMounted(() => {
                 <RouterView />
             </main>
         </div>
+        <TradeDrawer />
     </div>
 </template>

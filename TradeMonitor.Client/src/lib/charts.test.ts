@@ -11,6 +11,8 @@ import walletsVue from '../pages/wallets.vue?raw'
 import chartOptionsTs from './chartOptions.ts?raw'
 import echartVue from '../components/EChart.vue?raw'
 import priceChartVue from '../components/PriceChart.vue?raw'
+import tradeDrawerVue from '../components/TradeDrawer.vue?raw'
+import loadPriceChartTs from './loadPriceChart.ts?raw'
 
 describe('chart options', () => {
     it('stacks one equity series per wallet and colors P&L bars by sign', () => {
@@ -60,7 +62,9 @@ describe('lazy charts', () => {
         expect(echartVue).toMatch(/from 'echarts\/charts'/)
         expect(priceChartVue).toMatch(/from 'lightweight-charts'/)
         expect(overviewVue).toContain("import('@/components/EChart.vue')")
-        expect(tradesVue).toContain("import('@/components/PriceChart.vue')")
+        expect(loadPriceChartTs).toContain("import('@/components/PriceChart.vue')")
+        expect(tradeDrawerVue).toContain('loadPriceChart')
+        expect(tradesVue).not.toContain('lightweight-charts')
         expect(overviewVue).not.toContain('lightweight-charts')
         expect(walletsVue).not.toContain('EChart')
         expect(walletsVue).not.toContain('PriceChart')
