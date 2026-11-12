@@ -17,6 +17,7 @@ declare module 'vue' {
     ChartMenu: typeof import('./src/components/live/ChartMenu.vue')['default']
     ChartPending: typeof import('./src/components/shell/ChartPending.vue')['default']
     FilterSelect: typeof import('./src/components/shell/FilterSelect.vue')['default']
+    HideClosedContracts: typeof import('./src/components/HideClosedContracts.vue')['default']
     KpiCard: typeof import('./src/components/KpiCard.vue')['default']
     LiveChart: typeof import('./src/components/live/LiveChart.vue')['default']
     MoneyCell: typeof import('./src/components/MoneyCell.vue')['default']

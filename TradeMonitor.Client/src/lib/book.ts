@@ -108,6 +108,12 @@ export interface WalletSummary {
     lastActivityAt: string | null
     unmarked: boolean
     liveSymbol?: string | null
+    prediction?: boolean
+    closed?: boolean
+    badge?: 'Closed' | 'Settled' | null
+    ticker?: string | null
+    asset?: string | null
+    closeAt?: string | null
 }
 
 export interface EquitySeries {

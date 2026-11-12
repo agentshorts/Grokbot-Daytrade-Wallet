@@ -27,6 +27,7 @@ import {
 } from '@/lib/book'
 import { UNKNOWN_AMOUNT, formatChartLabel } from '@/lib/format'
 import type { DateRangeKey } from '@/lib/filters'
+import { clipContractChart, presentWalletCard } from '@/lib/predictionContract'
 
 const SYMBOL_LIMIT = 10
 
@@ -130,21 +131,64 @@ function toPosition(row: PositionRow): PositionRecord {
     }
 }
 
-function walletSummary(card: WalletCardModel, venue: string): WalletSummary {
+function walletSummary(card: WalletCardModel, venue: string, symbol: string | null, now: Date): WalletSummary {
+    const presented = presentWalletCard(card, { symbol, now })
+    const value = presented.value
+    const change = presented.change
     return {
         key: card.key,
-        name: card.name,
+        name: presented.name,
         mode: card.mode,
         venue,
         isArchived: card.isArchived,
         currency: card.baseCurrency || 'USD',
-        value: card.totalValue,
-        change: card.valueChange,
-        changePct: changePercent(card.totalValue, card.valueChange),
-        sparkline: card.sparkline.map((point: EquityPoint) => point.totalValue),
+        value,
+        change,
+        changePct: presented.closed ? null : changePercent(value, change),
+        sparkline: presented.sparkline,
         openPositions: card.openPositions,
         lastActivityAt: card.lastActivityAt,
-        unmarked: card.valuedAtCost || card.unmarkedCost > 0,
+        unmarked: presented.closed ? false : card.valuedAtCost || card.unmarkedCost > 0,
+        prediction: presented.prediction,
+        closed: presented.closed,
+        badge: presented.badge,
+        ticker: presented.ticker,
+        asset: presented.asset,
+        closeAt: presented.closeAt,
+    }
+}
+
+function clipOverviewEquity(row: EquityResponse['wallets'][number], wallet: WalletSummary | undefined): EquityResponse['wallets'][number] {
+    if (!wallet?.prediction) return { ...row, name: wallet?.name || row.name }
+    const line = clipContractChart(
+        row.points.map((point) => ({ at: point.at, value: point.totalValue, cash: point.cash })),
+        {
+            closeAt: wallet.closeAt ?? null,
+            ledgerClosed: wallet.badge === 'Settled' || wallet.badge === 'Closed',
+            marketClosed: !!wallet.closed,
+            realized: wallet.value,
+            pinRealized: false,
+        },
+    )
+    const byAt = new Map(row.points.map((point) => [point.at, point]))
+    return {
+        ...row,
+        name: wallet.name || row.name,
+        points: line.map((point) => {
+            const source = byAt.get(point.at)
+            const blank: EquityPoint = {
+                at: point.at,
+                totalValue: point.value,
+                cash: point.cash ?? 0,
+                positionsValue: 0,
+                openExposure: 0,
+                unmarkedCost: 0,
+                swept: 0,
+                unrealizedPnl: null,
+                valuedAtCost: false,
+            }
+            return { ...(source ?? blank), at: point.at, totalValue: point.value, cash: point.cash ?? source?.cash ?? 0 }
+        }),
     }
 }
 
@@ -215,14 +259,17 @@ function blank(emptyBook: boolean, now: Date, range: DateRangeKey, walletNames: 
 
 export function toDashboardView(input: OverviewInput, options: { range: DateRangeKey; now: Date }): DashboardView {
     const cards = input.summary.wallets
+    const venues = new Map(input.catalog.map((wallet) => [wallet.key, wallet.venue]))
+    const symbols = new Map(input.positions.results.map((row) => [row.wallet, row.symbol]))
     const walletNames: Record<string, string> = {}
     for (const wallet of input.catalog) walletNames[wallet.key] = wallet.name
-    for (const card of cards) walletNames[card.key] = card.name
     const emptyBook = input.catalog.length === 0 && cards.length === 0
     if (emptyBook || cards.length === 0) return blank(emptyBook, options.now, options.range, walletNames)
 
-    const venues = new Map(input.catalog.map((wallet) => [wallet.key, wallet.venue]))
-    const keys = new Set(cards.map((card) => card.key))
+    const presented = cards.map((card) => walletSummary(card, venues.get(card.key) ?? '', symbols.get(card.key) ?? null, options.now))
+    for (const wallet of presented) walletNames[wallet.key] = wallet.name
+    const keys = new Set(presented.map((card) => card.key))
+    const byKey = new Map(presented.map((wallet) => [wallet.key, wallet]))
     const grain = grainFor(options.range)
     const positions = input.positions.results.filter((row) => row.status === 'open' && row.qty > 0 && keys.has(row.wallet)).map(toPosition)
     const unmarkedCount = positions.filter((position) => position.unmarked).length
@@ -237,7 +284,7 @@ export function toDashboardView(input: OverviewInput, options: { range: DateRang
         emptyBook: false,
         noMatches: false,
         walletNames,
-        wallets: cards.map((card) => walletSummary(card, venues.get(card.key) ?? '')),
+        wallets: presented,
         kpis: kpis(input.summary.totals, unmarkedCount),
         trades,
         positions,
@@ -250,7 +297,7 @@ export function toDashboardView(input: OverviewInput, options: { range: DateRang
                 walletKey: mark.wallet,
             })),
         equity: equitySeries(
-            input.equity.wallets.filter((row) => keys.has(row.wallet)),
+            input.equity.wallets.filter((row) => keys.has(row.wallet)).map((row) => clipOverviewEquity(row, byKey.get(row.wallet))),
             grain,
         ),
         pnlBars: input.daily.results.map((day) => ({ label: utcDayLabel(day.date), pnl: day.pnl })),

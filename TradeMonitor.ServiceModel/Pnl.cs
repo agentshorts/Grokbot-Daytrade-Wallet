@@ -128,6 +128,18 @@ public class WalletCard
     public int OpenPositions { get; set; }
     public DateTime? LastActivityAt { get; set; }
     public List<EquityPoint> Sparkline { get; set; } = [];
+
+    [Description("PredictionMarket for a pm- contract wallet. Empty for other wallets.")]
+    public string Kind { get; set; } = "";
+
+    [Description("open, closed, settled-0, settled-1, settled, or none. Empty when this is not a prediction wallet.")]
+    public string Settlement { get; set; } = "";
+
+    [Description("Lifetime realized P&L for a prediction wallet. The range figure stays on RealizedPnl.")]
+    public decimal LifetimeRealizedPnl { get; set; }
+
+    [Description("Confirmed contract close, UTC. Null when the market lookup did not return one.")]
+    public DateTime? CloseAt { get; set; }
 }
 
 [Api("Equity curve from recorded trades, transfers, and price marks")]
@@ -489,6 +501,9 @@ public class PredictionPnlRow
 
     [Description("open, closed, settled-0, settled-1, settled, or none.")]
     public string Settlement { get; set; } = "";
+
+    [Description("Confirmed contract close, UTC. Null when the market lookup did not return one.")]
+    public DateTime? CloseAt { get; set; }
 }
 
 public class PredictionPnlTotal

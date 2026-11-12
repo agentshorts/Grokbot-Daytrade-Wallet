@@ -96,6 +96,10 @@ export interface WalletCardModel {
     openPositions: number
     lastActivityAt: string | null
     sparkline: EquityPoint[]
+    kind?: string
+    settlement?: string
+    lifetimeRealizedPnl?: number
+    closeAt?: string | null
 }
 
 export interface SummaryResponse {
@@ -379,6 +383,7 @@ export interface PredictionPnlRow {
     fees: number
     realizedPnl: number
     settlement: string
+    closeAt?: string | null
 }
 
 export interface PredictionPnlTotal {
