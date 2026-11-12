@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
+import HideClosedContracts from '@/components/HideClosedContracts.vue'
 import ChartPending from '@/components/shell/ChartPending.vue'
 import KpiCard from '@/components/KpiCard.vue'
 import StatePanel from '@/components/shell/StatePanel.vue'
@@ -10,7 +11,9 @@ import { equityOption, feesOption, pnlBarsOption, symbolPnlOption } from '@/lib/
 import type { TradeRecord } from '@/lib/book'
 import { useDashboard } from '@/composables/useDashboard'
 import { useFilterQuery } from '@/composables/useFilterQuery'
+import { useHideClosedContracts } from '@/composables/useHideClosedContracts'
 import { useTheme } from '@/composables/useTheme'
+import { filterClosedContracts, groupPredictionWallets } from '@/lib/predictionContract'
 
 const EChart = defineAsyncComponent({
     loader: () => import('@/components/EChart.vue'),
@@ -22,11 +25,20 @@ const router = useRouter()
 const { view, status, error, refresh } = useDashboard()
 const { filters, setWallet, shellLocation } = useFilterQuery()
 const { isDark } = useTheme()
+const hideClosed = useHideClosedContracts()
 
-const recent = computed(() => view.value?.trades.slice(0, 20) ?? [])
-const equity = computed(() =>
-    view.value && view.value.equity.some((series) => series.points.length > 0) ? equityOption(view.value.equity, isDark.value) : null,
+const walletRows = computed(() => view.value?.wallets ?? [])
+const closedCount = computed(() => walletRows.value.filter((wallet) => wallet.prediction && wallet.closed).length)
+const shownWallets = computed(() => filterClosedContracts(walletRows.value, hideClosed.value, (wallet) => !!(wallet.prediction && wallet.closed)))
+const sections = computed(() => groupPredictionWallets(shownWallets.value))
+const hiddenKeys = computed(
+    () => new Set(walletRows.value.filter((wallet) => hideClosed.value && wallet.prediction && wallet.closed).map((wallet) => wallet.key)),
 )
+const recent = computed(() => view.value?.trades.slice(0, 20) ?? [])
+const equity = computed(() => {
+    const series = (view.value?.equity ?? []).filter((row) => !hiddenKeys.value.has(row.key))
+    return series.some((row) => row.points.length > 0) ? equityOption(series, isDark.value) : null
+})
 const bars = computed(() => {
     const rows = view.value?.pnlBars ?? []
     return rows.length > 0 ? pnlBarsOption(rows, isDark.value) : null
@@ -91,15 +103,24 @@ function openTrade(trade: TradeRecord) {
             <section class="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
                 <KpiCard v-for="kpi in view.kpis" :key="kpi.id" :kpi="kpi" />
             </section>
-            <section class="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                <WalletCard
-                    v-for="wallet in view.wallets"
-                    :key="wallet.key"
-                    :wallet="wallet"
-                    :selected="filters.wallet === wallet.key"
-                    @select="openWallet(wallet.key)"
-                />
-            </section>
+            <div v-if="closedCount > 0" class="flex justify-end">
+                <HideClosedContracts v-model="hideClosed" :count="closedCount" />
+            </div>
+            <p v-if="shownWallets.length === 0" class="text-sm text-gray-500 dark:text-gray-400">Closed contracts are hidden.</p>
+            <template v-for="section in sections" :key="section.asset ?? 'wallets'">
+                <h2 v-if="section.asset" class="text-sm font-semibold text-gray-700 dark:text-gray-200" :data-testid="`contract-group-${section.asset}`">
+                    {{ section.asset }}
+                </h2>
+                <section class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                    <WalletCard
+                        v-for="wallet in section.wallets"
+                        :key="wallet.key"
+                        :wallet="wallet"
+                        :selected="filters.wallet === wallet.key"
+                        @select="openWallet(wallet.key)"
+                    />
+                </section>
+            </template>
             <section class="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
                     <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Equity</h2>

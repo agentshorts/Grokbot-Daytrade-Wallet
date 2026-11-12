@@ -56,29 +56,40 @@ const emit = defineEmits<{ select: [] }>()
                 >
                     {{ wallet.venue }}
                 </p>
-                <h3 class="truncate text-base font-semibold text-gray-900 dark:text-white">
+                <h3 class="truncate text-base font-semibold text-gray-900 dark:text-white" :title="wallet.ticker || wallet.name">
                     <a
                         :href="liveHref(wallet.key, wallet.liveSymbol)"
                         target="_blank"
                         rel="noopener"
                         class="hover:text-brand-600 dark:hover:text-brand-300"
                         data-testid="wallet-live-name"
+                        :title="wallet.ticker || wallet.name"
                         @click.stop
                     >
                         {{ wallet.name }}
                     </a>
                 </h3>
+                <p v-if="wallet.ticker" class="truncate text-xs text-gray-500 dark:text-gray-400" :title="wallet.ticker">{{ wallet.ticker }}</p>
             </div>
-            <span
-                class="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium"
-                :class="
-                    wallet.mode === 'real'
-                        ? 'bg-success-50 text-success-700 dark:bg-success-500/15 dark:text-success-400'
-                        : 'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300'
-                "
-            >
-                {{ wallet.mode === 'real' ? 'Real' : 'Paper' }}
-            </span>
+            <div class="flex shrink-0 flex-col items-end gap-1">
+                <span
+                    class="rounded-full px-2.5 py-0.5 text-xs font-medium"
+                    :class="
+                        wallet.mode === 'real'
+                            ? 'bg-success-50 text-success-700 dark:bg-success-500/15 dark:text-success-400'
+                            : 'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300'
+                    "
+                >
+                    {{ wallet.mode === 'real' ? 'Real' : 'Paper' }}
+                </span>
+                <span
+                    v-if="wallet.badge"
+                    data-testid="contract-badge"
+                    class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600 dark:bg-white/10 dark:text-gray-300"
+                >
+                    {{ wallet.badge }}
+                </span>
+            </div>
         </div>
         <a
             :href="liveHref(wallet.key, wallet.liveSymbol)"
@@ -101,9 +112,10 @@ const emit = defineEmits<{ select: [] }>()
         >
             Archived
         </span>
-        <div class="mt-4 flex items-end justify-between gap-3">
-            <MoneyCell class="text-lg font-semibold" :value="wallet.value" :signed="false" :currency="wallet.currency" />
-            <PctCell :value="wallet.changePct" />
+        <p v-if="wallet.closed" class="mt-4 text-xs font-medium text-gray-500 dark:text-gray-400">Realized P&L</p>
+        <div class="flex items-end justify-between gap-3" :class="wallet.closed ? 'mt-1' : 'mt-4'">
+            <MoneyCell class="text-lg font-semibold" :value="wallet.value" :signed="!!wallet.closed" :currency="wallet.currency" />
+            <PctCell v-if="!wallet.closed" :value="wallet.changePct" />
         </div>
         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
             <MoneyCell :value="wallet.change" :currency="wallet.currency" />

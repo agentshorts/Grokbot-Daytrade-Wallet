@@ -22,21 +22,23 @@ public class PnlServices(ServiceStack.Data.IDbConnectionFactory dbFactory, ILedg
         var books = LedgerData.Load(db, Now());
         var universe = Universe(books, request.Wallet, request.IncludeArchived);
         var shown = mode == null ? universe : universe.Where(x => x.Wallet.Mode == mode.Value).ToList();
+        var wallets = shown
+            .Select(x => PnlReport.Summarize(x, from, to))
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.Name, StringComparer.Ordinal)
+            .ThenBy(x => x.Key, StringComparer.Ordinal)
+            .ToList();
+        AnnotatePredictions(shown, wallets);
         return new GetSummaryResponse
         {
-            Totals = PnlReport.Total(shown.Select(x => PnlReport.Summarize(x, from, to)).ToList()),
+            Totals = PnlReport.Total(wallets),
             Modes =
             [
                 ModeTotals("all", universe, from, to, null),
                 ModeTotals("paper", universe, from, to, WalletMode.Paper),
                 ModeTotals("real", universe, from, to, WalletMode.Real),
             ],
-            Wallets = shown
-                .Select(x => PnlReport.Summarize(x, from, to))
-                .OrderBy(x => x.SortOrder)
-                .ThenBy(x => x.Name, StringComparer.Ordinal)
-                .ThenBy(x => x.Key, StringComparer.Ordinal)
-                .ToList(),
+            Wallets = wallets,
         };
     }
 
@@ -144,7 +146,12 @@ public class PnlServices(ServiceStack.Data.IDbConnectionFactory dbFactory, ILedg
             .OrderBy(book => book.Wallet.SortOrder)
             .ThenBy(book => book.Wallet.Name, StringComparer.Ordinal)
             .ThenBy(book => book.Wallet.Key, StringComparer.Ordinal)
-            .Select(PredictionRow)
+            .Select(book =>
+            {
+                var row = PredictionRow(book);
+                row.CloseAt = SafeClose(LookupId(book));
+                return row;
+            })
             .ToList();
         return new GetPredictionPnlResponse
         {
@@ -177,6 +184,38 @@ public class PnlServices(ServiceStack.Data.IDbConnectionFactory dbFactory, ILedg
             RealizedPnl = book.Replay.RealizedPnl,
             Settlement = SettlementOf(book),
         };
+    }
+
+    void AnnotatePredictions(List<WalletBook> books, List<WalletCard> cards)
+    {
+        var byKey = books.ToDictionary(book => book.Wallet.Key, StringComparer.Ordinal);
+        foreach (var card in cards)
+        {
+            if (!byKey.TryGetValue(card.Key, out var book) || book.Wallet.Kind != WalletKind.PredictionMarket)
+                continue;
+            card.Kind = nameof(WalletKind.PredictionMarket);
+            card.Settlement = SettlementOf(book);
+            card.LifetimeRealizedPnl = book.Replay.RealizedPnl;
+            card.CloseAt = SafeClose(LookupId(book));
+        }
+    }
+
+    static string LookupId(WalletBook book)
+    {
+        var symbol = book.Trades.Select(trade => trade.Symbol).FirstOrDefault(value => ContractTickers.KalshiTicker(value) != null);
+        return symbol ?? book.Wallet.Key;
+    }
+
+    DateTime? SafeClose(string id)
+    {
+        try
+        {
+            return (HostContext.TryResolve<IContractCloses>() ?? NoContractCloses.Instance).CloseAt(id);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     static string SettlementOf(WalletBook book)

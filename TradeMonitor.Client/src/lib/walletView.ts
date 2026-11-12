@@ -1,5 +1,6 @@
 import { changePercent, rangeBounds } from '@/api'
 import { primarySymbol } from '@/lib/liveQuery'
+import { clipContractChart, presentWalletCard, viewerTimeZone } from '@/lib/predictionContract'
 import type { EquityPoint, HistoryEntry, LedgerQuery, PnlDay, PositionRow, TradeRow, WalletBalances, WalletCardModel, WalletInfo } from '@/api/types'
 import type { TradeRecord, WalletSummary } from '@/lib/book'
 import { formatChartLabel, UNKNOWN_AMOUNT } from '@/lib/format'
@@ -85,6 +86,10 @@ export interface WalletDetailModel {
     trades: TradeRecord[]
     lastActivityAt: string | null
     staleAfterMinutes: number
+    prediction: boolean
+    closed: boolean
+    badge: 'Closed' | 'Settled' | null
+    ticker: string | null
 }
 
 /**
@@ -139,29 +144,39 @@ export function buildWalletList(
     cards: WalletCardModel[],
     filters: Filters,
     positions: PositionRow[] = [],
+    now = new Date(),
 ): WalletListModel {
     const emptyBook = directory.length === 0
     const shown = allowed(directory, filters.mode, filters.wallet)
     const cardsByKey = byKey(cards)
     const wallets: WalletSummary[] = shown.map((wallet) => {
         const card = cardsByKey.get(wallet.key)
-        const value = card?.totalValue ?? 0
-        const change = card?.valueChange ?? 0
         const holdings = positions.filter((row) => row.wallet === wallet.key)
+        const presented = card
+            ? presentWalletCard({ ...card, key: wallet.key, name: wallet.name || card.name || wallet.key }, { symbol: holdings[0]?.symbol ?? null, now })
+            : null
+        const value = presented?.value ?? 0
+        const change = presented?.change ?? 0
         return {
             key: wallet.key,
-            name: wallet.name || card?.name || wallet.key,
+            name: presented?.name || wallet.name || card?.name || wallet.key,
             mode: wallet.mode,
             venue: wallet.venue,
             isArchived: wallet.isArchived,
             currency: wallet.baseCurrency || card?.baseCurrency || 'USD',
             value,
             change,
-            changePct: changePercent(value, change),
-            sparkline: (card?.sparkline ?? []).map((point) => point.totalValue),
+            changePct: presented?.closed ? null : changePercent(value, change),
+            sparkline: presented?.sparkline ?? [],
             openPositions: card?.openPositions ?? 0,
             lastActivityAt: card?.lastActivityAt ?? null,
-            unmarked: (card?.unmarkedCost ?? 0) > 0 || card?.valuedAtCost === true,
+            unmarked: presented?.closed ? false : (card?.unmarkedCost ?? 0) > 0 || card?.valuedAtCost === true,
+            prediction: presented?.prediction ?? false,
+            closed: presented?.closed ?? false,
+            badge: presented?.badge ?? null,
+            ticker: presented?.ticker ?? null,
+            asset: presented?.asset ?? null,
+            closeAt: presented?.closeAt ?? null,
             liveSymbol: primarySymbol(
                 holdings.map((row) => ({
                     symbol: row.symbol,
@@ -241,13 +256,31 @@ export function buildWalletDetail(input: {
     now: Date
 }): WalletDetailModel {
     const card = input.card
-    const totalValue = card?.totalValue ?? 0
-    const change = card?.valueChange ?? 0
+    const presented = card
+        ? presentWalletCard(
+              { ...card, key: input.wallet.key, name: input.wallet.name || card.name || input.wallet.key },
+              { symbol: input.positions[0]?.symbol ?? null, now: input.now, timeZone: viewerTimeZone() },
+          )
+        : null
+    const totalValue = presented?.value ?? card?.totalValue ?? 0
+    const change = presented?.change ?? card?.valueChange ?? 0
     const seriesGrain = grain(input.range)
-    const equity = input.equity.map((point) => ({
+    const chartPoints = presented?.prediction
+        ? clipContractChart(
+              input.equity.map((point) => ({ at: point.at, value: point.totalValue, cash: point.cash })),
+              {
+                  closeAt: presented.closeAt,
+                  ledgerClosed: presented.ledgerClosed,
+                  marketClosed: presented.closed && !presented.ledgerClosed,
+                  realized: card?.lifetimeRealizedPnl ?? card?.realizedPnl ?? 0,
+                  pinRealized: true,
+              },
+          )
+        : input.equity.map((point) => ({ at: point.at, value: point.totalValue, cash: point.cash }))
+    const equity = chartPoints.map((point) => ({
         label: formatChartLabel(point.at, seriesGrain),
-        equity: point.totalValue,
-        cash: point.cash,
+        equity: point.value,
+        cash: point.cash ?? 0,
     }))
     const daily = input.days.map((day) => ({
         label: formatChartLabel(day.date, 'day'),
@@ -273,7 +306,7 @@ export function buildWalletDetail(input: {
         .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
     return {
         key: input.wallet.key,
-        name: input.wallet.name || card?.name || input.wallet.key,
+        name: presented?.name || input.wallet.name || card?.name || input.wallet.key,
         mode: input.wallet.mode,
         venue: input.wallet.venue,
         currency: input.wallet.baseCurrency || card?.baseCurrency || 'USD',
@@ -298,5 +331,9 @@ export function buildWalletDetail(input: {
         trades: input.trades.map(toTrade),
         lastActivityAt: card?.lastActivityAt ?? null,
         staleAfterMinutes: input.staleAfterMinutes,
+        prediction: presented?.prediction ?? false,
+        closed: presented?.closed ?? false,
+        badge: presented?.badge ?? null,
+        ticker: presented?.ticker ?? null,
     }
 }

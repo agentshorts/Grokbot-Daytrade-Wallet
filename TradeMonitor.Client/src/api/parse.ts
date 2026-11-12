@@ -221,6 +221,10 @@ function parseWalletCard(row: Record<string, unknown>): WalletCardModel {
         openPositions: count(row, 'openPositions'),
         lastActivityAt: readTime(pick(row, 'lastActivityAt')),
         sparkline: list(pick(row, 'sparkline'), parseEquityPoint),
+        kind: text(row, 'kind') ?? '',
+        settlement: text(row, 'settlement') ?? '',
+        lifetimeRealizedPnl: amount(row, 'lifetimeRealizedPnl'),
+        closeAt: readTime(pick(row, 'closeAt')),
     }
 }
 
@@ -600,6 +604,7 @@ function parsePredictionRow(row: Record<string, unknown>): PredictionPnlRow | nu
         fees: amount(row, 'fees'),
         realizedPnl: amount(row, 'realizedPnl'),
         settlement: text(row, 'settlement') ?? '',
+        closeAt: readTime(pick(row, 'closeAt')),
     }
 }
 
