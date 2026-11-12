@@ -42,6 +42,10 @@ describe('chart context menu', () => {
         expect(labels({ kind: 'order', orderId: 9, price: 20 })).toEqual(['Cancel order', 'Move order here'])
         expect(labels({ kind: 'time' })).toEqual(['1 minute', '5 minutes', '15 minutes', '1 hour', '1 day', 'Zoom in', 'Zoom out', 'Fit chart'])
         expect(labels({ kind: 'level', price: 72410 })).toEqual(['Limit sell here at $72,410', 'Take-profit here at $72,410', 'Stop here at $72,410'])
+        const extra = mount(ChartMenu, {
+            props: { hit: { kind: 'price', price: 100 }, x: 0, y: 0, extra: [{ id: 'atr-take', label: 'Take-profit at +1 ATR', tone: 'buy' }] },
+        })
+        expect(extra.get('[data-testid=menu-atr-take]').text()).toBe('Take-profit at +1 ATR')
     })
 
     it('keeps the spend slider and the amount box on the same value', async () => {

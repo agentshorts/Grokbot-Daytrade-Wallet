@@ -8,6 +8,7 @@ export interface ChartGuide {
     title: string
     label: string
     width: number
+    hit?: boolean
 }
 
 export interface SwingLevel {

@@ -23,6 +23,7 @@ import { wantsOlderHistory } from '@/lib/chartRange'
 import { deltaPoints, priceBars, showsDeltaPane, usesOhlc, type CandleBar, type ChartType, type DeltaMode } from '@/lib/chartSeries'
 import { chartZone, formatChartCrosshair, formatChartTick, type ChartZoneMode } from '@/lib/chartTime'
 import type { SeriesPoint } from '@/lib/liveSeries'
+import type { PriceZone } from '@/lib/atrBands'
 import { stackLabelYs, type ChartGuide } from '@/lib/swingLevels'
 import type { ChartTradeMark } from '@/lib/tradeMarkers'
 
@@ -54,6 +55,7 @@ const props = withDefaults(
         zoneName?: string
         intervalSeconds?: number
         guides?: ChartGuide[]
+        zones?: PriceZone[]
     }>(),
     {
         chartType: 'candle',
@@ -64,6 +66,7 @@ const props = withDefaults(
         zoneName: '',
         intervalSeconds: 300,
         guides: () => [],
+        zones: () => [],
     },
 )
 
@@ -92,6 +95,7 @@ let historyHooked = false
 const timeAxisHeight = 28
 const arrows = ref<{ id: number; x: number; y: number; side: 'buy' | 'sell'; simulated: boolean; text: string; color: string; clock: string }[]>([])
 const guideLabels = ref<{ id: string; y: number; text: string; color: string; title: string }[]>([])
+const zoneRects = ref<{ id: string; top: number; height: number; color: string }[]>([])
 
 function zone(): string {
     return chartZone(props.timeZone, props.zoneName || undefined)
@@ -289,6 +293,8 @@ function hookHistory() {
 function placeMarkers() {
     if (!main || !chart) {
         arrows.value = []
+        placeGuideLabels()
+        placeZones()
         return
     }
     const timeZone = zone()
@@ -310,6 +316,29 @@ function placeMarkers() {
     }
     arrows.value = placed
     placeGuideLabels()
+    placeZones()
+}
+
+function placeZones() {
+    if (!main) {
+        zoneRects.value = []
+        return
+    }
+    const placed = []
+    for (const zone of props.zones) {
+        const y1 = main.priceToCoordinate(zone.top)
+        const y2 = main.priceToCoordinate(zone.bottom)
+        if (y1 == null || y2 == null || Number.isNaN(y1) || Number.isNaN(y2)) continue
+        const top = Math.min(y1, y2)
+        const height = Math.abs(y2 - y1)
+        if (height < 1) continue
+        placed.push({ id: zone.id, top, height, color: zone.color })
+    }
+    zoneRects.value = placed
+}
+
+function nudgeOverlay() {
+    requestAnimationFrame(() => placeMarkers())
 }
 
 function placeGuideLabels() {
@@ -382,7 +411,7 @@ function drawLines() {
                 title: '',
             }),
         )
-        marks.push({ kind: 'level', id: 0, price: guide.price })
+        if (guide.hit !== false) marks.push({ kind: 'level', id: 0, price: guide.price })
     }
 }
 
@@ -491,7 +520,7 @@ onMounted(() => {
 })
 
 watch(
-    () => [props.points, props.candles, props.price, props.lots, props.orders, props.markers, props.guides, props.dark, props.fitKey, props.chartType, props.showVolume, props.baselinePrice, props.deltaMode, props.timeZone, props.zoneName, props.intervalSeconds],
+    () => [props.points, props.candles, props.price, props.lots, props.orders, props.markers, props.guides, props.zones, props.dark, props.fitKey, props.chartType, props.showVolume, props.baselinePrice, props.deltaMode, props.timeZone, props.zoneName, props.intervalSeconds],
     () => {
         void render()
     },
@@ -508,7 +537,10 @@ onUnmounted(() => {
 
 <template>
     <div class="relative h-full w-full" :data-chart-type="chartType">
-        <div ref="host" data-testid="live-chart" class="h-full w-full" @contextmenu="onMenu" />
+        <div ref="host" data-testid="live-chart" class="h-full w-full" @contextmenu="onMenu" @wheel="nudgeOverlay" @pointerup="nudgeOverlay" />
+        <div class="pointer-events-none absolute inset-0 overflow-hidden">
+            <div v-for="zone in zoneRects" :key="zone.id" data-testid="atr-zone" class="absolute inset-x-0" :style="{ top: `${zone.top}px`, height: `${zone.height}px`, background: zone.color }" />
+        </div>
         <button
             v-if="baselineY != null"
             type="button"

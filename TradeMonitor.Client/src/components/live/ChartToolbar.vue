@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { atrHorizons, type AtrHorizon } from '@/lib/atrBands'
 import { intervalPresets, parseInterval } from '@/lib/chartInterval'
 import { quickRanges, type ChartRange } from '@/lib/chartRange'
 import { chartTypes, type BaselineSource, type ChartType, type DeltaMode } from '@/lib/chartSeries'
@@ -22,6 +23,11 @@ const props = defineProps<{
     showBaseline: boolean
     showSwing: boolean
     swingNotice: string
+    showAtr: boolean
+    atrHorizon: AtrHorizon
+    atrText: string
+    atrNotice: string
+    costText: string
 }>()
 
 const emit = defineEmits<{
@@ -38,6 +44,8 @@ const emit = defineEmits<{
     'baseline-price': [value: number]
     'delta-mode': [value: DeltaMode]
     swing: []
+    atr: []
+    horizon: [value: AtrHorizon]
 }>()
 
 const custom = ref('')
@@ -117,6 +125,24 @@ function addCustom() {
         <button type="button" data-testid="chart-volume" class="rounded-md px-2 py-1 text-xs font-medium" :class="showVolume ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'text-gray-600'" :aria-pressed="showVolume" @click="emit('volume')">Volume</button>
         <button type="button" data-testid="swing-toggle" class="rounded-md px-2 py-1 text-xs font-medium" :class="showSwing ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'text-gray-600'" :aria-pressed="showSwing" @click="emit('swing')">Targets: Swing</button>
         <p v-if="showSwing && swingNotice" data-testid="swing-notice" class="text-xs text-gray-500">{{ swingNotice }}</p>
+        <button type="button" data-testid="atr-toggle" class="rounded-md px-2 py-1 text-xs font-medium" :class="showAtr ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'text-gray-600'" :aria-pressed="showAtr" @click="emit('atr')">Targets: ATR</button>
+        <p v-if="showAtr && atrNotice" data-testid="atr-notice" class="text-xs text-gray-500">{{ atrNotice }}</p>
+        <div v-if="showAtr" class="flex flex-wrap items-center gap-1">
+            <button
+                v-for="item in atrHorizons"
+                :key="item.id"
+                type="button"
+                :data-testid="`atr-horizon-${item.id}`"
+                class="rounded-md px-2 py-1 text-xs font-medium"
+                :class="item.id === atrHorizon ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'text-gray-600'"
+                :aria-pressed="item.id === atrHorizon"
+                @click="emit('horizon', item.id)"
+            >
+                {{ item.label }}
+            </button>
+            <p v-if="atrText" data-testid="atr-readout" class="text-xs text-gray-500">{{ atrText }}</p>
+            <p v-if="costText" data-testid="atr-cost" class="text-xs text-gray-500">{{ costText }}</p>
+        </div>
         <div v-if="showBaseline" class="flex items-center gap-1">
             <select data-testid="baseline-source" class="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-950" :value="baselineSource" @change="emit('baseline-source', ($event.target as HTMLSelectElement).value as BaselineSource)">
                 <option value="first">First close</option>

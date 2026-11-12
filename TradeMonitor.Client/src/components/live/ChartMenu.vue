@@ -10,6 +10,7 @@ const props = withDefaults(
         x: number
         y: number
         pendingMoveId?: number
+        extra?: MenuAction[]
         cash?: number
         heldQty?: number
         marketPrice?: number | null
@@ -63,7 +64,7 @@ const buyIds = new Set(['market-buy', 'limit-buy', 'stop-buy'])
 const sellIds = new Set(['market-sell', 'limit-sell', 'stop', 'take'])
 
 const grouped = computed(() => {
-    const actions = chartMenu(props.hit, { pendingMoveId: props.pendingMoveId })
+    const actions = [...(props.extra ?? []), ...chartMenu(props.hit, { pendingMoveId: props.pendingMoveId })]
     if (!priceHit.value) return { other: actions, buy: [] as MenuAction[], sell: [] as MenuAction[] }
     return {
         other: actions.filter((action) => !buyIds.has(action.id) && !sellIds.has(action.id)),

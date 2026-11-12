@@ -1,5 +1,6 @@
 import { LedgerReadError } from '@/api/errors'
 import { asRecord, pick, readFailure, readMoney, readTime } from '@/api/parse'
+import { parseAtr, type AtrSnapshot } from '@/lib/atrBands'
 import { parseSwing, type SwingSnapshot } from '@/lib/swingLevels'
 
 export interface LiveProduct {
@@ -156,6 +157,7 @@ export interface LiveClient {
     candles(product: string, granularity: string): Promise<LiveCandle[]>
     bars(product: string, granularity: string, range?: { from?: number | null; to?: number | null }): Promise<LiveBarPage>
     swing(symbol: string, interval: string): Promise<SwingSnapshot>
+    atr(symbol: string, interval: string, period: number, horizonBars: number): Promise<AtrSnapshot>
     ticker(product: string): Promise<LiveTick | null>
     tracked(): Promise<TrackedSymbols>
     addSymbol(product: string): Promise<TrackedSymbols>
@@ -441,6 +443,10 @@ export function createLiveClient(): LiveClient {
         async swing(symbol, interval) {
             const params = new URLSearchParams({ symbol, interval })
             return parseSwing(await send(`/api/targets/swing?${params}`, 'GET'))
+        },
+        async atr(symbol, interval, period, horizonBars) {
+            const params = new URLSearchParams({ symbol, interval, period: String(period), horizonBars: String(horizonBars) })
+            return parseAtr(await send(`/api/targets/atr?${params}`, 'GET'))
         },
         async ticker(product) {
             const body = asRecord(await send(`/api/live/ticker?product=${encodeURIComponent(product)}`, 'GET'))
