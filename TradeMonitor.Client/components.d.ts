@@ -15,6 +15,7 @@ declare module 'vue' {
     AppHeader: typeof import('./src/components/shell/AppHeader.vue')['default']
     AppSidebar: typeof import('./src/components/shell/AppSidebar.vue')['default']
     ChartPending: typeof import('./src/components/shell/ChartPending.vue')['default']
+    FilterSelect: typeof import('./src/components/shell/FilterSelect.vue')['default']
     KpiCard: typeof import('./src/components/KpiCard.vue')['default']
     MoneyCell: typeof import('./src/components/MoneyCell.vue')['default']
     NavFooter: typeof import('./src/components/NavFooter.vue')['default']

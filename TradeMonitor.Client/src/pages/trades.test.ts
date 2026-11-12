@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vite-plus/test'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { LedgerReadError, type LedgerClient, type LedgerQuery, type TradeDetailResponse, type TradeFill, type TradeRow } from '@/api'
+import { LedgerReadError, type LedgerClient, type LedgerQuery, type TradeDetailResponse, type TradeFill, type TradeRow, type WalletInfo } from '@/api'
 import { ledgerClientKey } from '@/composables/useLedger'
 import TradeDrawer from '@/components/TradeDrawer.vue'
 import TradesPage from './trades.vue'
@@ -185,9 +185,33 @@ async function mountTrades(path: string, client: LedgerClient) {
     return { router, wrapper }
 }
 
-function clientWith(total = 40, fail?: LedgerReadError): { client: LedgerClient; calls: LedgerQuery[] } {
+function walletInfo(partial: Partial<WalletInfo> & Pick<WalletInfo, 'key' | 'name' | 'mode'>): WalletInfo {
+    return {
+        id: 1,
+        venue: partial.name,
+        baseCurrency: 'USD',
+        note: '',
+        isArchived: false,
+        sortOrder: 1,
+        createdAt: null,
+        ...partial,
+    }
+}
+
+const directory: WalletInfo[] = [
+    walletInfo({ id: 1, key: 'paper', name: 'Paper', mode: 'paper', sortOrder: 1 }),
+    walletInfo({ id: 2, key: 'coinbase', name: 'Coinbase', mode: 'real', sortOrder: 2 }),
+    walletInfo({ id: 3, key: 'old-book', name: 'Old book', mode: 'paper', isArchived: true, sortOrder: 3 }),
+]
+
+function clientWith(total = 40, fail?: LedgerReadError): { client: LedgerClient; calls: LedgerQuery[]; walletQueries: LedgerQuery[] } {
     const calls: LedgerQuery[] = []
+    const walletQueries: LedgerQuery[] = []
     const client = {
+        async wallets(request: LedgerQuery = {}) {
+            walletQueries.push({ ...request })
+            return { results: directory }
+        },
         async trades(request: LedgerQuery = {}) {
             calls.push({ ...request })
             if (fail) throw fail
@@ -225,7 +249,7 @@ function clientWith(total = 40, fail?: LedgerReadError): { client: LedgerClient;
             return detailFor(id)
         },
     }
-    return { client: client as unknown as LedgerClient, calls }
+    return { client: client as unknown as LedgerClient, calls, walletQueries }
 }
 
 async function clickText(root: VueWrapper, selector: string, text: string) {
@@ -256,11 +280,10 @@ describe('trades page', () => {
         expect(router.currentRoute.value.query.wallet).toBe('paper')
         expect(calls.at(-1)).toMatchObject({ side: 'buy', skip: 0 })
 
-        await page.get('[data-testid="filter-symbol"]').setValue('ETH-USD')
-        await page.get('[data-testid="symbol-form"]').trigger('submit')
+        await page.get('[data-testid="filter-symbol"]').setValue('SOL-USD')
         await flushPromises()
-        expect(router.currentRoute.value.query.symbol).toBe('ETH-USD')
-        expect(calls.at(-1)?.symbol).toBe('ETH-USD')
+        expect(router.currentRoute.value.query.symbol).toBe('SOL-USD')
+        expect(calls.filter((call) => call.take === 25).at(-1)?.symbol).toBe('SOL-USD')
 
         await page.get('[data-testid="filter-search"]').setValue('clip')
         await page.get('[data-testid="search-form"]').trigger('submit')
@@ -384,9 +407,152 @@ describe('trades page', () => {
 
         const { client, calls } = clientWith()
         const { wrapper: ready } = await mountTrades('/trades?wallet=paper&page=2', client)
+        const before = calls.length
         await ready.get('[data-testid="export-csv"]').trigger('click')
         await flushPromises()
-        const exported = calls.filter((call) => call.take === 1000)
-        expect(exported[0]).toMatchObject({ wallet: 'paper', skip: 0, take: 1000 })
+        const exported = calls.slice(before).filter((call) => call.take === 1000)
+        expect(exported[0]).toMatchObject({ wallet: 'paper', skip: 0, take: 1000, orderBy: 'time' })
+    })
+
+    it('picks a wallet and a symbol from the ledger instead of free text', async () => {
+        const { client, calls, walletQueries } = clientWith()
+        const { router, wrapper: page } = await mountTrades('/trades?wallet=paper&symbol=sol-usd', client)
+
+        expect(walletQueries[0]).toMatchObject({ includeArchived: true })
+        const wallet = page.get('[data-testid="filter-wallet"]')
+        const symbol = page.get('[data-testid="filter-symbol"]')
+        expect(wallet.element.tagName).toBe('SELECT')
+        expect(symbol.element.tagName).toBe('SELECT')
+        expect(page.find('[data-testid="wallet-form"]').exists()).toBe(false)
+        expect(page.find('[data-testid="symbol-form"]').exists()).toBe(false)
+        expect(page.findAll('button').some((button) => button.text() === 'Apply')).toBe(false)
+        expect(wallet.findAll('option').map((option) => option.text())).toEqual([
+            'All wallets',
+            'Paper · Paper',
+            'Coinbase · Real',
+            'Old book · Paper · Archived',
+        ])
+        expect((wallet.element as HTMLSelectElement).value).toBe('paper')
+        expect(symbol.findAll('option').map((option) => option.text())).toEqual(['All symbols', 'BTC-USD', 'SOL-USD'])
+        expect((symbol.element as HTMLSelectElement).value).toBe('SOL-USD')
+        expect(router.currentRoute.value.query.symbol).toBe('sol-usd')
+        expect(router.currentRoute.value.query.wallet).toBe('paper')
+
+        const catalog = calls.find((call) => call.orderBy === 'symbol')
+        expect(catalog).toMatchObject({ wallet: 'paper', mode: null, descending: false, skip: 0, take: 1000 })
+        expect(catalog?.symbol).toBeUndefined()
+        expect(catalog?.from).toBeUndefined()
+        expect(catalog?.side).toBeUndefined()
+
+        await wallet.setValue('coinbase')
+        await flushPromises()
+        expect(router.currentRoute.value.query.wallet).toBe('coinbase')
+        expect(router.currentRoute.value.query.symbol).toBe('sol-usd')
+        expect(calls.filter((call) => call.take === 25).at(-1)).toMatchObject({ wallet: 'coinbase', symbol: 'sol-usd' })
+        expect(calls.filter((call) => call.orderBy === 'symbol').at(-1)).toMatchObject({ wallet: 'coinbase', mode: null })
+
+        await symbol.setValue('')
+        await flushPromises()
+        expect(router.currentRoute.value.query.symbol).toBeUndefined()
+        expect(router.currentRoute.value.query.wallet).toBe('coinbase')
+    })
+
+    it('lists wallets for the current mode and clears one that no longer matches', async () => {
+        const { client } = clientWith()
+        const { router, wrapper: page } = await mountTrades('/trades?mode=paper&wallet=paper', client)
+        expect(
+            page
+                .get('[data-testid="filter-wallet"]')
+                .findAll('option')
+                .map((option) => option.text()),
+        ).toEqual(['All wallets', 'Paper · Paper', 'Old book · Paper · Archived'])
+
+        await router.push('/trades?mode=real&wallet=paper')
+        await flushPromises()
+        expect(router.currentRoute.value.query.mode).toBe('real')
+        expect(router.currentRoute.value.query.wallet).toBeUndefined()
+        expect((page.get('[data-testid="filter-wallet"]').element as HTMLSelectElement).value).toBe('')
+        expect(
+            page
+                .get('[data-testid="filter-wallet"]')
+                .findAll('option')
+                .map((option) => option.text()),
+        ).toEqual(['All wallets', 'Coinbase · Real'])
+    })
+
+    it('keeps an unknown wallet deep link and drops a symbol that is not in the trades', async () => {
+        const { client } = clientWith()
+        const { router, wrapper: page } = await mountTrades('/trades?wallet=custom-book&symbol=ETH-USD', client)
+        expect(router.currentRoute.value.query.wallet).toBe('custom-book')
+        expect(router.currentRoute.value.query.symbol).toBeUndefined()
+        expect(
+            page
+                .get('[data-testid="filter-wallet"]')
+                .findAll('option')
+                .map((option) => option.text()),
+        ).toContain('custom-book')
+        expect((page.get('[data-testid="filter-wallet"]').element as HTMLSelectElement).value).toBe('custom-book')
+        expect(
+            page
+                .get('[data-testid="filter-symbol"]')
+                .findAll('option')
+                .map((option) => option.text()),
+        ).toEqual(['All symbols', 'BTC-USD', 'SOL-USD'])
+    })
+
+    it('keeps the symbol deep link when the symbol list cannot be loaded', async () => {
+        const { client } = clientWith()
+        const flaky = {
+            wallets: (request?: LedgerQuery) => client.wallets(request),
+            trade: (id: number) => client.trade(id),
+            async trades(request: LedgerQuery = {}) {
+                if (request.orderBy === 'symbol') throw new Error('symbols unavailable')
+                return client.trades(request)
+            },
+        } as unknown as LedgerClient
+        const { router, wrapper: page } = await mountTrades('/trades?symbol=ETH-USD', flaky)
+        expect(router.currentRoute.value.query.symbol).toBe('ETH-USD')
+        expect(
+            page
+                .get('[data-testid="filter-symbol"]')
+                .findAll('option')
+                .map((option) => option.text()),
+        ).toEqual(['All symbols', 'ETH-USD'])
+        expect(page.get('[data-testid="trades"]').text()).toContain('Showing 1-25 of 40')
+    })
+
+    it('loads every symbol page for the selected wallet', async () => {
+        const calls: LedgerQuery[] = []
+        const client = {
+            async wallets() {
+                return { results: directory }
+            },
+            async trades(request: LedgerQuery = {}) {
+                calls.push({ ...request })
+                if (request.orderBy === 'symbol') {
+                    const skip = request.skip ?? 0
+                    const symbol = skip === 0 ? 'ETH-USD' : 'SOL-USD'
+                    return {
+                        total: 2,
+                        skip,
+                        take: request.take ?? 1000,
+                        results: [row({ id: skip + 1, symbol, wallet: request.wallet ?? 'paper' })],
+                    }
+                }
+                return { total: 1, skip: 0, take: request.take ?? 25, results: [row()] }
+            },
+            async trade(id: number) {
+                return detailFor(id)
+            },
+        } as unknown as LedgerClient
+        const { wrapper: page } = await mountTrades('/trades?mode=paper&wallet=paper', client)
+        expect(calls.filter((call) => call.orderBy === 'symbol').map((call) => call.skip)).toEqual([0, 1])
+        expect(calls.filter((call) => call.orderBy === 'symbol').every((call) => call.wallet === 'paper' && call.mode === 'paper')).toBe(true)
+        expect(
+            page
+                .get('[data-testid="filter-symbol"]')
+                .findAll('option')
+                .map((option) => option.text()),
+        ).toEqual(['All symbols', 'ETH-USD', 'SOL-USD'])
     })
 })
