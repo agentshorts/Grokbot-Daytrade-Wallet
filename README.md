@@ -4,6 +4,26 @@ A local dashboard to watch trading wallets, real and paper, with transaction his
 
 Status: template demo content has been removed. Feature work is tracked in the issues, in build order.
 
+## Screenshots
+
+Screenshots show sample data.
+
+![Overview (light)](docs/screenshots/overview-light.webp)
+
+*Overview (light)*
+
+![Trades price chart with buy/sell markers (dark)](docs/screenshots/trades-dark.webp)
+
+*Trades price chart with buy/sell markers (dark)*
+
+![Wallets and open positions (dark)](docs/screenshots/wallets-dark.webp)
+
+*Wallets and open positions (dark)*
+
+<img src="docs/screenshots/phone.webp" alt="Phone view" width="320">
+
+*Phone view*
+
 ## Wallets
 
 | Wallet | Mode | How data gets in |
