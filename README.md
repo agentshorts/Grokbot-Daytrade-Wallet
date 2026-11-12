@@ -34,9 +34,11 @@ cd ../TradeMonitor
 dotnet watch
 ```
 
-`dotnet watch` starts the .NET host and the Vite dev server. The app listens on `https://localhost:5051` and `http://localhost:5050`, on localhost only.
+`dotnet watch` starts the .NET host and the Vite dev server. The app listens on `https://127.0.0.1:5051` and `http://127.0.0.1:5050`.
 
-Open `https://localhost:5051`. Sign in from the header. The first run creates the SQLite database and the local seed users shown on the sign-in page.
+Open `https://127.0.0.1:5051`. Sign in from the header. The first run creates the SQLite database and the local seed users shown on the sign-in page.
+
+The trading agent writes through MCP at `http://127.0.0.1:5050/mcp`. Tool names, example calls, and API key setup are in [docs/mcp.md](docs/mcp.md). Copy `.env.example` to `.env` and set `MCP_API_KEY` there, or put the same value in gitignored `appsettings.Local.json`. Do not commit the key.
 
 ## Checks
 
@@ -56,7 +58,7 @@ npm run build
 
 This repository is public. Never commit keys, `.env` files, `*.pem` files, databases or local appsettings.
 
-- Keep API keys in `dotnet user-secrets` (project `TradeMonitor`) or in a gitignored `appsettings.Local.json`.
+- Keep API keys in `MCP_API_KEY`, `dotnet user-secrets` (project `TradeMonitor`), or a gitignored `appsettings.Local.json`. `.env.example` shows the variable names with empty values.
 - `App_Data/` (the SQLite database) is gitignored.
 - Every push and pull request runs a gitleaks secret scan (`.github/workflows/gitleaks.yml`, config in `.gitleaks.toml`).
 
