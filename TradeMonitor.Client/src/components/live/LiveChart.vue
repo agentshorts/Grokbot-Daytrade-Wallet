@@ -109,7 +109,7 @@ function drawLines() {
     }
     for (const order of props.orders) {
         if (order.triggerPrice == null || order.triggerPrice <= 0) continue
-        const stop = order.type === 'StopLoss'
+        const stop = order.type === 'StopLoss' || order.type === 'StopBuy'
         const buy = order.side === 'Buy'
         lines.push(
             series.createPriceLine({
@@ -118,7 +118,7 @@ function drawLines() {
                 lineWidth: 1,
                 lineStyle: order.type === 'Limit' || stop ? LineStyle.Dashed : LineStyle.Solid,
                 axisLabelVisible: true,
-                title: order.type === 'StopLoss' ? 'Stop' : order.type === 'TakeProfit' ? 'Target' : order.side === 'Buy' ? 'Limit buy' : 'Limit sell',
+                title: order.type === 'StopLoss' || order.type === 'StopBuy' ? 'Stop' : order.type === 'TakeProfit' ? 'Target' : order.side === 'Buy' ? 'Limit buy' : 'Limit sell',
             }),
         )
         marks.push({ kind: 'order', id: order.id, price: order.triggerPrice })

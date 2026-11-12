@@ -29,6 +29,7 @@ public enum LiveOrderType
     Limit,
     StopLoss,
     TakeProfit,
+    StopBuy,
 }
 
 public enum LiveOrderStatus

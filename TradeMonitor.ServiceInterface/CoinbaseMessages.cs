@@ -41,6 +41,10 @@ public static class CoinbaseMessages
                 Quote = "USD",
                 Name = name,
                 Price = Money(item, "price"),
+                BaseIncrement = Money(item, "base_increment") ?? 0,
+                QuoteIncrement = Money(item, "quote_increment") ?? 0,
+                BaseMinSize = Money(item, "base_min_size") ?? 0,
+                MinMarketFunds = Money(item, "min_market_funds") ?? 0,
             });
         }
 
