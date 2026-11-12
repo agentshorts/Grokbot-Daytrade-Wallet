@@ -1,6 +1,7 @@
 import { watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { serializeFilters, type DateRangeKey, type Filters, type LedgerMode } from '@/lib/filters'
+import { TRADES_PAGE_KEYS } from '@/lib/tradeQuery'
 import { useFiltersStore } from '@/stores/filters'
 
 export function useFilterQuery() {
@@ -22,7 +23,9 @@ export function useFilterQuery() {
 
     function shellLocation(path: string, extra?: Record<string, string | null | undefined>) {
         const query: Record<string, string> = serializeFilters(route.query, filters.current())
-        if (!path.startsWith('/trades')) delete query.symbol
+        if (!path.startsWith('/trades')) {
+            for (const key of TRADES_PAGE_KEYS) delete query[key]
+        }
         if (extra) {
             for (const [key, value] of Object.entries(extra)) {
                 if (value) query[key] = value

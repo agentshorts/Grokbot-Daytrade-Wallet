@@ -11,6 +11,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AmountCell: typeof import('./src/components/AmountCell.vue')['default']
     AppHeader: typeof import('./src/components/shell/AppHeader.vue')['default']
     AppSidebar: typeof import('./src/components/shell/AppSidebar.vue')['default']
     ChartPending: typeof import('./src/components/shell/ChartPending.vue')['default']
@@ -30,7 +31,9 @@ declare module 'vue' {
     StatePanel: typeof import('./src/components/shell/StatePanel.vue')['default']
     ThemeToggle: typeof import('./src/components/shell/ThemeToggle.vue')['default']
     TimeCell: typeof import('./src/components/TimeCell.vue')['default']
+    TradeDrawer: typeof import('./src/components/TradeDrawer.vue')['default']
     TradeList: typeof import('./src/components/TradeList.vue')['default']
+    TradesTable: typeof import('./src/components/TradesTable.vue')['default']
     TransferList: typeof import('./src/components/TransferList.vue')['default']
     WalletCard: typeof import('./src/components/WalletCard.vue')['default']
     WalletPositions: typeof import('./src/components/WalletPositions.vue')['default']

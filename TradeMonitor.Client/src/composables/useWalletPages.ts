@@ -1,6 +1,7 @@
 import { onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
-import { ledger, type LedgerClient } from '@/api/client'
+import type { LedgerClient } from '@/api/client'
 import { LedgerReadError } from '@/api/errors'
+import { useLedger } from '@/composables/useLedger'
 import type { Filters } from '@/lib/filters'
 import { REFRESH_MS, startPolling } from '@/lib/refresh'
 import { latestActivity, rememberWalletNames, setRecordedAt } from '@/lib/walletNames'
@@ -96,8 +97,9 @@ function usePage<T>(load: (filters: Filters, now: Date) => Promise<T>, watchSour
 }
 
 export function useWalletList(): PageState<WalletListModel> {
+    const client = useLedger()
     const { filters } = useFilterQuery()
-    const page = usePage((current, now) => loadList(ledger, current, now), [() => filters.mode, () => filters.range, () => filters.wallet])
+    const page = usePage((current, now) => loadList(client, current, now), [() => filters.mode, () => filters.range, () => filters.wallet])
     watch(page.model, (model) => {
         if (!model) return
         rememberWalletNames(model.wallets)
@@ -107,8 +109,9 @@ export function useWalletList(): PageState<WalletListModel> {
 }
 
 export function useWalletDetail(key: () => string): PageState<WalletDetailModel> {
+    const client = useLedger()
     const { filters } = useFilterQuery()
-    const page = usePage((current, now) => loadDetail(ledger, key(), { ...current, wallet: key() }, now), [() => filters.range, key])
+    const page = usePage((current, now) => loadDetail(client, key(), { ...current, wallet: key() }, now), [() => filters.range, key])
     watch(page.model, (model) => {
         if (!model) return
         rememberWalletNames([{ key: model.key, name: model.name }])
