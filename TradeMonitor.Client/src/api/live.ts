@@ -44,6 +44,17 @@ export interface LiveTradeMark {
     fee: number
     executedAt: string | null
     simulated: boolean
+    realizedPnl?: number | null
+}
+
+export interface LiveClosedLot {
+    tradeId: number
+    qty: number
+    buyPrice: number
+    sellPrice: number
+    realizedPnl: number
+    executedAt: string | null
+    settlement: boolean
 }
 
 export interface LiveLot {
@@ -97,6 +108,8 @@ export interface LiveBook {
     cash: number
     realizedPnl: number
     lots: LiveLot[]
+    closedLots: LiveClosedLot[]
+    settlements: LiveClosedLot[]
     average: LiveAverage
     orders: LiveOrder[]
     tradeId: number | null
@@ -185,6 +198,20 @@ function parseLot(value: unknown): LiveLot | null {
     }
 }
 
+function parseClosed(value: unknown): LiveClosedLot | null {
+    const record = asRecord(value)
+    if (!record) return null
+    return {
+        tradeId: num(record, 'tradeId'),
+        qty: num(record, 'qty'),
+        buyPrice: num(record, 'buyPrice'),
+        sellPrice: num(record, 'sellPrice'),
+        realizedPnl: num(record, 'realizedPnl'),
+        executedAt: text(record, 'executedAt') || null,
+        settlement: pick(record, 'settlement') === true,
+    }
+}
+
 function parseOrder(value: unknown): LiveOrder | null {
     const record = asRecord(value)
     if (!record) return null
@@ -208,6 +235,8 @@ export function parseBook(body: unknown): LiveBook {
     const record = asRecord(body) ?? {}
     const average = asRecord(pick(record, 'average')) ?? {}
     const lots = Array.isArray(pick(record, 'lots')) ? (pick(record, 'lots') as unknown[]) : []
+    const closed = Array.isArray(pick(record, 'closedLots')) ? (pick(record, 'closedLots') as unknown[]) : []
+    const settlements = Array.isArray(pick(record, 'settlements')) ? (pick(record, 'settlements') as unknown[]) : []
     const orders = Array.isArray(pick(record, 'orders')) ? (pick(record, 'orders') as unknown[]) : []
     const mode = text(record, 'mode').toLowerCase() === 'real' ? 'Real' : 'Paper'
     return {
@@ -221,6 +250,8 @@ export function parseBook(body: unknown): LiveBook {
         cash: num(record, 'cash'),
         realizedPnl: num(record, 'realizedPnl'),
         lots: lots.map(parseLot).filter((lot): lot is LiveLot => lot != null),
+        closedLots: closed.map(parseClosed).filter((lot): lot is LiveClosedLot => lot != null),
+        settlements: settlements.map(parseClosed).filter((lot): lot is LiveClosedLot => lot != null),
         average: {
             openQty: num(average, 'openQty'),
             openCost: num(average, 'openCost'),
@@ -313,6 +344,7 @@ function parseTrades(body: unknown): LiveTradeMark[] {
                 fee: num(item, 'fee'),
                 executedAt: readTime(pick(item, 'executedAt')),
                 simulated: pick(item, 'simulated') === true,
+                realizedPnl: readMoney(pick(item, 'realizedPnl')),
             },
         ]
     })

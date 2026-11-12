@@ -125,6 +125,9 @@ public class LiveTradeMark
     public decimal Fee { get; set; }
     public DateTime ExecutedAt { get; set; }
     public bool Simulated { get; set; }
+
+    [Description("Realized P&L for a sell. Null on a buy.")]
+    public decimal? RealizedPnl { get; set; }
 }
 
 [Api("Symbols followed by the live chart, in display order")]
@@ -219,6 +222,9 @@ public class LiveBookResponse
     public decimal Cash { get; set; }
     public decimal RealizedPnl { get; set; }
     public List<LiveLot> Lots { get; set; } = [];
+    public List<LiveClosedLot> ClosedLots { get; set; } = [];
+    public List<LiveClosedLot> Settlements { get; set; } = [];
+    public LiveLotTotals Totals { get; set; } = new();
     public LiveAverageQuote Average { get; set; } = new();
     public List<LiveOrder> Orders { get; set; } = [];
     public int? TradeId { get; set; }
@@ -236,6 +242,26 @@ public class LiveLot
     public decimal? UnrealizedPnl { get; set; }
     public decimal? UnrealizedPnlPercent { get; set; }
     public DateTime ExecutedAt { get; set; }
+}
+
+public class LiveClosedLot
+{
+    public int TradeId { get; set; }
+    public decimal Qty { get; set; }
+    public decimal BuyPrice { get; set; }
+    public decimal SellPrice { get; set; }
+    public decimal RealizedPnl { get; set; }
+    public DateTime ExecutedAt { get; set; }
+    public bool Settlement { get; set; }
+}
+
+public class LiveLotTotals
+{
+    public decimal Qty { get; set; }
+    public decimal AverageCost { get; set; }
+    public decimal? UnrealizedPnl { get; set; }
+    public decimal RealizedPnl { get; set; }
+    public decimal? TotalPnl { get; set; }
 }
 
 public class LiveAverageQuote

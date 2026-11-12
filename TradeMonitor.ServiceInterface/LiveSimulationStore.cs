@@ -183,6 +183,7 @@ public sealed class LiveSimulationStore(IDbConnectionFactory dbFactory, ILedgerC
         var clean = Clean(symbol);
         lock (session.Gate)
         {
+            var realized = Replay(session).LotTrades.ToDictionary(x => x.TradeId);
             return session.Trades
                 .Where(x => x.Symbol.Equals(clean, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(x => x.ExecutedAt)
@@ -197,6 +198,7 @@ public sealed class LiveSimulationStore(IDbConnectionFactory dbFactory, ILedgerC
                     Fee = x.Fee,
                     ExecutedAt = x.ExecutedAt,
                     Simulated = x.Id >= session.SeedTradeId,
+                    RealizedPnl = x.Side == TradeSide.Sell && realized.TryGetValue(x.Id, out var lot) ? lot.RealizedPnl : null,
                 })
                 .ToList();
         }

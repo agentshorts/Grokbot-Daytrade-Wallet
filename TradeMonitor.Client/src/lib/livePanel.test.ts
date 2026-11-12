@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test'
-import { readPanelTab, readPanelWidth, writePanelTab, writePanelWidth, type PanelStorage } from '@/lib/livePanel'
+import { readPanelTab, readPanelWidth, readShowTrades, writePanelTab, writePanelWidth, writeShowTrades, type PanelStorage } from '@/lib/livePanel'
 
 function memory(): PanelStorage & { values: Map<string, string> } {
     const values = new Map<string, string>()
@@ -25,5 +25,12 @@ describe('live panel memory', () => {
         expect(readPanelWidth(storage)).toBe('collapsed')
         storage.setItem('trademonitor.live.panel', 'wide')
         expect(readPanelWidth(storage)).toBe('normal')
+        writePanelTab(storage, 'lots')
+        expect(readPanelTab(storage)).toBe('lots')
+        expect(readShowTrades(storage)).toBe(true)
+        writeShowTrades(storage, false)
+        expect(readShowTrades(storage)).toBe(false)
+        writeShowTrades(storage, true)
+        expect(readShowTrades(storage)).toBe(true)
     })
 })
