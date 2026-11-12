@@ -6,6 +6,10 @@ import { client } from '@/lib/gateway'
 import { parseLiveTick } from '@/lib/liveSeries'
 import { priceChannel, reconnectDelayMs, sseBaseUrl, type LiveLink } from '@/lib/sse'
 
+function drop<K>(collection: { ['delete'](key: K): boolean }, key: K) {
+    collection['delete'](key)
+}
+
 type TickListener = (tick: LiveTick) => void
 
 // One Server Events connection for the live chart. Channels are reference counted
@@ -33,7 +37,7 @@ export const useSseStore = defineStore('sse', () => {
         for (const channel of pendingChannels) {
             void sse.subscribeToChannels(channel).then(
                 () => {
-                    if (serverEvents.value === sse) pendingChannels.delete(channel)
+                    if (serverEvents.value === sse) drop(pendingChannels, channel)
                 },
                 () => pendingChannels.add(channel),
             )
@@ -117,8 +121,8 @@ export const useSseStore = defineStore('sse', () => {
     function release(channel: string) {
         const count = channelRefCounts.get(channel) ?? 0
         if (count <= 1) {
-            channelRefCounts.delete(channel)
-            pendingChannels.delete(channel)
+            drop(channelRefCounts, channel)
+            drop(pendingChannels, channel)
             const sse = serverEvents.value
             if (sse?.getSubscriptionId()) void sse.unsubscribeFromChannels(channel).catch(() => undefined)
             return
@@ -137,7 +141,7 @@ export const useSseStore = defineStore('sse', () => {
         listeners.add(listener)
         retain(channel)
         return () => {
-            listeners.delete(listener)
+            drop(listeners, listener)
             release(channel)
         }
     }

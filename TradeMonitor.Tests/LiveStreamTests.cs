@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using ServiceStack;
+using ServiceStack.OrmLite;
 using ServiceStack.Web;
 using TradeMonitor.ServiceInterface;
 using TradeMonitor.ServiceModel;
@@ -16,6 +17,7 @@ namespace TradeMonitor.Tests;
 public class LiveStreamTests : IDisposable
 {
     readonly string dbPath = Path.Combine(Path.GetTempPath(), "trademonitor-stream-" + Guid.NewGuid().ToString("N") + ".db");
+    readonly string logDir = Path.Combine(Path.GetTempPath(), "trademonitor-stream-logs-" + Guid.NewGuid().ToString("N"));
     readonly string? previousMcpKey = Environment.GetEnvironmentVariable(McpConfiguredKey.EnvName);
     StreamApp? factory;
 
@@ -30,6 +32,10 @@ public class LiveStreamTests : IDisposable
     {
         factory?.Dispose();
         factory = null;
+        // The request log stores its monthly sqlite file in a process-wide named connection.
+        // Drop it so the next host opens its own directory.
+        foreach (var name in OrmLiteConnectionFactory.NamedConnections.Keys.Where(key => key.StartsWith("requests_", StringComparison.Ordinal)).ToList())
+            OrmLiteConnectionFactory.NamedConnections.Remove(name);
         Environment.SetEnvironmentVariable(McpConfiguredKey.EnvName, previousMcpKey);
         foreach (var suffix in new[] { "", "-wal", "-shm", "-journal" })
         {
@@ -37,6 +43,8 @@ public class LiveStreamTests : IDisposable
             if (File.Exists(file))
                 File.Delete(file);
         }
+        if (Directory.Exists(logDir))
+            Directory.Delete(logDir, recursive: true);
     }
 
     public void Dispose() => TearDown();
@@ -91,7 +99,7 @@ public class LiveStreamTests : IDisposable
 
     void Boot()
     {
-        factory = new StreamApp(dbPath);
+        factory = new StreamApp(dbPath, logDir);
         using var _ = factory.CreateClient();
     }
 
@@ -108,12 +116,13 @@ public class LiveStreamTests : IDisposable
         return count;
     }
 
-    sealed class StreamApp(string dbPath) : WebApplicationFactory<Program>
+    sealed class StreamApp(string dbPath, string logDir) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment("Testing");
             builder.UseSetting("ConnectionStrings:DefaultConnection", "DataSource=" + dbPath + ";Cache=Shared");
+            builder.UseSetting("RequestLogs:Dir", logDir);
             builder.UseSetting(McpConfiguredKey.ConfigPath, "");
         }
     }

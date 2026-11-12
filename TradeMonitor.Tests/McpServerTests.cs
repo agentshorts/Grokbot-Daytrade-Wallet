@@ -63,6 +63,10 @@ public class McpServerTests
         dbPath = Path.Combine(Path.GetTempPath(), "trademonitor-mcp-" + Guid.NewGuid().ToString("N") + ".db");
         logDir = Path.Combine(Path.GetTempPath(), "trademonitor-mcp-logs-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(logDir);
+        // The request log stores its monthly sqlite file in a process-wide named connection.
+        // Drop it so this host opens its own directory.
+        foreach (var name in OrmLiteConnectionFactory.NamedConnections.Keys.Where(key => key.StartsWith("requests_", StringComparison.Ordinal)).ToList())
+            OrmLiteConnectionFactory.NamedConnections.Remove(name);
         factory = new McpAppFactory(dbPath, logDir);
         using var _ = factory.CreateClient();
 
