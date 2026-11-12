@@ -35,6 +35,14 @@ public class LedgerServiceTests
         typeof(RecordPriceMarks),
         typeof(QueryPriceMarks),
         typeof(QueryTrades),
+        typeof(GetSummary),
+        typeof(GetEquity),
+        typeof(PnlByDay),
+        typeof(GetPnlBySymbol),
+        typeof(GetFees),
+        typeof(QueryPositions),
+        typeof(GetTrade),
+        typeof(RebuildProjections),
     ];
 
     static readonly (decimal Price, decimal Qty, decimal Sell)[] Legs =

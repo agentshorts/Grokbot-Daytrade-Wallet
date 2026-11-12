@@ -167,56 +167,77 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
         var symbol = Clean(request.Symbol)?.ToUpperInvariant();
         if (symbol?.Length > Limits.Symbol)
             throw Fail(400, "InvalidRequest", $"Symbol cannot be longer than {Limits.Symbol} characters.");
+        if (request.Side is TradeSide given && !Enum.IsDefined(given))
+            throw Fail(400, "InvalidRequest", "Trade side must be Buy or Sell.");
+        var mode = ParseMode(request.Mode);
+        var outcome = ParseOutcome(request.Outcome);
+        var order = ParseOrder(request.OrderBy);
+        var descending = request.Descending ?? true;
+        var search = Clean(request.Q);
 
         using var db = dbFactory.Open();
         var wallet = TryWallet(db, request.Wallet);
-        var wallets = db.Select<Wallet>().ToDictionary(x => x.Id);
-        IEnumerable<Trade> rows = wallet == null
-            ? db.Select<Trade>()
-            : db.Select<Trade>(x => x.WalletId == wallet.Id);
-        if (symbol != null)
-            rows = rows.Where(x => x.Symbol == symbol);
-        if (request.Side is TradeSide side)
+        var views = new List<TradeView>();
+        foreach (var book in LedgerData.Load(db, Now()))
         {
-            if (!Enum.IsDefined(side))
-                throw Fail(400, "InvalidRequest", "Trade side must be Buy or Sell.");
-            rows = rows.Where(x => x.Side == side);
+            if (wallet != null && book.Wallet.Id != wallet.Id)
+                continue;
+            if (mode is WalletMode wanted && book.Wallet.Mode != wanted)
+                continue;
+            var lots = book.Replay.LotTrades.ToDictionary(x => x.TradeId);
+            foreach (var trade in book.Trades)
+            {
+                if (symbol != null && trade.Symbol != symbol)
+                    continue;
+                if (request.Side is TradeSide side && trade.Side != side)
+                    continue;
+                if (from is DateTime fromAt && trade.ExecutedAt < fromAt)
+                    continue;
+                if (to is DateTime toAt && trade.ExecutedAt > toAt)
+                    continue;
+                lots.TryGetValue(trade.Id, out var lot);
+                var view = TradeMaps.ToView(trade, book.Wallet, lot);
+                if (!MatchesSearch(view, search) || !MatchesOutcome(view, outcome))
+                    continue;
+                views.Add(view);
+            }
         }
 
-        if (from is DateTime fromAt)
-            rows = rows.Where(x => x.ExecutedAt >= fromAt);
-        if (to is DateTime toAt)
-            rows = rows.Where(x => x.ExecutedAt <= toAt);
-
-        var ordered = rows
-            .OrderByDescending(x => x.ExecutedAt)
-            .ThenByDescending(x => x.Id)
-            .ToList();
-
+        views.Sort((a, b) => CompareTrades(a, b, order, descending));
         return new QueryTradesResponse
         {
-            Total = ordered.Count,
+            Total = views.Count,
             Skip = skip,
             Take = take,
-            Results = ordered.Skip(skip).Take(take).Select(trade => new TradeView
-            {
-                Id = trade.Id,
-                Wallet = wallets.TryGetValue(trade.WalletId, out var owner) ? owner.Key : "",
-                WalletId = trade.WalletId,
-                ClientId = trade.ClientId,
-                Symbol = trade.Symbol,
-                Title = trade.Title,
-                Side = trade.Side,
-                Qty = trade.Qty,
-                Price = trade.Price,
-                Fee = trade.Fee,
-                FeeCurrency = trade.FeeCurrency,
-                ExecutedAt = trade.ExecutedAt,
-                OrderRef = trade.OrderRef,
-                TargetPrice = trade.TargetPrice,
-                Note = trade.Note,
-                RecordedAt = trade.RecordedAt,
-            }).ToList(),
+            Results = views.Skip(skip).Take(take).ToList(),
+        };
+    }
+
+    public object Any(RebuildProjections request)
+    {
+        var now = Now();
+        using var db = dbFactory.Open();
+        using var tx = db.OpenTransaction();
+        var wallets = Clean(request.Wallet) == null
+            ? db.Select<Wallet>()
+            : [RequireWallet(db, request.Wallet)];
+        foreach (var wallet in wallets)
+            ReplaceProjections(db, wallet.Id, now);
+
+        var positions = 0;
+        var snapshots = 0;
+        foreach (var wallet in wallets)
+        {
+            positions += db.Select<Position>(x => x.WalletId == wallet.Id).Count;
+            snapshots += db.Select<BalanceSnapshot>(x => x.WalletId == wallet.Id).Count;
+        }
+
+        tx.Commit();
+        return new RebuildProjectionsResponse
+        {
+            Wallets = wallets.Count,
+            Positions = positions,
+            Snapshots = snapshots,
         };
     }
 
@@ -954,6 +975,92 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
     {
         if (value < 0)
             throw Fail(400, "InvalidRequest", $"{label} cannot be negative.");
+    }
+
+    static WalletMode? ParseMode(string? mode)
+    {
+        var text = Clean(mode);
+        if (text == null || text.Equals("all", StringComparison.OrdinalIgnoreCase))
+            return null;
+        if (text.Equals("paper", StringComparison.OrdinalIgnoreCase))
+            return WalletMode.Paper;
+        if (text.Equals("real", StringComparison.OrdinalIgnoreCase))
+            return WalletMode.Real;
+        throw Fail(400, "InvalidRequest", "Mode must be all, paper, or real.");
+    }
+
+    static string? ParseOutcome(string? outcome)
+    {
+        var text = Clean(outcome)?.ToLowerInvariant();
+        if (text == null)
+            return null;
+        if (text is "won" or "lost" or PnlTerms.Open or PnlTerms.Closed)
+            return text;
+        throw Fail(400, "InvalidRequest", "Outcome must be won, lost, open, or closed.");
+    }
+
+    static string ParseOrder(string? order)
+    {
+        var text = Clean(order)?.ToLowerInvariant() ?? "time";
+        if (text is "time" or "symbol" or "wallet" or "pnl" or "fee" or "qty" or "price")
+            return text;
+        throw Fail(400, "InvalidRequest", "Order by must be time, symbol, wallet, pnl, fee, qty, or price.");
+    }
+
+    static bool MatchesSearch(TradeView view, string? search)
+    {
+        if (search == null)
+            return true;
+        return Has(view.Symbol, search)
+            || Has(view.Title, search)
+            || Has(view.Note, search)
+            || Has(view.Wallet, search)
+            || Has(view.ClientId, search)
+            || Has(view.OrderRef, search);
+    }
+
+    static bool Has(string? value, string search) =>
+        value != null && value.Contains(search, StringComparison.OrdinalIgnoreCase);
+
+    static bool MatchesOutcome(TradeView view, string? outcome) => outcome switch
+    {
+        null => true,
+        "won" => view.Pnl > 0,
+        "lost" => view.Pnl < 0,
+        PnlTerms.Open => view.Status == PnlTerms.Open,
+        PnlTerms.Closed => view.Status == PnlTerms.Closed,
+        _ => true,
+    };
+
+    static int CompareTrades(TradeView left, TradeView right, string order, bool descending)
+    {
+        var cmp = order switch
+        {
+            "symbol" => string.Compare(left.Symbol, right.Symbol, StringComparison.OrdinalIgnoreCase),
+            "wallet" => string.Compare(left.Wallet, right.Wallet, StringComparison.OrdinalIgnoreCase),
+            "pnl" => ComparePnl(left.Pnl, right.Pnl, descending),
+            "fee" => left.Fee.CompareTo(right.Fee),
+            "qty" => left.Qty.CompareTo(right.Qty),
+            "price" => left.Price.CompareTo(right.Price),
+            _ => left.ExecutedAt.CompareTo(right.ExecutedAt),
+        };
+        if (order != "pnl" && descending)
+            cmp = -cmp;
+        if (cmp != 0)
+            return cmp;
+        return right.Id.CompareTo(left.Id);
+    }
+
+    static int ComparePnl(decimal? left, decimal? right, bool descending)
+    {
+        if (left is null && right is null)
+            return 0;
+        if (left is null)
+            return 1;
+        if (right is null)
+            return -1;
+        var cmp = left.Value.CompareTo(right.Value);
+        return descending ? -cmp : cmp;
     }
 
     static string? ParseKind(string? kind)
