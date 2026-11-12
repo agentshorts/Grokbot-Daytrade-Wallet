@@ -1,0 +1,70 @@
+using ServiceStack;
+using ServiceStack.AI;
+
+[assembly: HostingStartup(typeof(TradeMonitor.ConfigureAiChat))]
+
+namespace TradeMonitor;
+
+/// <summary>
+/// AI Chat using this host's ASP.NET Identity users
+/// </summary>
+public class ConfigureAiChat : IHostingStartup
+{
+    public void Configure(IWebHostBuilder builder) => builder
+        .ConfigureServices((context, services) => {
+
+            services.AddPlugin(new ChatFeature {
+                // Require authentication to access /chat
+                RequireAuth = true,
+                // RequiredRole = "Admin",
+#if DEBUG
+                Tools =
+                {
+                    // WARNING: Expands what AI Models can do by letting them execute
+                    // code on the server and read/write files in allowed directories.
+                    // Only enable for trusted users on trusted environments.
+                    EnableCodeExecution = true,
+                    EnableFilesystemTools = true,
+                },
+                // Share your best Projects, Threads or AI Media with everyone
+                // Publish = { Enabled = true },
+#endif
+                
+                // Expose APIs with these tags to API & MCP Tools
+                // ApiTools = {
+                //     IncludeTags = ["todos"]
+                // },
+
+                // Add this App's own tools to the built-in extensions
+                // Expose these tools to external AI Agents over MCP at /chat/mcp
+                Mcp = {
+                    // allow Agents to call any tool in the above groups without approval
+                    // RejectToolsRequiringApproval = false, 
+                },
+                
+                Setup = (ctx => {
+                    // Advanced setup
+                }),
+            });
+
+            services.ConfigurePlugin<MetadataFeature>(feature => {
+                feature.AddPluginLink("/chat", "AI Chat");
+            });
+
+            // Enable https://servicestack.net/pdf
+            services.AddPlugin(new PdfFeature {
+                PdfCodeGen = new() {
+                    Namespace = "TradeMonitor.ServiceModel.Pdf",
+                    OutputPath = System.IO.Path.Combine(context.HostingEnvironment.ContentRootPath, "../TradeMonitor.ServiceModel/Pdf"),
+                }
+            });
+       })
+       .ConfigureAppHost(afterAppHostInit:appHost => {
+            var log = appHost.GetApplicationServices().GetRequiredService<ILogger<ConfigureAiChat>>();
+            log.LogInformation("AI Chat configured");
+            
+            // Keep typed PDF models in sync with published templates on each debug restart.
+            // Templates you've since edited the model of are left alone, as are any named in Exclude.
+            StartupTasks.Register("pdf", () => appHost.GetPlugin<PdfFeature>().GeneratePdfs());
+        });
+}

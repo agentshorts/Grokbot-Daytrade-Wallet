@@ -1,0 +1,10 @@
+<Solution>
+  <Project Path="TradeMonitor.Client/TradeMonitor.Client.esproj">
+    <BuildType Project="Debug" />
+    <Build />
+  </Project>
+  <Project Path="TradeMonitor.ServiceInterface/TradeMonitor.ServiceInterface.csproj" />
+  <Project Path="TradeMonitor.ServiceModel/TradeMonitor.ServiceModel.csproj" />
+  <Project Path="TradeMonitor.Tests/TradeMonitor.Tests.csproj" />
+  <Project Path="TradeMonitor/TradeMonitor.csproj" />
+</Solution>

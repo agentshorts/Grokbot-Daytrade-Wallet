@@ -1,0 +1,15 @@
+# Gitleaks config for a public repo. Uses the default rule set and only
+# skips generated or vendored paths.
+title = "TradeMonitor gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Generated, vendored and lock files"
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)(bin|obj|dist|wwwroot)/''',
+  '''package-lock\.json$''',
+  '''pnpm-lock\.yaml$''',
+]

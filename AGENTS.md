@@ -1,0 +1,627 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+This is a .NET 10.0 ServiceStack application with a Vue 3 SPA frontend. It demonstrates a modern full-stack architecture using:
+- **Backend**: ServiceStack on ASP.NET Core with ASP.NET Core Identity for authentication
+- **Frontend**: Vue 3 + TypeScript + Vite with Tailwind CSS 4
+- **Database**: SQLite with dual ORM support (EF Core for Identity, OrmLite for ServiceStack)
+
+## Key Dependencies
+
+**Backend**:
+- ServiceStack v10.x (API framework, AutoQuery, Jobs, OpenAPI)
+- ASP.NET Core Identity (authentication)
+- EF Core + OrmLite (dual ORM strategy)
+
+**Frontend**:
+- Vue 3 + TypeScript
+- Vite+ toolchain (`vp` CLI): Vite 8 (Rolldown), Vitest, Oxlint, Oxfmt
+- Tailwind CSS 4
+- unplugin-vue-router (file-based routing)
+- unplugin-vue-markdown (markdown pages)
+- @servicestack/vue (ServiceStack Vue components)
+- Pinia (state management)
+
+## Common Commands
+
+### Development
+
+```bash
+# Start both .NET and Vite dev servers (from project root)
+dotnet watch
+
+# After changing C# DTOs, restart .NET: TypeScript DTOs (dtos.ts) are regenerated on startup.
+# Manual regeneration is rarely needed (requires the .NET app to be running):
+cd TradeMonitor.Client && npm run dtos
+```
+
+**Tailwind CSS (for Razor Pages):**
+```bash
+# Watch mode for styling (from TradeMonitor directory)
+npm run ui:dev
+
+# Production build
+npm run ui:build
+```
+
+**Full development setup:**
+Run .NET backend, Razor Pages and Node Vite dev server in parallel:
+```bash
+cd TradeMonitor && dotnet watch
+```
+
+**Using tailwind in new Razor Pages:**
+
+Terminal 2: `cd TradeMonitor && npm run ui:dev` (Tailwind watch)
+
+### Testing
+
+**Backend:**
+```bash
+# Run all .NET tests
+cd TradeMonitor.Tests && dotnet test
+```
+
+**Frontend:**
+```bash
+# Frontend tests (Vitest via Vite+), import from 'vite-plus/test', mount components with @vue/test-utils
+cd TradeMonitor.Client && npm run test        # Watch mode
+cd TradeMonitor.Client && npm run test:ui     # UI mode
+cd TradeMonitor.Client && npm run test:run    # Single run
+```
+
+### Frontend (Vue/Vite+)
+
+The frontend uses the [Vite+](https://viteplus.dev) toolchain (`vp` CLI): Vite 8 (Rolldown), Vitest, Oxlint and Oxfmt.
+All tool config (`lint`, `fmt`, `test`) lives in [vite.config.ts](TradeMonitor.Client/vite.config.ts). There is no ESLint or Prettier.
+
+```bash
+cd TradeMonitor.Client && npm run build       # vue-tsc type check + Vite+ build
+cd TradeMonitor.Client && npm run check       # Format + lint + type check (run before committing)
+cd TradeMonitor.Client && npm run lint        # Lint + type check .ts files only (Oxlint)
+cd TradeMonitor.Client && npm run typecheck   # Type check .ts and .vue files (vue-tsc)
+cd TradeMonitor.Client && npm run fmt         # Format all files, inc. .vue SFCs (Oxfmt)
+```
+
+Oxlint lints the `<script>` blocks of `.vue` files, but its TypeScript Go type check doesn't understand `.vue` SFCs,
+so `npm run check` and `npm run build` also run `vue-tsc -b`. This keeps TypeScript on 6.x, since `vue-tsc` needs the
+TypeScript compiler API that TypeScript 7 doesn't ship.
+
+Generated files (`src/lib/dtos.ts`, `src/typed-router.d.ts`, `components.d.ts`) and markdown content (`src/**/*.md`)
+are excluded from lint and format.
+
+**Updating dependencies:**
+```bash
+cd TradeMonitor.Client && npm run outdated    # List outdated packages
+cd TradeMonitor.Client && npm run upgrade     # Bump to latest, then run check, test:run and build
+```
+
+`upgrade` holds back the Vite+ pins (`vite`, `vite-plus`, `@vitest/ui`), which are upgraded together with
+`npx --package=vite-plus@<version> vp migrate --no-interactive`, as well as `typescript` (TS 7 breaks `vue-tsc`),
+`vue-router` (`@servicestack/vue` depends on vue-router 4), `vue-tsc` (pinned to 3.3.13, see
+[vuejs/language-tools#6322](https://github.com/vuejs/language-tools/issues/6322)) and `unplugin-vue-markdown`
+(v30+ replaces markdown-it, used by [vite.config.markdown.ts](TradeMonitor.Client/vite.config.markdown.ts)).
+
+### Database Migrations
+```bash
+# Run all migrations (both EF Core and OrmLite)
+cd TradeMonitor && npm run migrate
+
+# Entity Framework migrations (for changes to Identity tables)
+dotnet ef migrations add MigrationName
+dotnet ef database update
+
+# Revert last migration
+cd TradeMonitor && npm run revert:last
+
+# Drop and re-run last migration (useful during development)
+cd TradeMonitor && npm run rerun:last
+```
+
+### AutoQuery CRUD Development (using okai)
+
+```bash
+# Create new AutoQuery CRUD feature with TypeScript data model
+npx okai init Table
+
+# Regenerate C# AutoQuery APIs and DB migration from .d.ts model
+npx okai Table.d.ts
+
+# Remove AutoQuery feature and all generated code
+npx okai rm Table.d.ts
+```
+
+## Architecture
+
+### Hybrid Development/Production Model
+
+**Development Mode:**
+- `dotnet watch` from TradeMonitor starts .NET (port 5001) and Vite dev server (port 5173), accessible via `https://127.0.0.1:5173`
+- ASP.NET Core proxies requests to Vite dev server via `NodeProxy` (configured in [Program.cs](TradeMonitor/Program.cs#L41))
+- Hot Module Replacement (HMR) enabled via WebSocket proxying using `MapNotFoundToNode`, `MapViteHmr`, `RunNodeProcess`, `MapFallbackToNode` in [Program.cs](TradeMonitor/Program.cs)
+
+**Production Mode:**
+- Vite builds Vue app to `TradeMonitor.Client/dist/`, which is copied to `TradeMonitor/wwwroot/` when published
+- ASP.NET Core serves static files directly from `wwwroot` - no Node.js required
+- Fallback to `index.html` for client-side routing
+
+### Modular Startup Configuration
+
+AppHost uses .NET's `IHostingStartup` pattern to split configuration across multiple files in `TradeMonitor/`:
+- [Configure.AppHost.cs](TradeMonitor/Configure.AppHost.cs) - Main ServiceStack AppHost registration
+- [Configure.Auth.cs](TradeMonitor/Configure.Auth.cs) - ServiceStack AuthFeature with ASP.NET Core Identity integration
+- [Configure.AutoQuery.cs](TradeMonitor/Configure.AutoQuery.cs) - AutoQuery features and audit events
+- [Configure.Db.cs](TradeMonitor/Configure.Db.cs) - Database setup (OrmLite for app data, EF Core for Identity)
+- [Configure.Db.Migrations.cs](TradeMonitor/Configure.Db.Migrations.cs) - Runs OrmLite and EF DB Migrations and creates initial users
+- [Configure.BackgroundJobs.cs](TradeMonitor/Configure.BackgroundJobs.cs) - Background job processing
+- [Configure.HealthChecks.cs](TradeMonitor/Configure.HealthChecks.cs) - Health monitoring endpoint
+
+This pattern keeps [Program.cs](TradeMonitor/Program.cs) clean and separates concerns. Each `Configure.*.cs` file is auto-registered via `[assembly: HostingStartup]` attribute.
+
+### Project Structure
+
+```
+TradeMonitor/                         # .NET Backend (hosts both .NET and Vite build output)
+├── Configure.*.cs             # Modular startup configuration
+├── Migrations/                # EF Core Identity migrations + OrmLite app migrations
+├── Pages/                     # Identity Auth Razor Pages
+└── wwwroot/                   # Production static files (from TradeMonitor.Client/dist)
+
+TradeMonitor.Client/                  # Vue Frontend
+├── src/
+│   ├── pages/                 # File-based routing using unplugin-vue-router
+│   ├── layouts/               # Layout components (default, admin, empty)
+│   ├── components/            # Reusable Vue components
+│   ├── stores/                # Pinia stores
+├── assets/
+│   ├── img/                   # App images
+│   ├── styles/                # Tailwind CSS styles
+├── dtos.ts                    # Auto-generated from C# on .NET App startup
+└── vite.config.ts             # Vite+ config: dev/build, lint, fmt, test
+
+TradeMonitor.ServiceModel/            # DTOs & API contracts
+├── *.cs                       # C# Request/Response DTOs
+├── api.d.ts                   # TypeScript data models Schema
+└── *.d.ts                     # TypeScript data models for okai code generation
+
+TradeMonitor.ServiceInterface/        # Service implementations
+├── Data/                      # EF Core DbContext and Identity models
+└── *Services.cs               # ServiceStack service implementations
+
+TradeMonitor.Tests/                   # .NET tests (NUnit)
+├── IntegrationTest.cs         # API integration tests
+└── MigrationTasks.cs          # Migration task runner
+
+config/
+└── deploy.yml                 # Kamal deployment settings
+.github/
+└── workflows/
+    ├── build.yml              # CI build and test
+    ├── build-container.yml    # Container image build
+    └── release.yml            # Production deployment with Kamal
+```
+
+## Frontend Specifics
+
+### Routing
+Uses unplugin-vue-router for file-based routing:
+- `src/pages/index.vue` → `/`
+- `src/pages/about.md` → `/about` (markdown becomes Vue component)
+- `src/pages/admin/bookings.vue` → `/admin/bookings`
+- `src/pages/posts/[slug].vue` → `/posts/:slug` (dynamic routes)
+
+### Markdown Support
+Markdown files in `src/pages/` and `src/_posts/` are converted to Vue components:
+- Uses unplugin-vue-markdown with markdown-it
+- Supports frontmatter, Prism syntax highlighting, and custom containers
+- Configuration in [vite.config.markdown.ts](TradeMonitor.Client/vite.config.markdown.ts)
+
+### ServiceStack Vue Components
+The `@servicestack/vue` library provides pre-built components:
+- `<DataGrid>`: AutoQuery data grids with sorting/filtering
+- `<AutoQueryGrid>`: Full-featured CRUD grid
+- Forms, inputs, and auth components
+
+Reference: Browse [src/pages/](TradeMonitor.Client/src/pages/) for usage examples.
+
+### Database Architecture
+
+**Dual ORM Strategy:**
+- **OrmLite**: All application data (faster, simpler, typed POCO ORM)
+- **Entity Framework Core**: ASP.NET Core Identity tables only (Users, Roles, etc.)
+
+Both use the same SQLite database by default (`App_Data/app.db`). Connection string in `appsettings.json`.
+
+**Migration Files:**
+- `TradeMonitor/Migrations/20240301000000_CreateIdentitySchema.cs` - EF Core migration for Identity
+- `TradeMonitor/Migrations/Migration1000.cs` - OrmLite migration for app tables (e.g., Booking)
+
+Run `npm run migrate` to execute both.
+
+### Authentication Flow
+
+1. ASP.NET Core Identity handles user registration/login via Razor Pages at `/Identity/*` routes
+2. ServiceStack AuthFeature integrates with Identity via `IdentityAuth.For<ApplicationUser>()` in [Configure.Auth.cs](TradeMonitor/Configure.Auth.cs)
+3. Custom claims added via `AdditionalUserClaimsPrincipalFactory` and `CustomUserSession`
+4. ServiceStack services use `[ValidateIsAuthenticated]` and `[ValidateHasRole]` attributes for authorization (see [Bookings.cs](TradeMonitor.ServiceModel/Bookings.cs))
+
+### ServiceStack .NET APIs
+
+ServiceStack APIs adopt a [DTOs-first approach utilizing message-based APIs](https://docs.servicestack.net/api-design). To create ServiceStack APIs create all related DTOs used in the API (aka Service Contracts) into a single file in the `TradeMonitor.ServiceModel` project, e.g:
+
+```csharp
+//TradeMonitor.ServiceModel/Bookings.cs
+
+public class GetBooking : IGet, IReturn<GetBookingResponse>
+{
+    [ValidateGreaterThan(0)]
+    public int Id { get; set; }
+}
+public class GetBookingResponse
+{
+    public Booking? Result { get; set; }
+    public ResponseStatus? ResponseStatus { get; set; }
+}
+```
+
+The response type of an API should be specified in the `IReturn<Response>` marker interface. APIs which don't return a response should implement `IReturnVoid` instead.
+
+By convention, APIs return single results in a `T? Result` property, APIs returns multiple results of the same type in a `List<T> Results` property. Otherwise APIs returning results of different types should use intuitive property names in a flat structured Response DTO for simplicity.
+
+These C# Server DTOs are used to generate the TypeScript `dtos.ts`.
+
+#### Validating APIs
+
+Any API Errors are automatically populated in the `ResponseStatus` property, inc. [Declarative Validation Attributes](https://docs.servicestack.net/declarative-validation) like `[ValidateGreaterThan]` and `[ValidateNotEmpty]` which validate APIs and return any error responses in `ResponseStatus`.
+
+#### Protecting APIs
+
+The Type Validation Attributes below should be used to protect APIs:
+
+- `[ValidateIsAuthenticated]` - Only Authenticated Users
+- `[ValidateIsAdmin]` - Only Admin Users
+- `[ValidateHasRole]` - Only Authenticated Users assigned with the specified role
+- `[ValidateApiKey]` - Only Users with a valid API Key
+
+```csharp
+//TradeMonitor.ServiceModel/Bookings.cs
+[ValidateHasRole("Employee")]
+public class CreateBooking : ICreateDb<Booking>, IReturn<IdResponse>
+{
+   //...
+}
+```
+
+#### Primary HTTP Method
+
+APIs have a primary HTTP Method which if not specified uses HTTP **POST**. Use `IGet`, `IPost`, `IPut`, `IPatch` or `IDelete` to change the HTTP Verb except for AutoQuery APIs which have implied verbs for each CRUD operation.
+
+#### API Implementations
+
+ServiceStack API implementations should be added to `TradeMonitor.ServiceInterface/`:
+
+```csharp
+//TradeMonitor.ServiceInterface/BookingServices.cs
+public class BookingServices(IAutoQueryDb autoquery) : Service
+{
+    public object Any(GetBooking request)
+    {
+        return new GetBookingResponse {
+            Result = base.Db.SingleById<Booking>(request.Id)
+                ?? throw HttpError.NotFound("Booking does not exist")
+        };
+    }
+
+    // Example of overriding an AutoQuery API with a custom implementation 
+    public async Task<object> Any(QueryBookings request)
+    {
+        using var db = autoQuery.GetDb(request, base.Request);
+        var q = autoQuery.CreateQuery(request, base.Request, db);
+        return await autoQuery.ExecuteAsync(request, q, base.Request, db);        
+    }
+}
+```
+
+APIs can be implemented with **sync** or **async** methods using `Any` or its primary HTTP Method e.g. `Get`, `Post`. 
+The return type of an API implementation does not change behavior however returning `object` is recommended so its clear the Request DTO `IReturn<Response>` interface defines the APIs Response type and Service Contract.
+
+The ServiceStack `Service` base class has convenience properties like `Db` to resolve an Open `IDbConnection` for that API and `base.Request` to resolve the `IRequest` context. All other dependencies required by the API should use constructor injection in a Primary Constructor.
+
+A ServiceStack API typically returns the Response DTO defined in its Request DTO `IReturn<Response>` or an Error but can also return any raw [custom Return Type](https://docs.servicestack.net/service-return-types) like `string`, `byte[]`, `Stream`, `IStreamWriter`, `HttpResult` and `HttpError`.
+
+### AutoQuery CRUD Pattern
+
+ServiceStack's AutoQuery generates full CRUD APIs from declarative request DTOs. Example in [Bookings.cs](TradeMonitor.ServiceModel/Bookings.cs):
+
+- `QueryBookings : QueryDb<Booking>`   → GET    /api/QueryBookings with filtering/sorting/paging
+- `CreateBooking : ICreateDb<Booking>` → POST   /api/CreateBooking
+- `UpdateBooking : IPatchDb<Booking>`  → PATCH  /api/UpdateBooking
+- `DeleteBooking : IDeleteDb<Booking>` → DELETE /api/DeleteBooking
+
+**No service implementation required** - AutoQuery handles it. Audit fields (`CreatedBy`, `ModifiedBy`, etc.) auto-populated via `[AutoApply(Behavior.AuditCreate)]` attributes.
+
+[AutoQuery CRUD Docs](https://react-templates.net/docs/autoquery/crud)
+
+### TypeScript DTO Generation
+
+`TradeMonitor.Client/src/lib/dtos.ts` is regenerated automatically every time the .NET App starts (e.g. `dotnet run` or a `dotnet watch` restart).
+This is done by the `dtos` StartupTask registered in [Configure.StartupTasks.GenerateDtos.cs](TradeMonitor/Configure.StartupTasks.GenerateDtos.cs).
+So after changing C# DTOs in `TradeMonitor.ServiceModel/`, restarting the .NET Server is all that's needed, and the Vite dev server auto-reloads.
+
+Running `npm run dtos` manually is unnecessary, but it's available if needed. It calls the running .NET App's `/types/typescript` endpoint to update `dtos.ts`:
+```bash
+cd TradeMonitor.Client && npm run dtos
+```
+
+### Use dtos in Vue:
+
+```typescript
+import { MyRequest } from '@/dtos'
+const client = useClient()
+const api = await client.api(new MyRequest({ name: 'World' }))
+```
+
+### Adding a New Vue Page
+
+1. Create file in `src/pages/`: e.g., `src/pages/my-page.vue`
+2. Route is automatically available at `/my-page`
+3. Use layouts by adding `<route>` block:
+
+```vue
+<route lang="yaml">
+meta:
+    layout: admin
+</route>
+```
+
+### okai AutoQuery Code Generation
+
+The `npx okai` tool generates C# AutoQuery APIs and migrations from TypeScript data models (`.d.ts` files):
+
+1. **TypeScript data model** (`TradeMonitor.ServiceModel/Bookings.d.ts`) defines the entity with decorators
+2. **C# AutoQuery APIs** (`TradeMonitor.ServiceModel/Bookings.cs`) - auto-generated CRUD request/response DTOs
+3. **C# OrmLite migration** (`TradeMonitor/Migrations/Migration1000.cs`) - auto-generated schema creation
+
+This enables rapid prototyping: edit the `.d.ts` model, run `npx okai Bookings.d.ts`, then `npm run migrate`.
+
+**Important:** The `.d.ts` files use special decorators (e.g., `@validateHasRole`, `@autoIncrement`) that map to C# attributes and .NET Types. The valid schema for these is defined in [api.d.ts](TradeMonitor.ServiceModel/api.d.ts). Reference [Bookings.d.ts](TradeMonitor.ServiceModel/Bookings.d.ts) for examples.
+
+### AutoQuery APIs
+
+[C# AutoQuery APIs](https://react-templates.net/docs/autoquery/querying) allow creating queryable C# APIs for RDBMS Tables with just a Request DTO definition, e.g:
+
+```csharp
+public class QueryBookings : QueryDb<Booking>
+{
+    public int? Id { get; set; }
+    public decimal? MinCost { get; set; }
+    public List<decimal>? CostBetween { get; set; }
+    public List<int>? Ids { get; set; }
+}
+```
+
+It uses these conventions to determine the behavior of each property filter:
+
+```csharp
+ImplicitConventions = new() {
+    {"%Above%",      "{Field} >  {Value}"},
+    {"Begin%",       "{Field} >  {Value}"},
+    {"%Beyond%",     "{Field} >  {Value}"},
+    {"%Over%",       "{Field} >  {Value}"},
+    {"%OlderThan",   "{Field} >  {Value}"},
+    {"%After%",      "{Field} >  {Value}"},
+    {"OnOrAfter%",   "{Field} >= {Value}"},
+    {"%From%",       "{Field} >= {Value}"},
+    {"Since%",       "{Field} >= {Value}"},
+    {"Start%",       "{Field} >= {Value}"},
+    {"%Higher%",     "{Field} >= {Value}"},
+    {"Min%",         "{Field} >= {Value}"},
+    {"Minimum%",     "{Field} >= {Value}"},
+    {"Behind%",      "{Field} <  {Value}"},
+    {"%Below%",      "{Field} <  {Value}"},
+    {"%Under%",      "{Field} <  {Value}"},
+    {"%Lower%",      "{Field} <  {Value}"},
+    {"%Before%",     "{Field} <  {Value}"},
+    {"%YoungerThan", "{Field} <  {Value}"},
+    {"OnOrBefore%",  "{Field} <  {Value}"},
+    {"End%",         "{Field} <  {Value}"},
+    {"Stop%",        "{Field} <  {Value}"},
+    {"To%",          "{Field} <  {Value}"},
+    {"Until%",       "{Field} <  {Value}"},
+    {"Max%",         "{Field} <  {Value}"},
+    {"Maximum%",     "{Field} <  {Value}"},
+
+    {"%GreaterThanOrEqualTo%", "{Field} >= {Value}"},
+    {"%GreaterThan%",          "{Field} >  {Value}"},
+    {"%LessThan%",             "{Field} <  {Value}"},
+    {"%LessThanOrEqualTo%",    "{Field} <  {Value}"},
+    {"%NotEqualTo",            "{Field} <> {Value}"},
+
+    {"Like%",        "UPPER({Field}) LIKE UPPER({Value})"},
+    {"%In",          "{Field} IN ({Values})"},
+    {"%Ids",         "{Field} IN ({Values})"},
+    {"%Between%",    "{Field} BETWEEN {Value1} AND {Value2}"},
+    {"%HasAll",      "{Value} & {Field} = {Value}"},
+    {"%HasAny",      "{Value} & {Field} > 0"},
+
+    {"%IsNull",      "{Field} IS NULL"},
+    {"%IsNotNull",   "{Field} IS NOT NULL"},
+};
+```
+
+Each convention key includes `%` wildcards to define where a DataModel field names can appear, either as a Prefix, Suffix or both. The convention value describes the SQL filter that gets applied to the query when the property is populated.
+
+Properties that matches a DataModel field performs an exact query `{Field} = {Value}`, e.g:
+
+```typescript
+const api = client.api(new QueryBookings({ id:1 }))
+```
+
+As `MinCost` matches the `"Min%"` convention it applies the `Cost >= 100` filter to the query:
+
+```typescript
+const api = client.api(new QueryBookings({ minCost:100 }))
+```
+
+As `CostBetween` matches the `"%Between%"` convention it applies the `Cost BETWEEN 100 AND 200` filter to the query:
+
+```typescript
+const api = client.api(new QueryBookings({ costBetween:[100,200] }))
+```
+
+AutoQuery also matches on pluralized fields where `Ids` matches `Id` and applies the `Id IN (1,2,3)` filter:
+
+```typescript
+const api = client.api(new QueryBookings({ ids:[1,2,3] }))
+```
+
+Multiple Request DTO properties applies multiple **AND** filters, e.g:
+
+```typescript
+const api = client.api(new QueryBookings({ minCost:100, ids:[1,2,3] }))
+```
+
+Applies the `(Cost >= 100) AND (Id IN (1,2,3))` filter.
+
+## Key Conventions
+
+### API Client Usage
+
+Frontend code imports from `lib/gateway.ts`:
+
+```typescript
+import { QueryBookings } from '@/lib/dtos'
+
+private client = inject(JsonServiceClient);
+
+const response = await client.api(new QueryBookings())
+```
+
+The `client` is a configured `JsonServiceClient` pointing to `/api` (proxied to .NET backend).
+
+All .NET APIs are accessible by Request DTOs which implement either a `IReturn<ResponseType>` a `IReturnVoid` interface which defines the API Response, e.g:
+
+```typescript
+export class Hello implements IReturn<HelloResponse>, IGet
+{
+    public name: string;
+    public constructor(init?: Partial<Hello>) { (Object as any).assign(this, init); }
+}
+export class HelloResponse
+{
+    public result: string;
+    public constructor(init?: Partial<HelloResponse>) { (Object as any).assign(this, init); }
+}
+```
+
+### ServiceStack API Client Pattern
+
+All client `api`, `apiVoid` and `apiForm` methods **never throws exceptions** - it always returns an `ApiResult<T>` which contains either a **response** for successful responses or an **error** with a populated `ResponseStatus`, as such using `try/catch` around `client.api*` calls is always wrong as it implies it would throw an Exception, when it never does.
+
+The examples below show typical usage:
+
+The `api` and `apiVoid` APIs return an `ApiResult<Response>` which holds both successful and failed API Responses:
+
+```typescript
+const api = await client.api(new Hello({ name }))
+if (api.succeeded) {
+    console.log(`The API succeeded:`, api.response)
+} else if (api.error) {
+    console.log(`The API failed:`, api.error)
+}
+```
+
+The `apiForm` API can use a HTML Form's FormData for its Request Body together with an APIs **empty Request DTO**, e.g:
+
+```typescript
+const submit = async (e: Event) => {
+    const form = e.currentTarget as HTMLFormElement
+    const api = await client.apiForm(new CreateContact(), new FormData(form))
+    if (api.succeeded) {
+        console.log(`The API succeeded:`, api.response)
+    } else if (api.error) {
+        console.log(`The API failed:`, api.error)
+    }
+}
+```
+
+Using `apiForm` is required for multipart/form-data File Uploads.
+
+### Routing
+
+- `/api/*` → ServiceStack services
+- `/Identity/*` → ASP.NET Core Identity Razor Pages
+- `/ui/*` → ServiceStack API Explorer
+- `/admin-ui/*` → ServiceStack Admin UI (requires Admin role)
+- `/types/typescript` → ServiceStack .NET API TypeScript DTOs (for dtos.ts)
+- All other routes → Vite SPA (via fallback in dev/prod)
+
+### Razor Pages Integration
+
+The template includes Razor Pages for Identity UI (`/Identity` routes) that coexist with the Vue SPA. These use Tailwind CSS compiled from `TradeMonitor/tailwind.input.css` to `TradeMonitor/wwwroot/css/app.css`.
+
+### Environment Variables
+
+- `KAMAL_DEPLOY_HOST` - Production hostname for deployment
+
+### Background Jobs
+
+Configured in [Configure.BackgroundJobs.cs](TradeMonitor/Configure.BackgroundJobs.cs) using `BackgroundsJobFeature`. Jobs are commands that implement `IAsyncCommand<T>`.
+
+## Development Workflow
+
+1. **Start dev servers:** `dotnet watch` (starts both .NET and Vite)
+2. **Make backend changes:** Edit C# files in `TradeMonitor.ServiceModel` or `TradeMonitor.ServiceInterface`
+3. **Restart .NET Server:** this also regenerates `dtos.ts` (`npm run dtos` isn't needed)
+4. **Use updated DTOs** from `@/lib/dtos` in the frontend
+5. **Make frontend changes:** Edit Vue files in `TradeMonitor.Client/src`
+6. **Add new CRUD feature:**
+   - `npx okai init Feature`
+   - Edit `TradeMonitor.ServiceModel/Feature.d.ts`
+   - `npx okai Feature.d.ts`
+   - `npm run migrate`
+
+Docs: [AutoQuery Dev Workflow](https://react-templates.net/docs/autoquery/dev-workflow)
+
+## Admin Features
+
+- `/admin-ui` - ServiceStack Admin UI (database, users, API explorer)
+- `/admin-ui/users` - User management (requires Admin role)
+- `/up` - Health check endpoint
+
+
+## Production Build & Deployment
+
+The production build process:
+
+1. Frontend build: `cd TradeMonitor.Client && npm run build`
+   - Outputs to `TradeMonitor.Client/dist/`
+
+2. Backend publish: `cd TradeMonitor && dotnet publish`
+   - Copies frontend build to `wwwroot/`
+   - See publish target in [TradeMonitor.csproj](TradeMonitor/TradeMonitor.csproj) lines 49-60
+
+The application uses Kamal for deployment (config in `.kamal/` directory).
+
+## Deployment
+
+GitHub Actions workflows in `.github/workflows/` uses [Kamal for Deployments](https://react-templates.net/docs/deployments):
+- `build.yml` - CI build and test
+- `build-container.yml` - Docker image build
+- `release.yml` - Kamal deployment to production
+
+Configure `KAMAL_DEPLOY_HOST` in GitHub secrets for your hostname. Kamal config in `config/deploy.yml` derives service names from repository name.
+
+## API Documentation
+
+When running in development:
+- OpenAPI/Swagger UI: https://localhost:5001/swagger-ui/
+- ServiceStack metadata: https://localhost:5001/metadata
+- API Explorer: https://localhost:5001/ui
+
+## Live Demo
+
+Template demo available at: https://vue-spa.web-templates.io
