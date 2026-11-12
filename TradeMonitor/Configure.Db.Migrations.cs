@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using TradeMonitor.Data;
-using TradeMonitor.Migrations;
 using ServiceStack;
 using ServiceStack.Data;
 using ServiceStack.OrmLite;
@@ -16,7 +15,7 @@ public class ConfigureDbMigrations : IHostingStartup
     public void Configure(IWebHostBuilder builder) => builder
         .ConfigureAppHost(appHost => {
             var dbFactory = appHost.Resolve<IDbConnectionFactory>();
-            var migrator = new Migrator(dbFactory, typeof(Migration1000).Assembly);
+            var migrator = new Migrator(dbFactory, typeof(ConfigureDbMigrations).Assembly);
             void RunMigrations()
             {
                 var log = appHost.GetApplicationServices().GetRequiredService<ILogger<ConfigureDbMigrations>>();
@@ -51,7 +50,7 @@ public class ConfigureDbMigrations : IHostingStartup
             // To ensure there's a valid schema before starting, check for an empty database and run migrations if necessary.
             // Applying later migrations stays a deliberate release step through the migrate app task.
             using var db = dbFactory.Open();
-            if (!db.TableExists<ServiceModel.Booking>())
+            if (!db.TableExists("AspNetUsers"))
             {
                 appHost.GetApplicationServices().GetRequiredService<ILogger<ConfigureDbMigrations>>()
                     .LogInformation("Empty database detected; bootstrapping schemas and reference data...");

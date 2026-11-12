@@ -1,8 +1,8 @@
 using NUnit.Framework;
 using ServiceStack.OrmLite;
-using TradeMonitor.Migrations;
 using ServiceStack;
 using ServiceStack.Data;
+using TradeMonitor;
 
 namespace TradeMonitor.Tests;
 
@@ -10,7 +10,7 @@ namespace TradeMonitor.Tests;
 public class MigrationTasks
 {
     IDbConnectionFactory ResolveDbFactory() => new ConfigureDb().ConfigureAndResolve<IDbConnectionFactory>();
-    Migrator CreateMigrator() => new(ResolveDbFactory(), typeof(Migration1000).Assembly); 
+    Migrator CreateMigrator() => new(ResolveDbFactory(), typeof(AppHost).Assembly); 
     
     [Test]
     public void Migrate()

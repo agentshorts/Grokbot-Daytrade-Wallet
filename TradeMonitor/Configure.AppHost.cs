@@ -13,8 +13,8 @@ public class AppHost() : AppHostBase("TradeMonitor"), IHostingStartup
             services.AddSingleton(context.Configuration.GetSection(nameof(AppConfig))?.Get<AppConfig>()
                 ?? new AppConfig {
                         BaseUrl = context.HostingEnvironment.IsDevelopment()
-                            ? "https://localhost:5001"  
-                            : Environment.GetEnvironmentVariable("KAMAL_DEPLOY_HOST"),
+                            ? "https://localhost:5051"
+                            : "http://localhost:5050",
                     });
             }));
 

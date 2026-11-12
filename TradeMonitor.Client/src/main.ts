@@ -11,10 +11,8 @@ import type { RouteLocationNormalized } from 'vue-router'
 import { routes } from 'vue-router/auto-routes'
 import { setupLayouts } from 'virtual:generated-layouts'
 import { createPinia } from 'pinia'
-import press from 'virtual:press'
 import { Icon } from '@iconify/vue'
 
-import LiteYoutube from '@/components/LiteYouTube'
 import { configRouter } from '@/lib/auth'
 import { isServerRoute, useApp } from '@/lib/gateway'
 
@@ -68,8 +66,6 @@ void load().then(() => {
         .use(pinia)
         .use(ServiceStackVue)
         .provide('client', client)
-        .provide('press', press)
-        .component('LiteYouTube', LiteYoutube)
         .component('Iconify', Icon)
         .mount('#app')
 })

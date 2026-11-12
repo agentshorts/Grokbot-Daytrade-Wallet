@@ -12,16 +12,6 @@
                 <ul class="flex flex-wrap items-center justify-end w-full m-0">
                     @{
                         var isAuthenticated = await Html.IsAuthenticatedAsync();
-                        var isAdmin = await Html.HasRoleAsync("Admin");
-                        void RenderNavLink(string href, string childContent)
-                        {
-                            <li class="relative flex flex-wrap just-fu-start m-0">
-                                <a href="@href" class="@Html.ClassNames("p-4 flex items-center justify-start mw-full hover:text-sky-500 dark:hover:text-sky-400", 
-                                    Html.MatchesPath(href) ? "text-blue-700 dark:text-blue-300" : "")">
-                                    @Html.Raw(childContent)
-                                </a>
-                            </li>
-                        }
                         void RenderLinkButton(string href, string childContent, string? cls = null)
                         {
                             <li class="relative flex flex-wrap just-fu-start m-0">
@@ -31,7 +21,6 @@
                             </li>
                         }
 
-                        RenderNavLink("/bookings-auto", "Bookings");
                         if (!isAuthenticated)
                         {
                             RenderLinkButton("/Identity/Account/Login", "Sign In");

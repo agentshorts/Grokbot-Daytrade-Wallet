@@ -6,6 +6,8 @@ using TradeMonitor.ServiceInterface;
 
 AppHost.RegisterKey();
 
+Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(), "App_Data"));
+
 var builder = WebApplication.CreateBuilder(args);
 var services = builder.Services;
 

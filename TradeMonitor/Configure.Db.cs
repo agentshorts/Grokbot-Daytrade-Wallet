@@ -12,8 +12,10 @@ public class ConfigureDb : IHostingStartup
 {
     public void Configure(IWebHostBuilder builder) => builder
         .ConfigureServices((context, services) => {
+            var appData = Path.Combine(context.HostingEnvironment.ContentRootPath, "App_Data");
+            Directory.CreateDirectory(appData);
             var connectionString = context.Configuration.GetConnectionString("DefaultConnection")
-                                   ?? "DataSource=App_Data/app.db;Cache=Shared";
+                                   ?? $"DataSource={Path.Combine(appData, "app.db")};Cache=Shared";
             
             services.AddOrmLite(options => options.UseSqlite(connectionString));
             // Retry deadlocks, throttling and lost connections on PostgreSQL, SQL Server and MySQL (SQLite isn't retried)

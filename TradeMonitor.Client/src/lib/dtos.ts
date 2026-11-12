@@ -1,8 +1,8 @@
 /* Options:
-Date: 2026-11-01 23:46:20
-Version: 10.40
+Date: 2026-11-12 02:06:30
+Version: 10.50
 Tip: To override a DTO option, remove "//" prefix before updating
-BaseUrl: https://localhost:5001
+BaseUrl: https://localhost:5051
 
 //GlobalNamespace: 
 //MakePropertiesOptional: False
@@ -27,10 +27,6 @@ export interface IReturnVoid
     createResponse(): void;
 }
 
-export interface IGet
-{
-}
-
 export interface IHasSessionId
 {
     sessionId?: string;
@@ -41,27 +37,11 @@ export interface IHasBearerToken
     bearerToken?: string;
 }
 
+export interface IGet
+{
+}
+
 export interface IPost
-{
-}
-
-export interface IPut
-{
-}
-
-export interface IDelete
-{
-}
-
-export interface ICreateDb<Table>
-{
-}
-
-export interface IPatchDb<Table>
-{
-}
-
-export interface IDeleteDb<Table>
 {
 }
 
@@ -92,51 +72,10 @@ export class QueryBase
     public constructor(init?: Partial<QueryBase>) { (Object as any).assign(this, init); }
 }
 
-export class QueryData<T> extends QueryBase
-{
-
-    public constructor(init?: Partial<QueryData<T>>) { super(init); (Object as any).assign(this, init); }
-}
-
 export class QueryDb<T> extends QueryBase
 {
 
     public constructor(init?: Partial<QueryDb<T>>) { super(init); (Object as any).assign(this, init); }
-}
-
-// @DataContract
-export class AuditBase
-{
-    // @DataMember(Order=1)
-    public createdDate: string;
-
-    // @DataMember(Order=2)
-    // @Required()
-    public createdBy: string;
-
-    // @DataMember(Order=3)
-    public modifiedDate: string;
-
-    // @DataMember(Order=4)
-    // @Required()
-    public modifiedBy: string;
-
-    // @DataMember(Order=5)
-    public deletedDate?: string;
-
-    // @DataMember(Order=6)
-    public deletedBy?: string;
-
-    public constructor(init?: Partial<AuditBase>) { (Object as any).assign(this, init); }
-}
-
-export enum RoomType
-{
-    Single = 'Single',
-    Double = 'Double',
-    Queen = 'Queen',
-    Twin = 'Twin',
-    Suite = 'Suite',
 }
 
 export class User
@@ -149,33 +88,6 @@ export class User
     public profileUrl?: string;
 
     public constructor(init?: Partial<User>) { (Object as any).assign(this, init); }
-}
-
-/** @description Booking Details */
-export class Booking extends AuditBase
-{
-    public id: number;
-    public name: string;
-    public roomType: RoomType;
-    public roomNumber: number;
-    public bookingStartDate: string;
-    public bookingEndDate?: string;
-    public cost: number;
-    public notes?: string;
-    public cancelled?: boolean;
-    public employee: User;
-
-    public constructor(init?: Partial<Booking>) { super(init); (Object as any).assign(this, init); }
-}
-
-export class Forecast implements IGet
-{
-    public date: string;
-    public temperatureC: number;
-    public summary?: string;
-    public temperatureF: number;
-
-    public constructor(init?: Partial<Forecast>) { (Object as any).assign(this, init); }
 }
 
 // @DataContract
@@ -287,15 +199,6 @@ export class RegisterResponse implements IHasSessionId, IHasBearerToken
     public constructor(init?: Partial<RegisterResponse>) { (Object as any).assign(this, init); }
 }
 
-export class Todo
-{
-    public id: number;
-    public text: string;
-    public isFinished: boolean;
-
-    public constructor(init?: Partial<Todo>) { (Object as any).assign(this, init); }
-}
-
 // @DataContract
 export class AuthenticateResponse implements IHasSessionId, IHasBearerToken
 {
@@ -344,18 +247,6 @@ export class AuthenticateResponse implements IHasSessionId, IHasBearerToken
     public constructor(init?: Partial<AuthenticateResponse>) { (Object as any).assign(this, init); }
 }
 
-// @DataContract
-export class IdResponse
-{
-    // @DataMember(Order=1)
-    public id: string;
-
-    // @DataMember(Order=2)
-    public responseStatus?: ResponseStatus;
-
-    public constructor(init?: Partial<IdResponse>) { (Object as any).assign(this, init); }
-}
-
 // @Route("/hello/{Name}")
 export class Hello implements IReturn<HelloResponse>, IGet
 {
@@ -365,16 +256,6 @@ export class Hello implements IReturn<HelloResponse>, IGet
     public getTypeName() { return 'Hello'; }
     public getMethod() { return 'GET'; }
     public createResponse() { return new HelloResponse(); }
-}
-
-export class GetWeatherForecast implements IReturn<Forecast[]>, IGet
-{
-    public date?: string;
-
-    public constructor(init?: Partial<GetWeatherForecast>) { (Object as any).assign(this, init); }
-    public getTypeName() { return 'GetWeatherForecast'; }
-    public getMethod() { return 'GET'; }
-    public createResponse() { return new Array<Forecast>(); }
 }
 
 /** @description Sign Up */
@@ -431,68 +312,6 @@ export class ConfirmEmail implements IReturnVoid, IGet
     public createResponse() {}
 }
 
-// @Route("/todos", "GET")
-export class QueryTodos extends QueryData<Todo> implements IReturn<QueryResponse<Todo>>
-{
-    public id?: number;
-    public ids?: number[];
-    public textContains?: string;
-
-    public constructor(init?: Partial<QueryTodos>) { super(init); (Object as any).assign(this, init); }
-    public getTypeName() { return 'QueryTodos'; }
-    public getMethod() { return 'GET'; }
-    public createResponse() { return new QueryResponse<Todo>(); }
-}
-
-// @Route("/todos", "POST")
-export class CreateTodo implements IReturn<Todo>, IPost
-{
-    // @Validate(Validator="NotEmpty")
-    public text: string;
-
-    public constructor(init?: Partial<CreateTodo>) { (Object as any).assign(this, init); }
-    public getTypeName() { return 'CreateTodo'; }
-    public getMethod() { return 'POST'; }
-    public createResponse() { return new Todo(); }
-}
-
-// @Route("/todos/{Id}", "PUT")
-export class UpdateTodo implements IReturn<Todo>, IPut
-{
-    public id: number;
-    // @Validate(Validator="NotEmpty")
-    public text: string;
-
-    public isFinished: boolean;
-
-    public constructor(init?: Partial<UpdateTodo>) { (Object as any).assign(this, init); }
-    public getTypeName() { return 'UpdateTodo'; }
-    public getMethod() { return 'PUT'; }
-    public createResponse() { return new Todo(); }
-}
-
-// @Route("/todos/{Id}", "DELETE")
-export class DeleteTodo implements IReturnVoid, IDelete
-{
-    public id: number;
-
-    public constructor(init?: Partial<DeleteTodo>) { (Object as any).assign(this, init); }
-    public getTypeName() { return 'DeleteTodo'; }
-    public getMethod() { return 'DELETE'; }
-    public createResponse() {}
-}
-
-// @Route("/todos", "DELETE")
-export class DeleteTodos implements IReturnVoid, IDelete
-{
-    public ids: number[] = [];
-
-    public constructor(init?: Partial<DeleteTodos>) { (Object as any).assign(this, init); }
-    public getTypeName() { return 'DeleteTodos'; }
-    public getMethod() { return 'DELETE'; }
-    public createResponse() {}
-}
-
 /** @description Sign In */
 // @Route("/auth", "GET,POST")
 // @Route("/auth/{provider}", "POST")
@@ -534,18 +353,6 @@ export class Authenticate implements IReturn<AuthenticateResponse>, IPost
     public createResponse() { return new AuthenticateResponse(); }
 }
 
-// @ValidateRequest(Validator="HasRole(`Employee`)")
-export class QueryBookings extends QueryDb<Booking> implements IReturn<QueryResponse<Booking>>
-{
-    public id?: number;
-    public ids?: number[];
-
-    public constructor(init?: Partial<QueryBookings>) { super(init); (Object as any).assign(this, init); }
-    public getTypeName() { return 'QueryBookings'; }
-    public getMethod() { return 'GET'; }
-    public createResponse() { return new QueryResponse<Booking>(); }
-}
-
 // @ValidateRequest(Validator="IsAdmin")
 export class QueryUsers extends QueryDb<User> implements IReturn<QueryResponse<User>>
 {
@@ -555,65 +362,5 @@ export class QueryUsers extends QueryDb<User> implements IReturn<QueryResponse<U
     public getTypeName() { return 'QueryUsers'; }
     public getMethod() { return 'GET'; }
     public createResponse() { return new QueryResponse<User>(); }
-}
-
-// @ValidateRequest(Validator="HasRole(`Employee`)")
-export class CreateBooking implements IReturn<IdResponse>, ICreateDb<Booking>
-{
-    // @Validate(Validator="NotEmpty")
-    public name: string;
-
-    public roomType: RoomType;
-    // @Validate(Validator="GreaterThan(0)")
-    public roomNumber: number;
-
-    public bookingStartDate: string;
-    public bookingEndDate?: string;
-    // @Validate(Validator="GreaterThan(0)")
-    public cost: number;
-
-    public notes?: string;
-    public cancelled?: boolean;
-
-    public constructor(init?: Partial<CreateBooking>) { (Object as any).assign(this, init); }
-    public getTypeName() { return 'CreateBooking'; }
-    public getMethod() { return 'POST'; }
-    public createResponse() { return new IdResponse(); }
-}
-
-// @ValidateRequest(Validator="HasRole(`Employee`)")
-export class UpdateBooking implements IReturn<IdResponse>, IPatchDb<Booking>
-{
-    public id: number;
-    public name?: string;
-    public roomType?: RoomType;
-    // @Validate(Validator="GreaterThan(0)")
-    public roomNumber?: number;
-
-    public bookingStartDate?: string;
-    public bookingEndDate?: string;
-    // @Validate(Validator="GreaterThan(0)")
-    public cost?: number;
-
-    public notes?: string;
-    public cancelled?: boolean;
-
-    public constructor(init?: Partial<UpdateBooking>) { (Object as any).assign(this, init); }
-    public getTypeName() { return 'UpdateBooking'; }
-    public getMethod() { return 'PATCH'; }
-    public createResponse() { return new IdResponse(); }
-}
-
-// @ValidateRequest(Validator="HasRole(`Manager`)")
-// @ValidateRequest(Validator="HasRole(`Employee`)")
-export class DeleteBooking implements IReturnVoid, IDeleteDb<Booking>
-{
-    public id?: number;
-    public ids?: number[];
-
-    public constructor(init?: Partial<DeleteBooking>) { (Object as any).assign(this, init); }
-    public getTypeName() { return 'DeleteBooking'; }
-    public getMethod() { return 'DELETE'; }
-    public createResponse() {}
 }
 
