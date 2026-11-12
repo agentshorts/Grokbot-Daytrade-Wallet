@@ -22,6 +22,7 @@ public class IntegrationTest
 
     public IntegrationTest()
     {
+        TradeMonitor.AppHost.RegisterKey();
         appHost = new AppHost()
             .Init()
             .Start(BaseUri);

@@ -16,6 +16,7 @@ public class AppHost() : AppHostBase("TradeMonitor"), IHostingStartup
                             ? "https://localhost:5051"
                             : "http://localhost:5050",
                     });
+            services.AddSingleton<ILedgerClock, SystemLedgerClock>();
             }));
 
     // Configure your AppHost with the necessary configuration and dependencies your App needs
