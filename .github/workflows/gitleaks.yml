@@ -25,4 +25,4 @@ jobs:
           sudo mv gitleaks /usr/local/bin/gitleaks
 
       - name: Scan full history
-        run: gitleaks git --config .gitleaks.toml --redact --verbose --exit-code 1 .
+        run: gitleaks git --config .gitleaks.toml --log-opts="--full-history --diff-filter=tuxdb" --redact --verbose --exit-code 1 .

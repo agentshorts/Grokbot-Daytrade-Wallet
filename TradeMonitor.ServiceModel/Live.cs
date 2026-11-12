@@ -58,6 +58,7 @@ public class LiveCandle
     public decimal High { get; set; }
     public decimal Low { get; set; }
     public decimal Close { get; set; }
+    public decimal Volume { get; set; }
 }
 
 [Api("Latest public price for one product")]
@@ -90,14 +91,24 @@ public class GetLiveBars : IGet, IReturn<GetLiveBarsResponse>
 {
     public string? Product { get; set; }
 
-    [Description("1m, 5m, 15m, 1h, or 1d. Defaults to 5m.")]
+    [Description("Preset or custom interval such as 1m, 7m, 4h, 1d, or 1w. Defaults to 5m.")]
     public string? Granularity { get; set; }
+
+    [Description("Inclusive range start, unix seconds. Omit for the stored history.")]
+    public long? From { get; set; }
+
+    [Description("Exclusive range end, unix seconds.")]
+    public long? To { get; set; }
 }
 
 public class GetLiveBarsResponse
 {
     public string Product { get; set; } = "";
     public string Granularity { get; set; } = "5m";
+    public string Requested { get; set; } = "5m";
+    public int Seconds { get; set; } = 300;
+    public bool Capped { get; set; }
+    public string Hint { get; set; } = "";
     public List<LiveCandle> Results { get; set; } = [];
     public ResponseStatus? ResponseStatus { get; set; }
 }

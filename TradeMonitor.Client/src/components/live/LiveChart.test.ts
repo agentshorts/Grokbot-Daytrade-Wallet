@@ -14,6 +14,7 @@ const chart = vi.hoisted(() => {
             addSeries: () => ({
                 setData,
                 update,
+                applyOptions: vi.fn(),
                 createPriceLine: vi.fn(),
                 removePriceLine: vi.fn(),
                 coordinateToPrice: () => 10,
@@ -34,7 +35,14 @@ const chart = vi.hoisted(() => {
 vi.mock('lightweight-charts', () => ({
     ColorType: { Solid: 'solid' },
     LineStyle: { Solid: 0, Dashed: 2 },
+    LineType: { Simple: 0, WithSteps: 1 },
     LineSeries: {},
+    AreaSeries: {},
+    BaselineSeries: {},
+    CandlestickSeries: {},
+    BarSeries: {},
+    HistogramSeries: {},
+    createSeriesMarkers: vi.fn(),
     createChart: () => chart.api,
 }))
 
@@ -78,6 +86,6 @@ describe('live chart', () => {
             ],
         } as never)
         await flushPromises()
-        expect(chart.update).toHaveBeenCalledWith({ time: 1_780_000_800, value: 102 })
+        expect(chart.update).toHaveBeenCalledWith({ time: 1_780_000_800, open: 102, high: 102, low: 102, close: 102 })
     })
 })

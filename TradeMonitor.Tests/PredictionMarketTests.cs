@@ -287,7 +287,7 @@ public class PredictionMarketTests
             SeedSyncRows(db);
             db.ExecuteSql("ALTER TABLE Wallet DROP COLUMN Kind");
             db.ExecuteSql("ALTER TABLE Transfer DROP COLUMN Excluded");
-            db.ExecuteSql("DELETE FROM Migration WHERE Name = 'Migration1004'");
+            db.ExecuteSql("DELETE FROM Migration WHERE Name IN ('Migration1004', 'Migration1005')");
         }
 
         var migrated = new Migrator(factory, typeof(Migration1000).Assembly).Run();

@@ -52,7 +52,7 @@ public class MarketStorageTests
             Assert.That(db.TableExists<PriceBar>(), Is.True);
             Assert.That(db.TableExists<TrackedSymbol>(), Is.True);
             db.DeleteAll<TrackedSymbol>();
-            db.ExecuteSql("DELETE FROM Migration WHERE Name IN ('Migration1003', 'Migration1004')");
+            db.ExecuteSql("DELETE FROM Migration WHERE Name IN ('Migration1003', 'Migration1004', 'Migration1005')");
         }
 
         var restored = new Migrator(factory, typeof(Migration1003).Assembly).Run();
