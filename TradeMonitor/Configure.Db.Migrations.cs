@@ -47,14 +47,27 @@ public class ConfigureDbMigrations : IHostingStartup
             AppTasks.Register("migrate.rerun", args => migrator.Rerun(args[0]));
             AppTasks.Run();
 
-            // To ensure there's a valid schema before starting, check for an empty database and run migrations if necessary.
-            // Applying later migrations stays a deliberate release step through the migrate app task.
-            using var db = dbFactory.Open();
-            if (!db.TableExists("AspNetUsers"))
+            // Pending OrmLite migrations apply on every start, including an existing database.
+            // Migrator records each completed name and skips it on the next start, so a second
+            // start leaves rows that are already stored as they are. Migration1001 adds Trade.Kind
+            // only when that column is missing, and existing rows take the Fill default.
+            // Identity tables and seed users are created only when the database is empty.
+            var log = appHost.GetApplicationServices().GetRequiredService<ILogger<ConfigureDbMigrations>>();
+            bool identitySchemaExists;
+            using (var db = dbFactory.Open())
+                identitySchemaExists = db.TableExists("AspNetUsers");
+
+            if (!identitySchemaExists)
             {
-                appHost.GetApplicationServices().GetRequiredService<ILogger<ConfigureDbMigrations>>()
-                    .LogInformation("Empty database detected; bootstrapping schemas and reference data...");
+                log.LogInformation("Empty database detected; bootstrapping schemas and reference data...");
                 RunMigrations();
+            }
+            else
+            {
+                log.LogInformation("Running pending OrmLite migrations...");
+                var pending = migrator.Run();
+                if (!pending.Succeeded)
+                    throw new InvalidOperationException(pending.Error?.Message ?? "OrmLite migrations failed.", pending.Error);
             }
         });
 

@@ -19,7 +19,7 @@ The script does four things:
 1. If `.env` is missing, it copies `.env.example` to `.env`.
 2. If `MCP_API_KEY` is empty in both the environment and `.env`, it generates a key and writes it to `.env`. The console shows the first four characters and the length. It does not print the full key.
 3. It installs client packages, builds the Vue client and the .NET server in Release, and copies the client build into `TradeMonitor\wwwroot`. `npm ci` runs when `TradeMonitor.Client\node_modules` is missing or when `package-lock.json` has changed since the last install. After a successful `npm ci`, the script stores the SHA-256 of `package-lock.json` in `node_modules\.trademonitor-lock.sha256`. A missing stamp counts as a change, and the console prints one line that says why it is reinstalling. `-SkipBuild` skips the install and both builds.
-4. It starts the app with `ASPNETCORE_ENVIRONMENT=Production` and `ASPNETCORE_URLS=http://127.0.0.1:5050`.
+4. It starts the app with `ASPNETCORE_ENVIRONMENT=Production` and `ASPNETCORE_URLS=http://127.0.0.1:5050`. The host applies pending OrmLite migrations to the existing SQLite file. Rows already stored stay as they are. A trade recorded before the Kind column existed is kept and marked Fill.
 
 `localhost` and `::1` are accepted and rewritten to `127.0.0.1`. Any other host, including `0.0.0.0`, `+`, `*`, or a LAN address, stops the script before it starts the host. The server refuses those URLs as well.
 
