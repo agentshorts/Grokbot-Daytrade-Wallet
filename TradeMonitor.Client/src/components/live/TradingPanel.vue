@@ -167,18 +167,6 @@ function orderLabel(type: LiveOrderType) {
                 <span :class="pnlClass(book?.realizedPnl)">{{ formatMoney(book?.realizedPnl ?? 0) }} realized</span>
             </div>
 
-            <label class="block text-xs font-medium text-gray-500">
-                Wallet
-                <select
-                    data-testid="wallet-select"
-                    class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
-                    :value="walletKey"
-                    @change="emit('wallet', ($event.target as HTMLSelectElement).value)"
-                >
-                    <option value="">Choose a wallet</option>
-                    <option v-for="item in wallets" :key="item.key" :value="item.key">{{ item.name }} · {{ item.mode }}</option>
-                </select>
-            </label>
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
                 <input
                     data-testid="show-trades"

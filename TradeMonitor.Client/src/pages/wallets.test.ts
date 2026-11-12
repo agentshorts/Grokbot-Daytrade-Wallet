@@ -225,7 +225,14 @@ function installFetch(status = 200) {
         else if (path === '/equity') payload = body.equity
         else if (path === '/pnl/daily') payload = body.daily
         else if (path === '/fees') payload = body.fees
-        else if (path === '/positions') payload = body.positions
+        else if (path === '/positions') {
+            if (url.includes('wallet=')) payload = body.positions
+            else {
+                const paperRows = detailBody('paper').positions.results.map((row) => ({ ...row, wallet: 'paper' }))
+                const coinbaseRows = detailBody('coinbase').positions.results.map((row) => ({ ...row, wallet: 'coinbase' }))
+                payload = { markStaleAfterMinutes: 15, results: [...paperRows, ...coinbaseRows] }
+            }
+        }
         else if (path === '/trades') payload = body.trades
         return Promise.resolve(new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } }))
     })
@@ -274,9 +281,15 @@ describe('wallets list', () => {
         expect(urls.some((url) => ledgerPath(url) === '/summary' && url.includes('includeArchived=true'))).toBe(true)
         expect(urls.some((url) => ledgerPath(url) === '/wallets' && url.includes('includeArchived=true'))).toBe(true)
 
-        const paper = wrapper.findAll('button').find((button) => button.text().includes('Paper'))
-        expect(paper).toBeTruthy()
-        await paper?.trigger('click')
+        const paperLive = wrapper.get('[data-testid="wallet-paper"] [data-testid="open-in-live"]')
+        expect(paperLive.attributes('href')).toBe('/live?wallet=paper&symbol=BTC-USD')
+        expect(paperLive.attributes('target')).toBe('_blank')
+        expect(paperLive.attributes('rel')).toBe('noopener')
+        expect(wrapper.get('[data-testid="wallet-paper"] [data-testid="wallet-live-name"]').attributes('href')).toBe('/live?wallet=paper&symbol=BTC-USD')
+        expect(wrapper.get('[data-testid="wallet-coinbase"] [data-testid="open-in-live"]').attributes('href')).toBe('/live?wallet=coinbase&symbol=SOL-USD')
+        expect(wrapper.get('[data-testid="wallet-old-book"] [data-testid="open-in-live"]').attributes('href')).toBe('/live?wallet=old-book')
+
+        await wrapper.get('[data-testid="wallet-paper"]').trigger('click')
         await flushPromises()
         expect(router.currentRoute.value.path).toBe('/wallet/paper')
         expect(router.currentRoute.value.query.wallet).toBe('paper')

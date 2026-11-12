@@ -4,6 +4,7 @@ import PctCell from '@/components/PctCell.vue'
 import Sparkline from '@/components/Sparkline.vue'
 import TimeCell from '@/components/TimeCell.vue'
 import type { WalletSummary } from '@/lib/book'
+import { liveHref } from '@/lib/liveQuery'
 
 defineProps<{
     wallet?: WalletSummary | null
@@ -33,10 +34,10 @@ const emit = defineEmits<{ select: [] }>()
     >
         No wallets yet
     </div>
-    <button
+    <article
         v-else
-        type="button"
-        class="min-w-0 rounded-2xl border bg-white p-5 text-start transition-shadow focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 dark:bg-white/[0.03]"
+        tabindex="0"
+        class="min-w-0 cursor-pointer rounded-2xl border bg-white p-5 text-start transition-shadow focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 dark:bg-white/[0.03]"
         :class="
             selected
                 ? 'border-brand-300 shadow-theme-sm ring-2 ring-brand-500/30 dark:border-brand-700'
@@ -45,6 +46,7 @@ const emit = defineEmits<{ select: [] }>()
         :aria-pressed="selected"
         :data-testid="wallet ? `wallet-${wallet.key}` : undefined"
         @click="emit('select')"
+        @keydown.enter.self.prevent="emit('select')"
     >
         <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -54,7 +56,18 @@ const emit = defineEmits<{ select: [] }>()
                 >
                     {{ wallet.venue }}
                 </p>
-                <h3 class="truncate text-base font-semibold text-gray-900 dark:text-white">{{ wallet.name }}</h3>
+                <h3 class="truncate text-base font-semibold text-gray-900 dark:text-white">
+                    <a
+                        :href="liveHref(wallet.key, wallet.liveSymbol)"
+                        target="_blank"
+                        rel="noopener"
+                        class="hover:text-brand-600 dark:hover:text-brand-300"
+                        data-testid="wallet-live-name"
+                        @click.stop
+                    >
+                        {{ wallet.name }}
+                    </a>
+                </h3>
             </div>
             <span
                 class="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium"
@@ -67,6 +80,21 @@ const emit = defineEmits<{ select: [] }>()
                 {{ wallet.mode === 'real' ? 'Real' : 'Paper' }}
             </span>
         </div>
+        <a
+            :href="liveHref(wallet.key, wallet.liveSymbol)"
+            target="_blank"
+            rel="noopener"
+            data-testid="open-in-live"
+            class="mt-3 inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-200 dark:hover:text-brand-300"
+            @click.stop
+        >
+            <svg viewBox="0 0 16 16" class="size-3.5" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M6 3.5H3.5v9h9V10" />
+                <path d="M8.5 3.5H12.5V7.5" />
+                <path d="M12.5 3.5 7 9" />
+            </svg>
+            Open in Live
+        </a>
         <span
             v-if="wallet.isArchived"
             class="mt-2 inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-white/10 dark:text-gray-300"
@@ -91,5 +119,5 @@ const emit = defineEmits<{ select: [] }>()
                 <TimeCell :value="wallet.lastActivityAt" />
             </span>
         </div>
-    </button>
+    </article>
 </template>

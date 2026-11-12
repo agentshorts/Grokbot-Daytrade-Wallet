@@ -1,4 +1,5 @@
 import { changePercent, rangeBounds } from '@/api'
+import { primarySymbol } from '@/lib/liveQuery'
 import type { EquityPoint, HistoryEntry, LedgerQuery, PnlDay, PositionRow, TradeRow, WalletBalances, WalletCardModel, WalletInfo } from '@/api/types'
 import type { TradeRecord, WalletSummary } from '@/lib/book'
 import { formatChartLabel, UNKNOWN_AMOUNT } from '@/lib/format'
@@ -133,7 +134,12 @@ function allowed(rows: WalletInfo[], mode: LedgerMode, wallet: string | null): W
     })
 }
 
-export function buildWalletList(directory: WalletInfo[], cards: WalletCardModel[], filters: Filters): WalletListModel {
+export function buildWalletList(
+    directory: WalletInfo[],
+    cards: WalletCardModel[],
+    filters: Filters,
+    positions: PositionRow[] = [],
+): WalletListModel {
     const emptyBook = directory.length === 0
     const shown = allowed(directory, filters.mode, filters.wallet)
     const cardsByKey = byKey(cards)
@@ -141,6 +147,7 @@ export function buildWalletList(directory: WalletInfo[], cards: WalletCardModel[
         const card = cardsByKey.get(wallet.key)
         const value = card?.totalValue ?? 0
         const change = card?.valueChange ?? 0
+        const holdings = positions.filter((row) => row.wallet === wallet.key)
         return {
             key: wallet.key,
             name: wallet.name || card?.name || wallet.key,
@@ -155,6 +162,14 @@ export function buildWalletList(directory: WalletInfo[], cards: WalletCardModel[
             openPositions: card?.openPositions ?? 0,
             lastActivityAt: card?.lastActivityAt ?? null,
             unmarked: (card?.unmarkedCost ?? 0) > 0 || card?.valuedAtCost === true,
+            liveSymbol: primarySymbol(
+                holdings.map((row) => ({
+                    symbol: row.symbol,
+                    qty: row.qty,
+                    cost: row.costBasis,
+                    open: row.status !== 'closed',
+                })),
+            ),
         }
     })
     return { emptyBook, noMatches: !emptyBook && wallets.length === 0, wallets }

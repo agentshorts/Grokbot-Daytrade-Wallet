@@ -107,6 +107,7 @@ export interface WalletSummary {
     openPositions: number
     lastActivityAt: string | null
     unmarked: boolean
+    liveSymbol?: string | null
 }
 
 export interface EquitySeries {

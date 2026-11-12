@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import type { LiveBook, LiveCosting, LiveOrderType, LiveProduct, LiveSide, LiveTradeMark, PlaceOrderInput, TrackedSymbol } from '@/api/live'
 import type { WalletInfo } from '@/api/types'
 import ChartMenu from '@/components/live/ChartMenu.vue'
@@ -15,11 +16,14 @@ import type { ChartHit } from '@/lib/chartMenu'
 import { applyTick, barsToPoints, bucketSeconds, type SeriesPoint } from '@/lib/liveSeries'
 import { quoteLots } from '@/lib/lotQuote'
 import { readPanelTab, readPanelWidth, writePanelTab, writePanelWidth, type PanelTab, type PanelWidth } from '@/lib/livePanel'
+import { liveQuery, readLiveSelection } from '@/lib/liveQuery'
 import { toTradeMarks } from '@/lib/tradeMarkers'
 
 const ledger = useLedger()
 const live = useLive()
 const stream = useLiveStream()
+const route = useRoute()
+const router = useRouter()
 const { isDark } = useTheme()
 
 const products = ref<LiveProduct[]>([])
@@ -29,6 +33,8 @@ const points = ref<SeriesPoint[]>([])
 const price = ref<number | null>(null)
 const wallets = ref<WalletInfo[]>([])
 const walletKey = ref('')
+const unknownWallet = ref('')
+const walletNotice = ref('')
 const book = ref<LiveBook | null>(null)
 const marks = ref<LiveTradeMark[]>([])
 const showTrades = ref(true)
@@ -49,6 +55,7 @@ const chart = ref<{ zoom: (factor: number) => void; fit: () => void } | null>(nu
 let timer = 0
 let stopStream: (() => void) | null = null
 let sawLive = false
+let booting = true
 
 const fitKey = computed(() => `${product.value}:${granularity.value}`)
 const realWallet = computed(() => wallets.value.find((item) => item.key === walletKey.value)?.mode === 'real')
@@ -288,27 +295,56 @@ function onReset() {
     })
 }
 
+function applyQuery() {
+    const selection = readLiveSelection(route.query, wallets.value, products.value, product.value)
+    product.value = selection.symbol
+    walletKey.value = selection.walletKey
+    unknownWallet.value = selection.unknownWallet ?? ''
+    walletNotice.value = selection.unknownWallet ? 'That wallet is not available.' : ''
+}
+
+function syncQuery() {
+    const next = liveQuery(walletKey.value, product.value, unknownWallet.value || null)
+    const currentWallet = typeof route.query.wallet === 'string' ? route.query.wallet : ''
+    const currentSymbol = typeof route.query.symbol === 'string' ? route.query.symbol : ''
+    if (currentWallet === (next.wallet ?? '') && currentSymbol === (next.symbol ?? '')) return
+    void router.replace({ query: next })
+}
+
+function onProduct(id: string) {
+    if (id === product.value) return
+    product.value = id
+    if (!booting) syncQuery()
+}
+
 function onWallet(key: string) {
     walletKey.value = key
+    unknownWallet.value = ''
+    walletNotice.value = ''
     simulationId.value = null
     book.value = null
     averageEdited.value = false
+    syncQuery()
     void refreshSide()
 }
 
-watch(product, () => {
-    if (!ready.value) return
-    price.value = null
-    void (async () => {
-        try {
-            await loadBars()
-            follow(product.value)
-            await refreshSide()
-        } catch (err) {
-            fail(err)
-        }
-    })()
-})
+watch(
+    product,
+    () => {
+        if (!ready.value || booting) return
+        price.value = null
+        void (async () => {
+            try {
+                await loadBars()
+                follow(product.value)
+                await refreshSide()
+            } catch (err) {
+                fail(err)
+            }
+        })()
+    },
+    { flush: 'sync' },
+)
 
 watch(granularity, () => {
     if (!ready.value) return
@@ -328,6 +364,7 @@ onMounted(async () => {
     try {
         await loadSymbols()
         await loadWallets()
+        applyQuery()
         await loadBars()
         await refreshSide()
         follow(product.value)
@@ -336,6 +373,7 @@ onMounted(async () => {
     } catch (err) {
         fail(err)
     }
+    booting = false
     ready.value = true
     timer = window.setInterval(() => {
         void refreshSide()
@@ -351,13 +389,26 @@ onUnmounted(() => {
 <template>
     <div data-testid="live-page" class="flex h-full min-h-0 flex-col lg:flex-row" @click="menu = null">
         <section class="flex h-[55dvh] min-h-0 min-w-0 flex-1 flex-col lg:h-full">
-            <div class="flex items-center gap-3 border-b border-gray-200 px-3 py-2 dark:border-gray-800" @click.stop>
-                <ProductSelect :products="products" :product="product" @select="product = $event" />
+            <div class="flex flex-wrap items-center gap-3 border-b border-gray-200 px-3 py-2 dark:border-gray-800" @click.stop>
+                <label class="flex items-center gap-2 text-xs font-medium text-gray-500">
+                    Wallet
+                    <select
+                        data-testid="wallet-select"
+                        class="max-w-56 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                        :value="walletKey"
+                        @change="onWallet(($event.target as HTMLSelectElement).value)"
+                    >
+                        <option value="">Choose a wallet</option>
+                        <option v-for="item in wallets" :key="item.key" :value="item.key">{{ item.name }} · {{ item.mode }}</option>
+                    </select>
+                </label>
+                <ProductSelect :products="products" :product="product" @select="onProduct" />
                 <p class="text-lg font-semibold text-gray-900 dark:text-white" data-testid="live-price">
                     {{ price == null ? 'Waiting for a public price' : formatMenuPrice(price) }}
                 </p>
                 <p class="text-xs text-gray-500" data-testid="live-link">{{ linkLabel }}</p>
                 <p class="text-xs text-gray-500">{{ granularity }} · public Coinbase</p>
+                <p v-if="walletNotice" data-testid="wallet-notice" class="text-xs font-medium text-warning-600">{{ walletNotice }}</p>
             </div>
             <div class="relative min-h-0 flex-1" @click.stop>
                 <LiveChart
