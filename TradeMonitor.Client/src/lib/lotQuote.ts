@@ -42,6 +42,20 @@ export function quoteLots(lots: OpenLot[], price: number | null): QuotedLot[] {
     return quoted
 }
 
+export function lotTotals(lots: { qty: number; cost: number; unrealizedPnl: number | null }[], realized: number) {
+    const qty = lots.reduce((sum, lot) => sum + lot.qty, 0)
+    const cost = lots.reduce((sum, lot) => sum + lot.cost, 0)
+    const unrealized = lots.some((lot) => lot.unrealizedPnl == null) ? null : lots.reduce((sum, lot) => sum + (lot.unrealizedPnl ?? 0), 0)
+    return {
+        qty,
+        cost,
+        averageCost: qty === 0 ? 0 : cost / qty,
+        unrealized,
+        realized,
+        total: unrealized == null ? null : unrealized + realized,
+    }
+}
+
 export function averageQuote(openQty: number, openCost: number, sellQty: number, price: number | null): AverageQuote {
     const qty = sellQty < 0 ? 0 : sellQty
     const matchedCost = openQty === 0 || qty === 0 ? 0 : (openCost * qty) / openQty

@@ -99,6 +99,7 @@ public class LiveServices(
                 Fee = trade.Fee,
                 ExecutedAt = trade.ExecutedAt,
                 Simulated = false,
+                RealizedPnl = trade.Side == TradeSide.Sell ? trade.RealizedPnl : null,
             }));
             if (page.Results.Count < 1000)
                 break;

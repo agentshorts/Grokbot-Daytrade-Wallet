@@ -24,6 +24,8 @@ function book(): LiveBook {
         cash: 1000,
         realizedPnl: 0,
         lots: [],
+        closedLots: [],
+        settlements: [],
         average: { openQty: 0, openCost: 0, avgCost: 0, sellQty: 0, price: 100, matchedCost: 0, profit: null },
         orders: [],
         tradeId: null,
@@ -52,7 +54,13 @@ const sold: LiveTradeMark = {
     simulated: false,
 }
 
-async function mountLive(options?: { real?: boolean; simulatedMark?: boolean; path?: string }) {
+const exampleLots = [
+    { tradeId: 1, symbol: 'BTC-USD', qty: 10, buyPrice: 3, cost: 30, price: null, unrealizedPnl: null, unrealizedPnlPercent: null, executedAt: '2026-06-01T15:00:00.000Z' },
+    { tradeId: 2, symbol: 'BTC-USD', qty: 4, buyPrice: 4, cost: 16, price: null, unrealizedPnl: null, unrealizedPnlPercent: null, executedAt: '2026-06-01T15:01:00.000Z' },
+    { tradeId: 3, symbol: 'BTC-USD', qty: 2, buyPrice: 12, cost: 24, price: null, unrealizedPnl: null, unrealizedPnlPercent: null, executedAt: '2026-06-01T15:02:00.000Z' },
+]
+
+async function mountLive(options?: { real?: boolean; simulatedMark?: boolean; path?: string; lots?: boolean }) {
     const link = ref<'off' | 'live' | 'reconnecting'>('live')
     const listeners: ((tick: { productId: string; price: number; at: string | null }) => void)[] = []
     const stream: LiveStream = {
@@ -84,7 +92,7 @@ async function mountLive(options?: { real?: boolean; simulatedMark?: boolean; pa
             }
             return placed ? [saved, sold] : [saved]
         },
-        book: async () => book(),
+        book: async () => (options?.lots ? { ...book(), lots: exampleLots } : book()),
         placePaper: async () => {
             placed = true
             return book()
@@ -123,9 +131,9 @@ async function mountLive(options?: { real?: boolean; simulatedMark?: boolean; pa
             stubs: {
                 LiveChart: {
                     name: 'LiveChart',
-                    props: ['points', 'markers'],
+                    props: ['points', 'markers', 'lots'],
                     template:
-                        '<div data-testid="chart-stub" :data-values="(points || []).map((point) => point.value).join(\',\')" :data-marks="(markers || []).map((mark) => mark.side + \':\' + mark.simulated + \':\' + mark.text).join(\'|\')" />',
+                        '<div data-testid="chart-stub" :data-values="(points || []).map((point) => point.value).join(\',\')" :data-marks="(markers || []).map((mark) => mark.side + \':\' + mark.simulated + \':\' + mark.text).join(\'|\')" :data-lots="(lots || []).length" />',
                 },
             },
         },
@@ -210,5 +218,32 @@ describe('live page', () => {
         expect(missing.router.currentRoute.value.query.symbol).toBe('BTC-USD')
         expect(missing.wrapper.find('[data-testid=wallet-notice]').exists()).toBe(false)
         missing.wrapper.unmount()
+    })
+
+    it('shows lot P/L for the worked example and hides cost lines with the trade toggle', async () => {
+        localStorage.setItem('trademonitor.live.showTrades', '1')
+        const { wrapper, listeners } = await mountLive({ path: '/live?wallet=paper', lots: true })
+        expect((wrapper.get('[data-testid=show-trades]').element as HTMLInputElement).checked).toBe(true)
+        await wrapper.get('[data-testid=tab-lots]').trigger('click')
+        listeners[0]?.({ productId: 'BTC-USD', price: 15, at: '2026-06-01T15:05:00.000Z' })
+        await flushPromises()
+        const view = wrapper.get('[data-testid=lots-view]')
+        expect(view.text()).toContain('+$120.00')
+        expect(view.text()).toContain('+$44.00')
+        expect(view.text()).toContain('+$6.00')
+        expect(wrapper.get('[data-testid=lot-totals]').text()).toContain('+$170.00')
+        expect(wrapper.get('[data-testid=lot-totals]').text()).toContain('$4.375')
+        expect(wrapper.get('[data-testid=chart-stub]').attributes('data-lots')).toBe('3')
+
+        listeners[0]?.({ productId: 'BTC-USD', price: 16, at: '2026-06-01T15:06:00.000Z' })
+        await flushPromises()
+        expect(wrapper.get('[data-testid=lot-totals]').text()).toContain('+$186.00')
+
+        await wrapper.get('[data-testid=show-trades]').setValue(false)
+        await flushPromises()
+        expect(wrapper.get('[data-testid=chart-stub]').attributes('data-lots')).toBe('0')
+        expect(localStorage.getItem('trademonitor.live.showTrades')).toBe('0')
+        wrapper.unmount()
+        localStorage.removeItem('trademonitor.live.showTrades')
     })
 })

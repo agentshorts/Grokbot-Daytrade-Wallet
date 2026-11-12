@@ -15,7 +15,7 @@ import { formatMenuPrice } from '@/lib/chartMenu'
 import type { ChartHit } from '@/lib/chartMenu'
 import { applyTick, barsToPoints, bucketSeconds, type SeriesPoint } from '@/lib/liveSeries'
 import { quoteLots } from '@/lib/lotQuote'
-import { readPanelTab, readPanelWidth, writePanelTab, writePanelWidth, type PanelTab, type PanelWidth } from '@/lib/livePanel'
+import { readPanelTab, readPanelWidth, readShowTrades, writePanelTab, writePanelWidth, writeShowTrades, type PanelTab, type PanelWidth } from '@/lib/livePanel'
 import { liveQuery, readLiveSelection } from '@/lib/liveQuery'
 import { toTradeMarks } from '@/lib/tradeMarkers'
 
@@ -78,6 +78,11 @@ function rememberWidth(value: PanelWidth) {
 function rememberTab(value: PanelTab) {
     tab.value = value
     writePanelTab(localStorage, value)
+}
+
+function onShowTrades(value: boolean) {
+    showTrades.value = value
+    writeShowTrades(localStorage, value)
 }
 
 function fail(err: unknown) {
@@ -361,6 +366,7 @@ watch(stream.link, (value) => {
 onMounted(async () => {
     width.value = readPanelWidth(localStorage)
     tab.value = readPanelTab(localStorage)
+    showTrades.value = readShowTrades(localStorage)
     try {
         await loadSymbols()
         await loadWallets()
@@ -409,6 +415,16 @@ onUnmounted(() => {
                 <p class="text-xs text-gray-500" data-testid="live-link">{{ linkLabel }}</p>
                 <p class="text-xs text-gray-500">{{ granularity }} · public Coinbase</p>
                 <p v-if="walletNotice" data-testid="wallet-notice" class="text-xs font-medium text-warning-600">{{ walletNotice }}</p>
+                <label class="ms-auto flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+                    <input
+                        data-testid="show-trades"
+                        type="checkbox"
+                        class="size-4 rounded border-gray-300"
+                        :checked="showTrades"
+                        @change="onShowTrades(($event.target as HTMLInputElement).checked)"
+                    />
+                    Show my trades
+                </label>
             </div>
             <div class="relative min-h-0 flex-1" @click.stop>
                 <LiveChart
@@ -416,7 +432,7 @@ onUnmounted(() => {
                     :points="points"
                     :markers="chartMarkers"
                     :price="price"
-                    :lots="shownLots"
+                    :lots="showTrades ? shownLots : []"
                     :orders="shownBook?.orders ?? []"
                     :dark="isDark"
                     :fit-key="fitKey"
@@ -438,7 +454,6 @@ onUnmounted(() => {
             :status="status"
             :error="error"
             :auth="auth"
-            :show-trades="showTrades"
             @width="rememberWidth"
             @tab="rememberTab"
             @wallet="onWallet"
@@ -451,7 +466,6 @@ onUnmounted(() => {
             @place="onPlace"
             @cancel="onCancel"
             @reset="onReset"
-            @show-trades="showTrades = $event"
         />
     </div>
 </template>

@@ -3,8 +3,8 @@ import { computed, ref } from 'vue'
 import type { LiveBook, LiveCosting, LiveOrderType, LiveSide } from '@/api/live'
 import type { WalletInfo } from '@/api/types'
 import { formatMenuPrice } from '@/lib/chartMenu'
-import { formatMoney, formatPct, formatQty } from '@/lib/format'
-import { averageQuote } from '@/lib/lotQuote'
+import { formatMoney, formatPct, formatQty, formatTimeCt } from '@/lib/format'
+import { averageQuote, lotTotals } from '@/lib/lotQuote'
 import type { PanelTab, PanelWidth } from '@/lib/livePanel'
 
 const props = defineProps<{
@@ -20,7 +20,6 @@ const props = defineProps<{
     status: string
     error: string
     auth: boolean
-    showTrades: boolean
 }>()
 
 const emit = defineEmits<{
@@ -36,7 +35,6 @@ const emit = defineEmits<{
     place: [payload: { side: LiveSide; type: LiveOrderType; trigger: number | null; costing: LiveCosting; lotId: number | null }]
     cancel: [id: number]
     reset: []
-    'show-trades': [value: boolean]
 }>()
 
 const walletName = ref('')
@@ -50,6 +48,9 @@ const lotId = ref('')
 const collapsed = computed(() => props.width === 'collapsed')
 const simulated = computed(() => props.book?.simulated === true || props.wallets.find((item) => item.key === props.walletKey)?.mode === 'real')
 const lots = computed(() => props.book?.lots ?? [])
+const closedLots = computed(() => props.book?.closedLots ?? [])
+const settlements = computed(() => props.book?.settlements ?? [])
+const totals = computed(() => lotTotals(lots.value, closedLots.value.reduce((sum, lot) => sum + lot.realizedPnl, 0)))
 const orders = computed(() => (props.book?.orders ?? []).filter((order) => order.status.toLowerCase() === 'open' || order.status === ''))
 const average = computed(() => averageQuote(props.book?.average.openQty ?? 0, props.book?.average.openCost ?? 0, props.averageQty, props.price))
 const buyCost = computed(() => (props.price == null ? null : props.qty * props.price))
@@ -141,12 +142,14 @@ function orderLabel(type: LiveOrderType) {
             <button type="button" data-testid="panel-expanded" class="rounded-md px-2 py-1 text-xs font-medium text-gray-500" title="Expand" @click="setWidth('expanded')">▬</button>
             <button v-if="collapsed" type="button" data-testid="tab-quick" class="rounded-md px-2 py-1 text-xs font-semibold text-success-600" @click="openTab('quick')">Q</button>
             <button v-if="collapsed" type="button" data-testid="tab-orders" class="rounded-md px-2 py-1 text-xs font-semibold text-error-500" @click="openTab('orders')">O</button>
+            <button v-if="collapsed" type="button" data-testid="tab-lots" class="rounded-md px-2 py-1 text-xs font-semibold text-gray-600" @click="openTab('lots')">L</button>
             <template v-if="!collapsed">
                 <button type="button" data-testid="tab-quick" class="rounded-lg px-3 py-1 text-sm font-semibold" :class="tab === 'quick' ? 'bg-success-600 text-white' : 'text-gray-600'" @click="openTab('quick')">Quick</button>
                 <button type="button" data-testid="tab-orders" class="rounded-lg px-3 py-1 text-sm font-semibold" :class="tab === 'orders' ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'text-gray-600'" @click="openTab('orders')">
                     Orders
                     <span v-if="orders.length" class="ms-1 rounded-full bg-white/20 px-1.5 text-xs">{{ orders.length }}</span>
                 </button>
+                <button type="button" data-testid="tab-lots" class="rounded-lg px-3 py-1 text-sm font-semibold" :class="tab === 'lots' ? 'bg-brand-500 text-white' : 'text-gray-600'" @click="openTab('lots')">Lots</button>
             </template>
         </div>
 
@@ -166,17 +169,6 @@ function orderLabel(type: LiveOrderType) {
                 <span class="text-gray-500">Cash {{ formatMoney(book?.cash ?? 0, { signed: false }) }}</span>
                 <span :class="pnlClass(book?.realizedPnl)">{{ formatMoney(book?.realizedPnl ?? 0) }} realized</span>
             </div>
-
-            <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-                <input
-                    data-testid="show-trades"
-                    type="checkbox"
-                    class="size-4 rounded border-gray-300"
-                    :checked="showTrades"
-                    @change="emit('show-trades', ($event.target as HTMLInputElement).checked)"
-                />
-                Show my trades
-            </label>
 
             <template v-if="tab === 'quick'">
                 <details class="rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700">
@@ -260,6 +252,66 @@ function orderLabel(type: LiveOrderType) {
                         </button>
                     </div>
                 </div>
+            </template>
+
+            <template v-else-if="tab === 'lots'">
+                <div class="overflow-x-auto" data-testid="lots-view">
+                    <table class="w-full text-left text-sm">
+                        <thead class="text-xs text-gray-500">
+                            <tr>
+                                <th class="py-1 pe-2 font-medium">Opened</th>
+                                <th class="py-1 pe-2 font-medium">Qty</th>
+                                <th class="py-1 pe-2 font-medium">Buy</th>
+                                <th class="py-1 pe-2 font-medium">Cost</th>
+                                <th class="py-1 pe-2 font-medium">Value</th>
+                                <th class="py-1 font-medium">P/L</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="lot in lots" :key="lot.tradeId" data-testid="open-lot">
+                                <td class="py-1 pe-2">{{ formatTimeCt(lot.executedAt) }}</td>
+                                <td class="py-1 pe-2">{{ formatQty(lot.qty) }}</td>
+                                <td class="py-1 pe-2">{{ formatMenuPrice(lot.buyPrice) }}</td>
+                                <td class="py-1 pe-2">{{ formatMoney(lot.cost, { signed: false }) }}</td>
+                                <td class="py-1 pe-2">{{ price == null ? '' : formatMoney(lot.qty * price, { signed: false }) }}</td>
+                                <td class="py-1 font-medium" :class="pnlClass(lot.unrealizedPnl)">
+                                    {{ formatMoney(lot.unrealizedPnl) }}
+                                    <span class="block text-xs">{{ formatPct(lot.unrealizedPnlPercent) }}</span>
+                                </td>
+                            </tr>
+                            <tr v-if="lots.length === 0">
+                                <td colspan="6" class="py-3 text-gray-500">No open lots for this product.</td>
+                            </tr>
+                        </tbody>
+                        <tfoot data-testid="lot-totals">
+                            <tr class="border-t border-gray-200 text-xs dark:border-gray-700">
+                                <td class="py-2 pe-2 font-medium" colspan="2">{{ formatQty(totals.qty) }} held</td>
+                                <td class="py-2 pe-2" colspan="2">Avg {{ formatMenuPrice(totals.averageCost) }}</td>
+                                <td class="py-2 font-medium" colspan="2" :class="pnlClass(totals.total)">
+                                    {{ formatMoney(totals.unrealized) }} open
+                                    <span class="block">{{ formatMoney(totals.realized) }} realized</span>
+                                    <span class="block">{{ formatMoney(totals.total) }} total</span>
+                                </td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                <details data-testid="closed-lots" class="rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700">
+                    <summary class="cursor-pointer font-medium">Closed lots ({{ closedLots.length }})</summary>
+                    <ul class="mt-2 space-y-1">
+                        <li v-for="lot in closedLots" :key="lot.tradeId" data-testid="closed-lot">
+                            {{ formatQty(lot.qty) }} @ {{ formatMenuPrice(lot.buyPrice) }} sold {{ formatMenuPrice(lot.sellPrice) }}
+                            <span class="font-medium" :class="pnlClass(lot.realizedPnl)">{{ formatMoney(lot.realizedPnl) }}</span>
+                        </li>
+                        <li v-if="closedLots.length === 0" class="text-gray-500">No closed lots.</li>
+                    </ul>
+                </details>
+                <ul v-if="settlements.length" data-testid="settlement-lots" class="space-y-1 text-sm">
+                    <li v-for="lot in settlements" :key="lot.tradeId">
+                        Settlement {{ formatQty(lot.qty) }} @ {{ formatMenuPrice(lot.sellPrice) }}
+                        <span :class="pnlClass(lot.realizedPnl)">{{ formatMoney(lot.realizedPnl) }}</span>
+                    </li>
+                </ul>
             </template>
 
             <template v-else>

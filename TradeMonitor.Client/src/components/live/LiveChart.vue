@@ -223,6 +223,7 @@ onUnmounted(() => {
                     :points="arrow.side === 'buy' ? '0,10 6,0 12,10' : '0,0 6,10 12,0'"
                     :fill="arrow.simulated ? 'none' : arrow.color"
                     :stroke="arrow.color"
+                    :stroke-dasharray="arrow.simulated ? '2 1' : undefined"
                     stroke-width="1.5"
                 />
             </svg>
