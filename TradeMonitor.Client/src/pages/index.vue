@@ -54,6 +54,13 @@ function openTrade(trade: TradeRecord) {
         <div>
             <h1 class="text-xl font-semibold text-gray-900 dark:text-white/90">Overview</h1>
             <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Value, P&L and wallets for the current mode and range.</p>
+            <RouterLink
+                data-testid="prediction-pnl"
+                :to="shellLocation('/predictions')"
+                class="mt-2 inline-flex text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400"
+            >
+                Prediction markets
+            </RouterLink>
         </div>
 
         <p

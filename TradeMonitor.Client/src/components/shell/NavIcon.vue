@@ -1,5 +1,5 @@
 <script setup lang="ts">
-defineProps<{ name: 'grid' | 'trades' | 'wallet' | 'live' | 'settings' | 'menu' | 'close' | 'sun' | 'moon' }>()
+defineProps<{ name: 'grid' | 'trades' | 'wallet' | 'predictions' | 'live' | 'settings' | 'menu' | 'close' | 'sun' | 'moon' }>()
 </script>
 
 <template>
@@ -20,6 +20,10 @@ defineProps<{ name: 'grid' | 'trades' | 'wallet' | 'live' | 'settings' | 'menu' 
             <path d="M3 8.5h18v11H3z" />
             <path d="M3 8.5V6.5h14" />
             <path d="M16 13.5h3" />
+        </template>
+        <template v-else-if="name === 'predictions'">
+            <circle cx="12" cy="12" r="8" />
+            <path d="M12 8v4l3 2" />
         </template>
         <template v-else-if="name === 'live'">
             <path d="M3 12h3.5l2.2-5.5L13 17.5l2.2-5.5H21" />

@@ -135,6 +135,68 @@ public class PnlServices(ServiceStack.Data.IDbConnectionFactory dbFactory, ILedg
         };
     }
 
+    public object Any(GetPredictionPnl request)
+    {
+        using var db = dbFactory.Open();
+        var rows = LedgerData.Load(db, Now())
+            .Where(book => book.Wallet.Kind == WalletKind.PredictionMarket)
+            .Where(book => request.IncludeArchived || !book.Wallet.IsArchived)
+            .OrderBy(book => book.Wallet.SortOrder)
+            .ThenBy(book => book.Wallet.Name, StringComparer.Ordinal)
+            .ThenBy(book => book.Wallet.Key, StringComparer.Ordinal)
+            .Select(PredictionRow)
+            .ToList();
+        return new GetPredictionPnlResponse
+        {
+            Wallets = rows,
+            Total = new PredictionPnlTotal
+            {
+                Wallets = rows.Count,
+                Bought = rows.Sum(row => row.Bought),
+                Sold = rows.Sum(row => row.Sold),
+                Fees = rows.Sum(row => row.Fees),
+                RealizedPnl = rows.Sum(row => row.RealizedPnl),
+            },
+        };
+    }
+
+    static PredictionPnlRow PredictionRow(WalletBook book)
+    {
+        var symbols = book.Trades
+            .Select(trade => trade.Symbol)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        return new PredictionPnlRow
+        {
+            Wallet = book.Wallet.Key,
+            Name = book.Wallet.Name,
+            Symbol = symbols.Count == 0 ? "" : string.Join(", ", symbols),
+            Bought = book.Trades.Where(trade => trade.Side == TradeSide.Buy).Sum(trade => trade.Qty),
+            Sold = book.Trades.Where(trade => trade.Side == TradeSide.Sell).Sum(trade => trade.Qty),
+            Fees = book.Replay.Fees,
+            RealizedPnl = book.Replay.RealizedPnl,
+            Settlement = SettlementOf(book),
+        };
+    }
+
+    static string SettlementOf(WalletBook book)
+    {
+        if (book.Trades.Count == 0)
+            return "none";
+        var open = book.Replay.States.LastOrDefault()?.Symbols.Values.Sum(symbol => symbol.Qty) ?? 0;
+        if (open > 0)
+            return "open";
+        var settlements = book.Trades.Where(trade => trade.Kind == TradeKind.Settlement && trade.Side == TradeSide.Sell).ToList();
+        if (settlements.Count == 0)
+            return book.Trades.Any(trade => trade.Side == TradeSide.Sell) ? "closed" : "open";
+        var prices = settlements.Select(trade => trade.Price).Distinct().ToList();
+        if (prices.Count == 1 && prices[0] == 0)
+            return "settled-0";
+        if (prices.Count == 1 && prices[0] == 1)
+            return "settled-1";
+        return "settled";
+    }
+
     public object Any(GetTrade request)
     {
         if (request.Id <= 0)

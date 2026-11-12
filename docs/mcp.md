@@ -83,7 +83,25 @@ Create a wallet. `mode` is `Paper` or `Real` and cannot change later. `base_curr
 }
 ```
 
-The same key and the same values returns the existing wallet. The same key with a different name or mode is rejected.
+The same key and the same values returns the existing wallet. The same key with a different name, mode, or kind is rejected.
+
+`kind` is `Standard` or `PredictionMarket`. Omit it for a standard wallet. A key that starts with `pm-` is stored as `PredictionMarket` even when `kind` is omitted. Passing `Standard` for a `pm-` key is rejected.
+
+### Prediction contracts
+
+Coinbase prediction contracts are one wallet per contract. Create the wallet by hand, then record the buy, the sell or the settlement, and the fee with `trade_record`. The key is `pm-` plus the product id.
+
+```json
+{
+  "key": "pm-KXBTCD-26NOV1210-T71199.99-KALSHI",
+  "name": "BTC 71199.99",
+  "mode": "Real",
+  "venue": "Coinbase",
+  "kind": "PredictionMarket"
+}
+```
+
+A settlement is a sell at `1` or `0` with `kind` `settlement`. Coinbase sync does not create or write these wallets, and it does not post marks for them. Open contracts have no live mark.
 
 ### wallet_update
 

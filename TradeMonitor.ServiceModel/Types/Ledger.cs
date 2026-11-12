@@ -8,6 +8,13 @@ public enum WalletMode
     Real,
 }
 
+// Standard is a spot, equity, or cash wallet. PredictionMarket is one contract, keyed pm-<product id>.
+public enum WalletKind
+{
+    Standard,
+    PredictionMarket,
+}
+
 public enum TradeSide
 {
     Buy,
@@ -66,6 +73,10 @@ public class Wallet
     public string Name { get; set; } = "";
 
     public WalletMode Mode { get; set; }
+
+    // Existing rows are standard wallets. A pm- key is a prediction contract.
+    [Default("'Standard'")]
+    public WalletKind Kind { get; set; } = WalletKind.Standard;
 
     [StringLength(64)]
     public string? Venue { get; set; }
@@ -214,6 +225,10 @@ public class Transfer
     public DateTime At { get; set; }
 
     public string? Note { get; set; }
+
+    // Left out of cash, P&L, totals, and lists. The row stays and can be restored by clearing the flag.
+    [Default(0)]
+    public bool Excluded { get; set; }
 
     public DateTime RecordedAt { get; set; }
 }
