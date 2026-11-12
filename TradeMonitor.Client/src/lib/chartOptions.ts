@@ -126,6 +126,92 @@ export function pnlBarsOption(bars: { label: string; pnl: number | null }[], dar
     }
 }
 
+export function balanceEquityOption(points: { label: string; equity: number; cash: number }[], dark: boolean): Record<string, unknown> {
+    const colors = palette(dark)
+    return {
+        animationDuration: 500,
+        backgroundColor: 'transparent',
+        darkMode: dark,
+        aria: { enabled: true },
+        color: ['#465fff', '#0ba5ec'],
+        tooltip: tooltip(dark, false),
+        legend: { top: 0, textStyle: { color: colors.text } },
+        grid: { left: 8, right: 12, top: 36, bottom: 8, containLabel: true },
+        dataZoom: [{ type: 'inside', throttle: 50 }],
+        xAxis: {
+            type: 'category',
+            data: points.map((point) => point.label),
+            boundaryGap: false,
+            axisLabel: { color: colors.text, fontSize: 11, hideOverlap: true },
+            axisLine: { lineStyle: { color: colors.line } },
+        },
+        yAxis: {
+            type: 'value',
+            scale: true,
+            axisLabel: { color: colors.text, fontSize: 11, formatter: (value: number) => compactMoney(value) },
+            splitLine: { lineStyle: { color: colors.split } },
+        },
+        series: [
+            {
+                name: 'Equity',
+                type: 'line',
+                smooth: true,
+                showSymbol: false,
+                data: points.map((point) => point.equity),
+                lineStyle: { width: 2 },
+                areaStyle: { opacity: 0.18 },
+            },
+            {
+                name: 'Cash',
+                type: 'line',
+                smooth: true,
+                showSymbol: false,
+                data: points.map((point) => point.cash),
+                lineStyle: { width: 2 },
+            },
+        ],
+    }
+}
+
+export function dailyPnlOption(bars: { label: string; pnl: number | null }[], dark: boolean): Record<string, unknown> {
+    const colors = palette(dark)
+    return {
+        animationDuration: 500,
+        backgroundColor: 'transparent',
+        darkMode: dark,
+        aria: { enabled: true },
+        tooltip: tooltip(dark, true),
+        grid: { left: 8, right: 12, top: 16, bottom: 8, containLabel: true },
+        xAxis: {
+            type: 'category',
+            data: bars.map((bar) => bar.label),
+            axisLabel: { color: colors.text, fontSize: 11, hideOverlap: true },
+            axisLine: { lineStyle: { color: colors.line } },
+        },
+        yAxis: {
+            type: 'value',
+            axisLabel: { color: colors.text, fontSize: 11, formatter: (value: number) => compactMoney(value) },
+            splitLine: { lineStyle: { color: colors.split } },
+        },
+        series: [
+            {
+                name: 'P&L',
+                type: 'bar',
+                data: bars.map((bar) => bar.pnl),
+                barMaxWidth: 28,
+                itemStyle: {
+                    borderRadius: 3,
+                    color: (params: { value?: unknown }) => {
+                        const value = typeof params.value === 'number' ? params.value : Number(params.value)
+                        if (!Number.isFinite(value)) return 'transparent'
+                        return value >= 0 ? UP : DOWN
+                    },
+                },
+            },
+        ],
+    }
+}
+
 export function symbolPnlOption(rows: SymbolPnl[], dark: boolean): Record<string, unknown> {
     const colors = palette(dark)
     const ordered = rows.slice().reverse()

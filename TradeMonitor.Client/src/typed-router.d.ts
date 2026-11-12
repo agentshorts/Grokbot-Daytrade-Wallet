@@ -93,6 +93,13 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/wallet/[key]': RouteRecordInfo<
+      '/wallet/[key]',
+      '/wallet/:key',
+      { key: ParamValue<true> },
+      { key: ParamValue<false> },
+      | never
+    >,
     '/wallets': RouteRecordInfo<
       '/wallets',
       '/wallets',
@@ -170,6 +177,12 @@ declare module 'vue-router/auto-routes' {
     'src/pages/trades.vue': {
       routes:
         | '/trades'
+      views:
+        | never
+    }
+    'src/pages/wallet/[key].vue': {
+      routes:
+        | '/wallet/[key]'
       views:
         | never
     }

@@ -4,11 +4,12 @@ import TimeCell from '@/components/TimeCell.vue'
 import type { TradeRecord } from '@/lib/book'
 import { formatPrice, formatQty } from '@/lib/format'
 
-defineProps<{ trades: TradeRecord[]; selectedSymbol?: string }>()
+const props = defineProps<{ trades: TradeRecord[]; selectedSymbol?: string; missingPnl?: string }>()
 const emit = defineEmits<{ select: [trade: TradeRecord] }>()
 
 function pnlText(trade: TradeRecord) {
     if (trade.pnl != null) return null
+    if (props.missingPnl) return props.missingPnl
     return trade.status === 'open' ? 'Open' : 'Matched'
 }
 </script>

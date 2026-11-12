@@ -38,7 +38,7 @@ describe('ledger client', () => {
         expect(fetchImpl).toHaveBeenCalledTimes(1)
         const [path, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
         expect(path).toBe('/wallets')
-        expect(init).toMatchObject({ method: 'GET', credentials: 'same-origin' })
+        expect(init).toMatchObject({ method: 'GET', credentials: 'same-origin', redirect: 'manual' })
         expect(JSON.stringify(init)).not.toMatch(/POST|PUT|PATCH|DELETE/)
 
         const { transport, calls } = memory({
@@ -117,6 +117,14 @@ describe('ledger client', () => {
         const missing = await createLedgerClient(omitted.transport).summary()
         expect(missing.totals.unrealizedPnl).toBeNull()
         expect(missing.totals.totalValue).toBe(3)
+    })
+
+    it('treats a login redirect as signed out', async () => {
+        const fetchImpl = vi.fn(async () => new Response(null, { status: 302, headers: { location: '/Account/Login' } }))
+        await expect(createLedgerClient(fetchTransport(fetchImpl)).wallets()).rejects.toMatchObject({
+            status: 401,
+            message: 'Sign in as an admin to read the ledger.',
+        })
     })
 
     it('reports auth and unknown wallet failures', async () => {

@@ -90,6 +90,7 @@ export interface Kpi {
     signed: boolean
     hint?: string
     emptyLabel?: string
+    currency?: string
 }
 
 export interface WalletSummary {

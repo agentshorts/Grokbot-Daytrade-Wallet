@@ -34,6 +34,8 @@ declare module 'vue' {
     TradeDrawer: typeof import('./src/components/TradeDrawer.vue')['default']
     TradeList: typeof import('./src/components/TradeList.vue')['default']
     TradesTable: typeof import('./src/components/TradesTable.vue')['default']
+    TransferList: typeof import('./src/components/TransferList.vue')['default']
     WalletCard: typeof import('./src/components/WalletCard.vue')['default']
+    WalletPositions: typeof import('./src/components/WalletPositions.vue')['default']
   }
 }

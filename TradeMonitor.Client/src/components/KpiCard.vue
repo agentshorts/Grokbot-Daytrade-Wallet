@@ -15,7 +15,7 @@ defineProps<{ kpi: Kpi; loading?: boolean; error?: string | null }>()
         <p v-else-if="error" class="mt-3 text-sm text-error-600 dark:text-error-400" role="alert">{{ error }}</p>
         <p v-else-if="kpi.value == null" class="mt-3 text-sm text-gray-500 dark:text-gray-400">{{ kpi.emptyLabel || 'n/a' }}</p>
         <p v-else class="mt-2 text-lg font-semibold text-gray-800 dark:text-white/90">
-            <MoneyCell v-if="kpi.display === 'money'" :value="kpi.value" :signed="kpi.signed" />
+            <MoneyCell v-if="kpi.display === 'money'" :value="kpi.value" :signed="kpi.signed" :currency="kpi.currency" />
             <PctCell v-else-if="kpi.display === 'pct'" :value="kpi.value" :signed="kpi.signed" />
             <span v-else class="tabular-nums">{{ kpi.value }}</span>
         </p>

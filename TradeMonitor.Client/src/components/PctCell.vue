@@ -6,8 +6,9 @@ const props = withDefaults(
     defineProps<{
         value: number | null | undefined
         signed?: boolean
+        empty?: string
     }>(),
-    { signed: true },
+    { signed: true, empty: 'n/a' },
 )
 
 const text = computed(() => formatPct(props.value, { signed: props.signed }))
@@ -20,5 +21,5 @@ const tone = computed(() => {
 </script>
 
 <template>
-    <span class="tabular-nums" :class="tone">{{ text || 'n/a' }}</span>
+    <span class="tabular-nums" :class="tone">{{ text || empty }}</span>
 </template>
