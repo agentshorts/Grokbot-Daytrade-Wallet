@@ -208,6 +208,8 @@ public class WalletHistoryEntry
     public string? OrderRef { get; set; }
     public decimal? TargetPrice { get; set; }
     public DateTime RecordedAt { get; set; }
+    public CostingMethod Costing { get; set; } = CostingMethod.Fifo;
+    public int? LotId { get; set; }
 }
 
 [Api("Record a fill. The same wallet and client id returns the original fill.")]
@@ -253,6 +255,12 @@ public class RecordTrade : IPost, IReturn<RecordTradeResponse>
     public decimal? TargetPrice { get; set; }
 
     public string? Note { get; set; }
+
+    [Description("fifo, lot, or average. Omit for fifo. A buy stays fifo.")]
+    public CostingMethod? Costing { get; set; }
+
+    [Description("Buy trade id consumed by a lot sell.")]
+    public int? LotId { get; set; }
 }
 
 public class RecordTradeResponse
@@ -501,4 +509,10 @@ public class TradeView
 
     public decimal RemainingQty { get; set; }
     public bool ValuedAtCost { get; set; }
+
+    [Description("fifo, lot, or average. Fifo matches oldest lots first.")]
+    public CostingMethod Costing { get; set; } = CostingMethod.Fifo;
+
+    [Description("Buy trade id when costing is lot.")]
+    public int? LotId { get; set; }
 }

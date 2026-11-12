@@ -58,6 +58,13 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/live': RouteRecordInfo<
+      '/live',
+      '/live',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
     '/profile': RouteRecordInfo<
       '/profile',
       '/profile',
@@ -147,6 +154,12 @@ declare module 'vue-router/auto-routes' {
     'src/pages/forbidden.vue': {
       routes:
         | '/forbidden'
+      views:
+        | never
+    }
+    'src/pages/live.vue': {
+      routes:
+        | '/live'
       views:
         | never
     }

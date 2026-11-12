@@ -90,7 +90,7 @@ function onSignOut() {
                 </RouterLink>
             </div>
         </div>
-        <div class="flex flex-col gap-3 px-3 pb-3 sm:flex-row sm:flex-wrap sm:items-center lg:px-6">
+        <div v-if="route.path !== '/live'" class="flex flex-col gap-3 px-3 pb-3 sm:flex-row sm:flex-wrap sm:items-center lg:px-6">
             <SegmentedControl label="Ledger mode" test-id="mode-switch" :value="filters.mode" :options="modes" @select="onMode" />
             <SegmentedControl label="Date range" test-id="range-switch" :value="filters.range" :options="ranges" @select="onRange" />
             <button
