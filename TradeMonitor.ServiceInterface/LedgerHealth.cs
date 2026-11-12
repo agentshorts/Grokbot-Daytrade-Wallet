@@ -14,6 +14,17 @@ public sealed class LedgerHealth
     public string? LastWriteAt { get; set; }
 
     public string Version { get; set; } = "";
+
+    public CoinbaseSyncHealth CoinbaseSync { get; set; } = new();
+}
+
+public sealed class CoinbaseSyncHealth
+{
+    public bool Enabled { get; set; }
+
+    public string? LastSyncAt { get; set; }
+
+    public string? LastError { get; set; }
 }
 
 /// <summary>

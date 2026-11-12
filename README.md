@@ -96,7 +96,7 @@ Sells record how they were matched. FIFO, the existing rule, consumes the oldest
 
 Stop-limit orders are not in this version.
 
-A later step can read a Coinbase key from `C:\DevCurrent\WalletSync\.env` on the owner's machine. This repository does not contain that file, and Live does not use a Coinbase key.
+Live does not use a Coinbase key. The wallet sync, when enabled, reads its key from Windows Credential Manager. See Coinbase wallet sync below.
 
 ## Run locally
 
@@ -130,6 +130,36 @@ The script copies `.env.example` to `.env` when `.env` is missing, generates `MC
 
 Trading agent setup, example calls, backups, and the logon task are in [docs/agent-onboarding.md](docs/agent-onboarding.md).
 
+## Coinbase wallet sync
+
+The host can keep real Coinbase wallets current. The job is off unless you turn it on. It reads Coinbase with GET requests only and writes the ledger in process. It does not call MCP, and it does not place orders or move money.
+
+Turn it on with `CoinbaseSync:Enabled` set to `true`. Put that in gitignored `TradeMonitor/appsettings.Local.json`, or set the environment variable `CoinbaseSync__Enabled=true` before starting the host. `IntervalSeconds` defaults to 60.
+
+```json
+{
+  "CoinbaseSync": {
+    "Enabled": true
+  }
+}
+```
+
+The Coinbase key is a view-only CDP Advanced Trade key (Ed25519). It lives in Windows Credential Manager, not in `.env` and not in the repo. The service name is `WalletSync-Coinbase`. The entries are `api_key_name` and `api_private_key`, which is the same pair the Python wallet sync stores with keyring. The host reads both WinVault target forms: the service name when the stored user name matches the entry, and `api_key_name@WalletSync-Coinbase` / `api_private_key@WalletSync-Coinbase`. The key is never logged.
+
+Once an hour, and on the first cycle, the job reads `key_permissions`. If `can_trade` or `can_transfer` is true, it stops and records the error on `GET /api/health`. That health payload has `coinbaseSync.enabled`, `coinbaseSync.lastSyncAt`, and `coinbaseSync.lastError`. It does not include the key.
+
+Windows Credential Manager is the only built-in source, so the job stays idle on any other operating system unless a test supplies its own credential source.
+
+Wallets are one per holding, looked up by key: `coinbase-sbit`, `coinbase-ethd`, `coinbase-usdc`, `coinbase-nub`, `coinbase-btc`, `coinbase-nba`. Existing rows are reused. New holdings use the same `coinbase-<asset>` key. Client ids match the Python writer, so a fill it already stored is not written again:
+
+- `cb-fill-<trade_id>`
+- `cb-fund-<trade_id>` and `cb-fund-src-<trade_id>`
+- `cb-proceeds-<trade_id>` and `cb-proceeds-dst-<trade_id>`
+- `cb-mark-<asset>-<symbol>-<yyyyMMddTHHmm>`
+- `cb-cash-reconcile-<yyyyMMddTHHmm>`
+
+Run only one Coinbase writer at a time. Stop the Python wallet sync before enabling this job, or leave this job disabled while the Python process is running. The shared client ids stop a second copy from inserting the same fill, but the two writers will still race. MCP stays the write path for every other wallet, including Kalshi.
+
 ## Checks
 
 ```bash
@@ -151,7 +181,7 @@ This repository is public. Never commit keys, `.env` files, `*.pem` files, datab
 - Keep API keys in `MCP_API_KEY`, `dotnet user-secrets` (project `TradeMonitor`), or a gitignored `appsettings.Local.json`. `.env.example` shows the variable names with empty values.
 - `App_Data/` (the SQLite database) is gitignored.
 - Every push and pull request runs a gitleaks secret scan (`.github/workflows/gitleaks.yml`, config in `.gitleaks.toml`).
-- A future Coinbase read can use the key in `C:\DevCurrent\WalletSync\.env` on the owner's machine. Do not copy that file into this repository.
+- The Coinbase sync key is not stored in `.env` or in this repository. It stays in Windows Credential Manager. See Coinbase wallet sync.
 
 ## Branches
 
