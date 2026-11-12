@@ -24,8 +24,6 @@ export const Routes = {
     guards: [
         Requires.auth('/profile'),
         Requires.role('/admin', 'Admin'),
-        Requires.role('/bookings-auto', 'Employee'),
-        Requires.role('/bookings-crud', 'Employee'),
     ],
 }
 

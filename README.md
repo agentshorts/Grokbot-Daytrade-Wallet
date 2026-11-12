@@ -2,7 +2,7 @@
 
 A local dashboard to watch trading wallets, real and paper, with transaction history, buy price, current price, P&L and fees, plus an MCP server so a trading agent can record paper trades and read balances.
 
-Status: bootstrapped from the ServiceStack `vue-spa` template. Feature work is tracked in the issues, in build order.
+Status: template demo content has been removed. Feature work is tracked in the issues, in build order.
 
 ## Wallets
 
@@ -24,12 +24,33 @@ The app never places orders or moves money. Upstream clients are GET-only.
 
 ## Run locally
 
+Requires the .NET 10 SDK and Node.js 24.
+
 ```bash
-cd TradeMonitor
+cd TradeMonitor.Client
+npm ci
+
+cd ../TradeMonitor
 dotnet watch
 ```
 
-This starts the .NET host and the Vite dev server. The app binds to localhost only.
+`dotnet watch` starts the .NET host and the Vite dev server. The app listens on `https://localhost:5051` and `http://localhost:5050`, on localhost only.
+
+Open `https://localhost:5051`. Sign in from the header. The first run creates the SQLite database and the local seed users shown on the sign-in page.
+
+## Checks
+
+```bash
+dotnet build TradeMonitor.slnx
+dotnet test TradeMonitor.slnx
+
+cd TradeMonitor.Client
+npm ci
+npm run test:run
+npm run build
+```
+
+`.github/workflows/build.yml` runs those checks. `.github/workflows/gitleaks.yml` scans for secrets.
 
 ## Secrets
 
