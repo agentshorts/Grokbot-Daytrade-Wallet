@@ -30,5 +30,5 @@ public class AppHost() : AppHostBase("TradeMonitor"), IHostingStartup
     
     // TODO: Replace with your own License Key. FREE Individual or OSS License available from: https://servicestack.net/free
     public static void RegisterKey() =>
-        ServiceStack.Licensing.RegisterLicense("OSS BSD-3-Clause 2026 https://github.com/ServiceStack/ServiceStack O/YkmuxTrsTH+YGs8I9+/ipPvS5c8YIvTBsxtfB5bzusvWEclq+tyFbI54K152sn5sv2Z2q1IH6JerY0l76YhIxmCyuz5q99my5T2zUNl4IRuFHfO7226sPIOxH6G4+X82k2JHL+O0wJzqrpLN52+z17SZK95tkfdKkx6b+79c4=");
+        ServiceStack.Licensing.RegisterLicense("OSS MIT 2026 https://github.com/agentshorts/Grokbot-Daytrade-Wallet w2JKbQ+M5CWIVi7jt/Lii8HGPZVhm43cm3ZPLqh7J4hQ7mxJl/VPbgLfNmMSL7KiSXJwy9ciKLmifRB7wUA4o41ImvwzkCCtpp9GpBwRq2onkR/3fDGmD34gmWfw7ej4qi8WD7yV+Z38wr9wg6ptG1P/M8RNl0VFpB25MYt8sBM=");
 }
