@@ -198,10 +198,11 @@ function requestUrl(input: RequestInfo | URL): string {
     return input.url
 }
 
-/** Accepts the current site-root reads and a later `/api` prefix. */
+/** Ledger reads are under `/api`. Returns the resource path after that prefix. */
 function ledgerPath(url: string): string {
     const bare = url.split('?')[0] ?? url
-    return bare.startsWith('/api/') ? bare.slice('/api'.length) : bare
+    if (!bare.startsWith('/api/')) throw new Error(`ledger read left /api: ${url}`)
+    return bare.slice('/api'.length)
 }
 
 function installFetch(status = 200) {

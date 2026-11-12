@@ -7,7 +7,7 @@ namespace TradeMonitor.ServiceModel;
 [Api("Overview totals per wallet and per mode. Amounts are in each wallet's base currency.")]
 [Tag("pnl")]
 [ValidateIsAdmin]
-[Route("/summary", "GET")]
+[Route("/api/summary", "GET")]
 public class GetSummary : IGet, IReturn<GetSummaryResponse>
 {
     [Description("all, paper, or real. Defaults to all. Totals and wallet cards use this filter. Modes always lists all three.")]
@@ -133,7 +133,7 @@ public class WalletCard
 [Api("Equity curve from recorded trades, transfers, and price marks")]
 [Tag("pnl")]
 [ValidateIsAdmin]
-[Route("/equity", "GET")]
+[Route("/api/equity", "GET")]
 public class GetEquity : IGet, IReturn<GetEquityResponse>
 {
     [Description("Wallet slug. Omit for every wallet.")]
@@ -182,7 +182,7 @@ public class EquityPoint
 [Api("Daily P&L from recorded trades, fees, and price marks. The pnl_by_day tool calls this request.")]
 [Tag("pnl")]
 [ValidateIsAdmin]
-[Route("/pnl/daily", "GET")]
+[Route("/api/pnl/daily", "GET")]
 public class PnlByDay : IGet, IReturn<PnlByDayResponse>
 {
     [Description("Wallet slug. Omit for every wallet.")]
@@ -254,7 +254,7 @@ public class PnlDayResult
 [Api("P&L by symbol from recorded trades, fees, and price marks")]
 [Tag("pnl")]
 [ValidateIsAdmin]
-[Route("/pnl/symbols", "GET")]
+[Route("/api/pnl/symbols", "GET")]
 public class GetPnlBySymbol : IGet, IReturn<GetPnlBySymbolResponse>
 {
     public string? Wallet { get; set; }
@@ -298,7 +298,7 @@ public class SymbolPnl
 [Api("Fees over time from recorded fills")]
 [Tag("pnl")]
 [ValidateIsAdmin]
-[Route("/fees", "GET")]
+[Route("/api/fees", "GET")]
 public class GetFees : IGet, IReturn<GetFeesResponse>
 {
     public string? Wallet { get; set; }
@@ -326,7 +326,7 @@ public class FeeDay
 [Api("Open and closed positions from the ledger")]
 [Tag("pnl")]
 [ValidateIsAdmin]
-[Route("/positions", "GET")]
+[Route("/api/positions", "GET")]
 public class QueryPositions : IGet, IReturn<QueryPositionsResponse>
 {
     public string? Wallet { get; set; }
@@ -386,7 +386,7 @@ public class PositionView
 [Api("One trade with its matched fills and the price marks used to chart it")]
 [Tag("pnl")]
 [ValidateIsAdmin]
-[Route("/trades/{Id}", "GET")]
+[Route("/api/trades/{Id}", "GET")]
 public class GetTrade : IGet, IReturn<GetTradeResponse>
 {
     public int Id { get; set; }

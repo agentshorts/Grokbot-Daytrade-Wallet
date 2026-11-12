@@ -90,40 +90,6 @@ app.MapCleanUrls();
 // binding to HTTPS fails /api/health when no certificate is configured.
 if (!app.Environment.IsEnvironment("Testing") && LoopbackBinding.UsesHttps(app.Configuration))
     app.UseHttpsRedirection();
-// Routing has already selected /wallets and /trades as ServiceStack endpoints.
-// Clear that match before authorization, or a browser navigation is challenged
-// as an API call and never reaches the Vue page.
-app.Use(async (context, next) =>
-{
-    var request = context.Request;
-    if (!SpaDocument.ShouldServe(request.Method, request.Path.Value ?? "/", request.Headers.Accept.ToString(), request.Query.ContainsKey("format")))
-    {
-        await next();
-        return;
-    }
-
-    context.SetEndpoint(null);
-    if (app.Environment.IsDevelopment())
-    {
-        await nodeProxy.HttpToNode(context);
-        return;
-    }
-
-    if (!app.Environment.IsEnvironment("Testing"))
-    {
-        var root = app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot");
-        var index = Path.Combine(root, "index.html");
-        if (File.Exists(index))
-        {
-            context.Response.ContentType = "text/html; charset=utf-8";
-            await context.Response.SendFileAsync(index);
-            return;
-        }
-    }
-
-    await next();
-});
-
 app.UseAuthorization();
 app.MapRazorPages();
 
@@ -135,6 +101,10 @@ app.UseServiceStack(new AppHost(), options => {
 });
 
 app.MapMcp("/mcp");
+
+// Unknown /api paths stay on the API. They must not fall through to the Vue shell.
+app.MapFallback("/api", ApiMiss).WithOrder(int.MaxValue - 2);
+app.MapFallback("/api/{**path}", ApiMiss).WithOrder(int.MaxValue - 1);
 
 // Proxy HMR WebSocket and fallback routes to Node dev server in Development
 if (app.Environment.IsDevelopment())
@@ -153,4 +123,12 @@ LedgerHealthEndpoint.Map(app);
 
 app.Run();
 
-public partial class Program { }
+public partial class Program
+{
+    static Task ApiMiss(HttpContext context)
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        context.Response.ContentType = "application/json; charset=utf-8";
+        return context.Response.WriteAsync("""{"responseStatus":{"errorCode":"NotFound","message":"No API at this path."}}""");
+    }
+}

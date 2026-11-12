@@ -88,6 +88,9 @@ if (-not $SkipBuild) {
     }
 }
 
+$listen = ($env:ASPNETCORE_URLS -split ';')[0].TrimEnd('/')
+Write-Host "Health check: $listen/api/health"
+Write-Host "App: $listen/  Pages: /trades /wallets /wallet/<key>. Ledger reads are under /api."
 Write-Host "Starting TradeMonitor at $env:ASPNETCORE_URLS"
 Push-Location $Root
 try {
