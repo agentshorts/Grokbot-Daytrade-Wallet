@@ -167,3 +167,61 @@ function Initialize-LocalConfig([string]$Root) {
     Set-DotEnvValue -Path $envFile -Name "MCP_API_KEY" -Value $generated
     Write-Host ("Generated a local MCP API key (starts with {0}, {1} characters). The full key is in .env only." -f (Get-KeyPrefix $generated), $generated.Length)
 }
+
+# npm ci runs when node_modules is missing or when package-lock.json differs from
+# node_modules/.trademonitor-lock.sha256. A missing stamp counts as a change.
+# Get-NpmCiReason returns the reason to reinstall, or $null when the install is current.
+
+function Get-FileSha256Hex([string]$Path) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        try {
+            $bytes = $sha.ComputeHash($stream)
+        } finally {
+            $stream.Dispose()
+        }
+    } finally {
+        $sha.Dispose()
+    }
+    return ([System.BitConverter]::ToString($bytes)).Replace("-", "").ToLowerInvariant()
+}
+
+function Get-NpmCiReason([string]$ClientRoot) {
+    $modules = Join-Path $ClientRoot "node_modules"
+    if (-not (Test-Path -LiteralPath $modules -PathType Container)) {
+        return "node_modules is missing"
+    }
+    $lock = Join-Path $ClientRoot "package-lock.json"
+    if (-not (Test-Path -LiteralPath $lock -PathType Leaf)) {
+        throw "TradeMonitor.Client/package-lock.json was not found."
+    }
+    $current = Get-FileSha256Hex -Path $lock
+    $stamp = Join-Path $modules ".trademonitor-lock.sha256"
+    if (-not (Test-Path -LiteralPath $stamp -PathType Leaf)) {
+        return "package-lock.json changed since the last install"
+    }
+    $stored = ([System.IO.File]::ReadAllText($stamp)).Trim()
+    if ([string]::IsNullOrWhiteSpace($stored)) {
+        return "package-lock.json changed since the last install"
+    }
+    if (-not $stored.Equals($current, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return "package-lock.json changed since the last install"
+    }
+    return $null
+}
+
+function Set-NpmLockStamp([string]$ClientRoot) {
+    $modules = Join-Path $ClientRoot "node_modules"
+    if (-not (Test-Path -LiteralPath $modules -PathType Container)) {
+        throw "node_modules is missing, so the lock stamp was not written."
+    }
+    $lock = Join-Path $ClientRoot "package-lock.json"
+    if (-not (Test-Path -LiteralPath $lock -PathType Leaf)) {
+        throw "TradeMonitor.Client/package-lock.json was not found."
+    }
+    $hex = Get-FileSha256Hex -Path $lock
+    $stamp = Join-Path $modules ".trademonitor-lock.sha256"
+    $utf8 = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($stamp, ($hex + "`n"), $utf8)
+}
