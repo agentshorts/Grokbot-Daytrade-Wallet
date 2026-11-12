@@ -91,7 +91,7 @@ dotnet watch
 
 `dotnet watch` starts the .NET host and the Vite dev server. The app listens on `https://127.0.0.1:5051` and `http://127.0.0.1:5050`.
 
-Open `https://127.0.0.1:5051`. Sign in from the header. The first run creates the SQLite database and the local seed users shown on the sign-in page.
+Open `https://127.0.0.1:5051`. Sign in from the header. The first run creates the SQLite database and the local seed users shown on the sign-in page. Each later start applies pending OrmLite migrations to that same file. Rows already stored stay as they are. A trade recorded before the Kind column existed is kept and marked Fill.
 
 The trading agent writes through MCP at `http://127.0.0.1:5050/mcp`. Tool names, example calls, and API key setup are in [docs/mcp.md](docs/mcp.md). Copy `.env.example` to `.env` and set `MCP_API_KEY` there, or put the same value in gitignored `appsettings.Local.json`. Do not commit the key.
 
@@ -103,7 +103,7 @@ From the repository root:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run.ps1
 ```
 
-The script copies `.env.example` to `.env` when `.env` is missing, generates `MCP_API_KEY` when that value is empty, builds the client and the server in Release, and starts the app at `http://127.0.0.1:5050` with `ASPNETCORE_ENVIRONMENT=Production`. It refuses any URL that is not a loopback address. The full key stays in `.env` and is not printed.
+The script copies `.env.example` to `.env` when `.env` is missing, generates `MCP_API_KEY` when that value is empty, builds the client and the server in Release, and starts the app at `http://127.0.0.1:5050` with `ASPNETCORE_ENVIRONMENT=Production`. It refuses any URL that is not a loopback address. The full key stays in `.env` and is not printed. When the host starts, it applies pending database migrations to an existing `TradeMonitor/App_Data/app.db` and leaves stored rows in place.
 
 `http://127.0.0.1:5050/api/health` reports database status, the last ledger write time, and the app version. That check stays on `/api/health`. Page links such as `http://127.0.0.1:5050/trades?trade=123` open the app. Ledger JSON for the same list is `http://127.0.0.1:5050/api/trades`.
 
