@@ -82,13 +82,16 @@ public class LedgerMcpTools(IHttpContextAccessor httpContextAccessor) : McpServi
 
     [McpServerTool(Name = "trade_record", Idempotent = true)]
     [Description(
-        "Record a fill that already happened. This does not place an order. " +
+        "Record a fill or settlement that already happened. This does not place an order. " +
         "qty is the instrument quantity and must be greater than zero. " +
         "price is quote currency per unit, in the wallet base currency (USD unless the wallet uses another code). " +
+        "A buy price must be greater than zero. A sell price may be zero when a contract settles or expires worthless. A negative price is rejected. " +
         "fee is in that same currency and may be zero. " +
+        "kind is fill or settlement. Omit it for a fill. Use settlement when the contract settled, including a loss at price 0. " +
         "executed_at is the fill time as UTC ISO-8601. Omit it to use the server time. " +
-        "client_id is the idempotency key. The same wallet and client_id returns the original fill. " +
-        "A repeat with different qty, price, fee, symbol, or side is rejected. " +
+        "client_id is the idempotency key. The same wallet and client_id returns the original row. " +
+        "A repeat with different qty, price, fee, symbol, side, or kind is rejected. " +
+        "A buy is rejected when qty times price, plus fee, exceeds cash by more than 0.000000001. A smaller shortfall is accepted and cash is recorded as 0. " +
         "A sell larger than the open quantity is rejected as an oversell. An unknown wallet is rejected.")]
     public Task<RecordTradeResponse> TradeRecord(
         [Description("Wallet slug.")] string wallet,
@@ -96,13 +99,14 @@ public class LedgerMcpTools(IHttpContextAccessor httpContextAccessor) : McpServi
         [Description("Instrument symbol, for example BTC-USD.")] string symbol,
         [Description("Buy or Sell.")] string side,
         [Description("Quantity of the instrument. Must be greater than zero.")] decimal qty,
-        [Description("Quote currency per unit, in the wallet base currency.")] decimal price,
+        [Description("Quote currency per unit. Zero is allowed on a sell. A buy must be greater than zero.")] decimal price,
         [Description("Fee in the wallet base currency. Use 0 when the fill had no fee.")] decimal fee,
         [Description("UTC ISO-8601 time of the fill. Omit to use the server time.")] DateTime? executed_at = null,
         [Description("Short title for the fill.")] string? title = null,
         [Description("Broker or venue order reference.")] string? order_ref = null,
         [Description("Optional target price, quote currency per unit.")] decimal? target_price = null,
-        [Description("Optional note.")] string? note = null)
+        [Description("Optional note.")] string? note = null,
+        [Description("fill or settlement. Omit for a fill.")] string? kind = null)
     {
         return SendAsync(new RecordTrade
         {
@@ -118,6 +122,7 @@ public class LedgerMcpTools(IHttpContextAccessor httpContextAccessor) : McpServi
             OrderRef = order_ref,
             TargetPrice = target_price,
             Note = note,
+            Kind = string.IsNullOrWhiteSpace(kind) ? null : ParseEnum<TradeKind>(kind, "Trade kind", "fill or settlement"),
         });
     }
 

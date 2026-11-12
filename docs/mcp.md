@@ -117,7 +117,13 @@ A withdrawal or sweep larger than cash is rejected.
 
 ### trade_record
 
-Record a fill that already happened. `qty` is the instrument quantity. `price` is quote currency per unit. `fee` is in the wallet base currency. Use `0` when there was no fee.
+Record a fill or a settlement that already happened. `qty` is the instrument quantity and must be greater than zero. `price` is quote currency per unit. `fee` is in the wallet base currency. Use `0` when there was no fee.
+
+A buy price must be greater than zero. A sell price may be zero when a contract settles or expires worthless. A negative price is rejected.
+
+`kind` is `fill` or `settlement`. Omit it to record a fill. Use `settlement` when the contract settled, including a loss at price 0. The trade drawer shows this kind. A repeat with a different kind is rejected.
+
+A buy is rejected when `qty` times `price`, plus `fee`, is more than the cash in the wallet by more than `0.000000001` of the base currency. A shortfall of that size or smaller is accepted, and the recorded cash is `0` rather than a negative dust balance.
 
 ```json
 {
@@ -133,6 +139,23 @@ Record a fill that already happened. `qty` is the instrument quantity. `price` i
   "order_ref": "ord-1",
   "target_price": 64500,
   "note": "Paper fill"
+}
+```
+
+A settlement at price 0:
+
+```json
+{
+  "wallet": "paper",
+  "client_id": "settle-2026-06-02-1",
+  "symbol": "CONTRACT",
+  "side": "Sell",
+  "qty": 1,
+  "price": 0,
+  "fee": 0,
+  "kind": "settlement",
+  "executed_at": "2026-06-02T20:00:00Z",
+  "title": "Settled at zero"
 }
 ```
 

@@ -146,6 +146,7 @@ function trade(id: number): TradeRow {
         symbol: id === 1 ? 'OLD-USD' : 'BTC-USD',
         title: 'Clip',
         side: 'buy',
+        kind: 'fill',
         qty: 0.01,
         price: 64000,
         fee: 0.5,

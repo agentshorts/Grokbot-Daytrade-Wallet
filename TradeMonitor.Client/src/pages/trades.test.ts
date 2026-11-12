@@ -31,6 +31,7 @@ function row(partial: Partial<TradeRow> = {}): TradeRow {
         symbol: 'BTC-USD',
         title: 'First clip',
         side: 'buy',
+        kind: 'fill',
         qty: 0.01,
         price: 64000,
         fee: 0.5,
@@ -110,6 +111,7 @@ function detailFor(id: number): TradeDetailResponse {
             buyPrice: 64000,
             currentOrExitPrice: 65000,
             priceKind: 'exit',
+            kind: 'settlement',
             status: 'closed',
             realizedPnl: 3.55,
             unrealizedPnl: null,
@@ -318,6 +320,7 @@ describe('trades page', () => {
         expect(chart.text()).not.toContain('No price marks recorded')
         expect(page.get('[data-testid="price-chart"]').text()).toBe('chart')
         expect(page.get('[data-testid="trade-fills"]').text()).toContain('0.004')
+        expect(page.get('[data-testid="trade-kind"]').text()).toBe('Settlement')
         expect(page.get('[data-testid="buy-price"]').text()).toContain('$64,000.00')
         expect(page.get('[data-testid="trade-fees"]').text()).toContain('$0.50')
         expect(page.get('[data-testid="realized-pnl"]').text()).toContain('$3.55')
@@ -343,6 +346,7 @@ describe('trades page', () => {
         expect(page.get('[data-testid="unrealized-pnl"]').text()).toBe('-')
         expect(page.text()).toContain('No price mark, so unrealized P&L is unknown.')
         expect(page.get('[data-testid="trade-note"]').text()).toBe('no mark')
+        expect(page.get('[data-testid="trade-kind"]').text()).toBe('Fill')
     })
 
     it('shows loading, then an error, for a missing trade', async () => {

@@ -37,6 +37,8 @@ public class LedgerSchemaTests
         Assert.That(CreateSql(db, "Wallet"), Does.Contain("USD"));
 
         AssertDecimalColumns(db, "Trade", "Qty", "Price", "Fee", "TargetPrice");
+        Assert.That(Columns(db, "Trade")["Kind"], Does.Contain("VARCHAR"));
+        Assert.That(CreateSql(db, "Trade"), Does.Contain("Fill"));
         AssertDecimalColumns(db, "Transfer", "Amount");
         AssertDecimalColumns(db, "PriceMark", "Price");
         AssertDecimalColumns(db, "Position", "Qty", "CostBasis", "AvgPrice", "RealizedPnl", "FeesPaid", "LastMarkPrice");
@@ -54,7 +56,7 @@ public class LedgerSchemaTests
         using var ledger = new TempLedger();
         using var db = ledger.Open();
 
-        var reverted = ledger.Migrator.Revert(Migrator.Last);
+        var reverted = ledger.Migrator.Revert(Migrator.All);
         Assert.That(reverted.Succeeded, Is.True, () => reverted.Error?.ToString() ?? "revert failed");
         Assert.That(db.TableExists<Wallet>(), Is.False);
 
@@ -62,6 +64,42 @@ public class LedgerSchemaTests
         Assert.That(again.Succeeded, Is.True, () => again.Error?.ToString() ?? "migration failed");
         Assert.That(db.TableExists<Wallet>(), Is.True);
         Assert.That(db.Count<Wallet>(), Is.EqualTo(0));
+    }
+
+    [Test]
+    public void Kind_column_migration_keeps_existing_trades()
+    {
+        using var ledger = new TempLedger();
+        using (var db = ledger.Open())
+        {
+            var walletId = InsertWallet(db, "alpha");
+            db.Insert(NewTrade(walletId, "kept", qty: 1.25m, price: 3.5m));
+
+            var names = new List<string>();
+            using (var list = db.CreateCommand())
+            {
+                list.CommandText = "SELECT Name FROM Migration";
+                using var reader = list.ExecuteReader();
+                while (reader.Read())
+                    names.Add(reader.GetString(0));
+            }
+
+            Assert.That(names, Does.Contain("Migration1001"));
+            db.ExecuteSql("ALTER TABLE Trade DROP COLUMN Kind");
+            db.ExecuteSql("DELETE FROM Migration WHERE Name = 'Migration1001'");
+        }
+
+        var again = ledger.Migrator.Run();
+        Assert.That(again.Succeeded, Is.True, () => again.Error?.ToString() ?? "migration failed");
+
+        using var read = ledger.Open();
+        var saved = read.Single<Trade>(x => x.ClientId == "kept");
+        Assert.That(read.Count<Trade>(), Is.EqualTo(1));
+        Assert.That(saved.Qty, Is.EqualTo(1.25m));
+        Assert.That(saved.Price, Is.EqualTo(3.5m));
+        Assert.That(saved.Fee, Is.EqualTo(0.01m));
+        Assert.That(saved.Kind, Is.EqualTo(TradeKind.Fill));
+        Assert.That(saved.Symbol, Is.EqualTo("BTC-USD"));
     }
 
     [Test]

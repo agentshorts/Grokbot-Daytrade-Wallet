@@ -406,6 +406,7 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
             Symbol = draft.Symbol,
             Title = draft.Title,
             Side = draft.Side,
+            Kind = draft.Kind,
             Qty = draft.Qty,
             Price = draft.Price,
             Fee = draft.Fee,
@@ -606,14 +607,14 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
             throw Fail(400, "Oversell",
                 $"Sell of {Num(candidate.Qty)} {candidate.Symbol} exceeds the open quantity of {Num(after.OpenQty)} in wallet '{wallet.Key}'.");
 
-        if (candidate.Side == TradeSide.Buy && after.Cash < 0 && after.HasDeposits)
+        if (candidate.Side == TradeSide.Buy && after.HasDeposits && after.Cash < -LedgerBook.CashDust)
         {
-            var cost = candidate.Qty * candidate.Price + candidate.Fee;
+            var cost = decimal.Multiply(candidate.Qty, candidate.Price) + candidate.Fee;
             throw Fail(400, "InsufficientCash",
                 $"Buy costs {Num(cost)} {wallet.BaseCurrency}, more than the cash of {Num(before.Cash)} {wallet.BaseCurrency} in wallet '{wallet.Key}'.");
         }
 
-        if (candidate.Side == TradeSide.Sell && after.HasDeposits && after.Cash < 0 && after.Cash < before.Cash)
+        if (candidate.Side == TradeSide.Sell && after.HasDeposits && after.Cash < -LedgerBook.CashDust && after.Cash < before.Cash)
             throw Fail(400, "InsufficientCash", $"This sell would leave wallet '{wallet.Key}' with negative cash.");
     }
 
@@ -791,12 +792,24 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
 
     TradeDraft NormalizeTrade(RecordTrade request)
     {
+        var side = RequireSide(request.Side);
         var qty = request.Qty;
         var price = request.Price;
         var fee = request.Fee;
         RequirePositive(qty, "Quantity");
-        RequirePositive(price, "Price");
+        if (price < 0)
+            throw Fail(400, "InvalidRequest", "Price cannot be negative.");
+        if (side == TradeSide.Buy && price == 0)
+            throw Fail(400, "InvalidRequest", "Price must be greater than zero.");
         RequireNonNegative(fee, "Fee");
+        var kindProvided = request.Kind.HasValue;
+        var kind = TradeKind.Fill;
+        if (kindProvided)
+        {
+            kind = request.Kind!.Value;
+            if (!Enum.IsDefined(kind))
+                throw Fail(400, "InvalidRequest", "Trade kind must be fill or settlement.");
+        }
         try
         {
             _ = qty * price + fee;
@@ -818,7 +831,7 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
             RequireKey(request.Wallet),
             RequireText(request.ClientId, "Client id", Limits.ClientId),
             RequireSymbol(request.Symbol),
-            RequireSide(request.Side),
+            side,
             qty,
             price,
             fee,
@@ -828,7 +841,9 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
             RequireOptional(request.Title, "Title", Limits.Title),
             RequireOptional(request.OrderRef, "Order ref", Limits.OrderRef),
             request.TargetPrice,
-            RequireNote(request.Note));
+            RequireNote(request.Note),
+            kind,
+            kindProvided);
     }
 
     TransferDraft NormalizeTransfer(RecordTransfer request)
@@ -885,6 +900,8 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
         if (Clean(row.Title) != draft.Title || Clean(row.OrderRef) != draft.OrderRef || Clean(row.Note) != draft.Note)
             return false;
         if (row.TargetPrice != draft.TargetPrice)
+            return false;
+        if (draft.KindProvided && row.Kind != draft.Kind)
             return false;
         if (draft.ProvidedExecutedAt is DateTime at && AsUtc(row.ExecutedAt) != at)
             return false;
@@ -1141,7 +1158,9 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
         string? Title,
         string? OrderRef,
         decimal? TargetPrice,
-        string? Note);
+        string? Note,
+        TradeKind Kind,
+        bool KindProvided);
 
     sealed record TransferDraft(
         string Wallet,
