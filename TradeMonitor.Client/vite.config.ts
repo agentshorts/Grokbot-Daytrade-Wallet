@@ -46,6 +46,9 @@ export default defineConfig({
         Components({
             extensions: ['vue'],
             include: [/\.vue$/, /\.vue\?vue/],
+            // Chart wrappers are loaded with defineAsyncComponent so ECharts and
+            // lightweight-charts stay out of the shell entry.
+            globsExclude: ['src/components/EChart.vue', 'src/components/PriceChart.vue'],
             dts: true,
         }),
     ]),

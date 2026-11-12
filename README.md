@@ -19,8 +19,18 @@ The app never places orders or moves money. Upstream clients are GET-only.
 - .NET 10, ServiceStack 10, SQLite (OrmLite + EF Core Identity)
 - Vue 3, Vite, TypeScript, Tailwind CSS 4, `@servicestack/vue`
 - MCP: `ModelContextProtocol.AspNetCore`, served at `/mcp`, API key auth
-- Charts (planned): vue-echarts with ECharts 6, TradingView lightweight-charts v5
-- Layout pieces (planned): TailAdmin Vue (MIT)
+- Charts: vue-echarts 8 with ECharts 6, TradingView lightweight-charts v5
+- Layout: TailAdmin Vue (MIT), adapted into the client
+
+## UI shell
+
+Overview, Trades and Wallets share one read-only shell. The mode (All, Real, Paper), the date range (Today, 7D, 30D, All) and the selected wallet live in the URL query, so a view can be reloaded or shared. The page refreshes every 15 seconds. Until the ledger read API is connected, the shell renders a built-in sample book.
+
+Times are shown in America/Chicago with a CT label.
+
+Layout, sidebar, header, card and table styles are adapted from [TailAdmin Vue](https://github.com/TailAdmin/vue-tailwind-admin-dashboard) (Vue 3, Tailwind CSS 4, TypeScript). TailAdmin Vue is MIT licensed, Copyright (c) 2026 TailAdmin.
+
+Analytics charts use [vue-echarts](https://github.com/ecomfe/vue-echarts) 8 and [Apache ECharts](https://echarts.apache.org/) 6. Price charts use [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts) v5, with buy and sell markers. Those libraries load only on the pages that draw them.
 
 ## Run locally
 
