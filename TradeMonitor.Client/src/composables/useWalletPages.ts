@@ -18,8 +18,12 @@ export interface PageState<T> {
 
 async function loadList(client: LedgerClient, filters: Filters, now: Date): Promise<WalletListModel> {
     const query = summaryQuery(filters, now)
-    const [directory, summary] = await Promise.all([client.wallets({ includeArchived: true }), client.summary(query)])
-    return buildWalletList(directory.results, summary.wallets, filters)
+    const [directory, summary, positions] = await Promise.all([
+        client.wallets({ includeArchived: true }),
+        client.summary(query),
+        client.positions({ includeArchived: true, status: 'open' }),
+    ])
+    return buildWalletList(directory.results, summary.wallets, filters, positions.results)
 }
 
 async function loadDetail(client: LedgerClient, key: string, filters: Filters, now: Date): Promise<WalletDetailModel> {

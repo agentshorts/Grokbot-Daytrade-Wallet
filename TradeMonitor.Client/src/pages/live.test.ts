@@ -52,7 +52,7 @@ const sold: LiveTradeMark = {
     simulated: false,
 }
 
-async function mountLive(options?: { real?: boolean; simulatedMark?: boolean }) {
+async function mountLive(options?: { real?: boolean; simulatedMark?: boolean; path?: string }) {
     const link = ref<'off' | 'live' | 'reconnecting'>('live')
     const listeners: ((tick: { productId: string; price: number; at: string | null }) => void)[] = []
     const stream: LiveStream = {
@@ -110,7 +110,7 @@ async function mountLive(options?: { real?: boolean; simulatedMark?: boolean }) 
     }
     const ledger = { wallets: async () => wallets } as LedgerClient
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/live', component: LivePage }, { path: '/signin', component: { template: '<div />' } }] })
-    await router.push('/live')
+    await router.push(options?.path ?? '/live')
     await router.isReady()
     const wrapper = mount(LivePage, {
         global: {
@@ -131,7 +131,7 @@ async function mountLive(options?: { real?: boolean; simulatedMark?: boolean }) 
         },
     })
     await flushPromises()
-    return { wrapper, listeners, link, products }
+    return { wrapper, listeners, link, products, router }
 }
 
 const productCalls = { n: 0 }
@@ -190,5 +190,25 @@ describe('live page', () => {
         await flushPromises()
         expect(wrapper.get('[data-testid=chart-stub]').attributes('data-marks')).toContain('buy:true:')
         expect(wrapper.get('[data-testid=chart-stub]').attributes('data-marks')).toContain('simulation')
+    })
+
+    it('preselects the wallet and symbol from the query and falls back for an unknown wallet', async () => {
+        const selected = await mountLive({ path: '/live?wallet=paper&symbol=ETH-USD' })
+        expect((selected.wrapper.get('[data-testid=wallet-select]').element as HTMLSelectElement).value).toBe('paper')
+        expect(selected.wrapper.get('[data-testid=product-picker]').text()).toContain('ETH-USD')
+        expect(selected.wrapper.find('[data-testid=wallet-notice]').exists()).toBe(false)
+        selected.wrapper.unmount()
+
+        const missing = await mountLive({ path: '/live?wallet=missing-wallet&symbol=NOPE-USD' })
+        expect((missing.wrapper.get('[data-testid=wallet-select]').element as HTMLSelectElement).value).toBe('')
+        expect(missing.wrapper.get('[data-testid=wallet-notice]').text()).toContain('That wallet is not available.')
+        expect(missing.wrapper.get('[data-testid=product-picker]').text()).toContain('BTC-USD')
+
+        await missing.wrapper.get('[data-testid=wallet-select]').setValue('paper')
+        await flushPromises()
+        expect(missing.router.currentRoute.value.query.wallet).toBe('paper')
+        expect(missing.router.currentRoute.value.query.symbol).toBe('BTC-USD')
+        expect(missing.wrapper.find('[data-testid=wallet-notice]').exists()).toBe(false)
+        missing.wrapper.unmount()
     })
 })
