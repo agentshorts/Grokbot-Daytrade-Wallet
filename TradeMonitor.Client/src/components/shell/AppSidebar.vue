@@ -14,6 +14,7 @@ const items = [
     { label: 'Overview', path: '/', icon: 'grid' as const },
     { label: 'Trades', path: '/trades', icon: 'trades' as const },
     { label: 'Wallets', path: '/wallets', icon: 'wallet' as const },
+    { label: 'Live', path: '/live', icon: 'live' as const },
 ]
 
 const wide = computed(() => isMobile.value || open.value)
@@ -62,7 +63,7 @@ function active(path: string) {
         </div>
         <div v-if="showLabels" class="px-4 pb-6">
             <p class="rounded-2xl bg-gray-50 px-4 py-4 text-sm text-gray-500 dark:bg-white/[0.03] dark:text-gray-400">
-                Local read-only book. Filters stay in the address bar.
+                Paper trades on Live are saved. A real wallet on Live is a simulation.
             </p>
         </div>
     </aside>

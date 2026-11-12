@@ -3,8 +3,13 @@ using TradeMonitor.ServiceModel.Types;
 namespace TradeMonitor.ServiceInterface;
 
 // Replays trades, transfers, and price marks into positions, balance snapshots, and P&L.
-// Buy fees sit in lot cost. A sell's fee reduces proceeds. Lots match first in, first out.
-// The last share of a lot takes whatever cost remains so partial fills do not leave dust.
+// Buy fees sit in lot cost. A sell's fee reduces proceeds.
+// Sells match in the way stored on the sell:
+//   Fifo (default, including every sell from before costing existed): oldest lots first.
+//   Lot: Trade.LotId is the buy to consume. Other lots stay put.
+//   Average: a proportional slice of every open lot of that symbol, so matched cost
+//   equals quantity times the average open cost. Open cost includes remaining buy fees.
+// The last share of a fifo or lot slice takes whatever cost remains so partial fills do not leave dust.
 // On a time tie, a wallet-specific price mark wins over a global mark.
 // An open position with no mark has unknown unrealized P&L and is valued at cost.
 // Cash within 0.000000001 below zero is stored as zero so float dust does not leave a negative balance.
@@ -87,15 +92,14 @@ public static class LedgerBook
                     ApplyBuy(opens, sym, trade, ref cash);
                 else
                 {
-                    var open = sym.OpenQty;
-                    if (trade.Qty > open)
+                    if (!CanSell(sym, trade, out var available))
                     {
                         return new LedgerReplay
                         {
                             Oversold = true,
                             OversellSymbol = sym.Symbol,
                             OversellQty = trade.Qty,
-                            OpenQty = open,
+                            OpenQty = available,
                         };
                     }
 
@@ -260,9 +264,27 @@ public static class LedgerBook
         };
     }
 
+    static bool CanSell(Sym sym, Trade trade, out decimal available)
+    {
+        if (trade.Costing == CostingMethod.Lot)
+        {
+            var lot = trade.LotId is int lotId ? sym.Lots.FirstOrDefault(x => x.TradeId == lotId) : null;
+            available = lot?.Qty ?? 0;
+            return lot != null && trade.Qty <= lot.Qty;
+        }
+
+        available = sym.OpenQty;
+        return trade.Qty <= available;
+    }
+
     static void ApplySell(Dictionary<int, OpenTrade> opens, Sym sym, Trade trade, ref decimal cash)
     {
-        var slices = Consume(sym.Lots, opens, trade.Qty);
+        var slices = trade.Costing switch
+        {
+            CostingMethod.Average => ConsumeAverage(sym.Lots, opens, trade.Qty),
+            CostingMethod.Lot => ConsumeLot(sym.Lots, opens, trade.LotId ?? 0, trade.Qty),
+            _ => Consume(sym.Lots, opens, trade.Qty),
+        };
         var sell = new OpenTrade
         {
             Trade = trade,
@@ -431,6 +453,47 @@ public static class LedgerBook
         return slices;
     }
 
+    static List<Slice> ConsumeLot(List<Lot> lots, Dictionary<int, OpenTrade> opens, int lotId, decimal qty)
+    {
+        var lot = lots.First(x => x.TradeId == lotId);
+        var slices = new List<Slice> { Take(lot, opens[lot.TradeId], qty) };
+        lots.RemoveAll(x => x.Qty == 0);
+        return slices;
+    }
+
+    // Removes qty/openQty of every lot. The last lot absorbs decimal remainder so matched cost
+    // equals openCost * qty / openQty, which is quantity times the average open cost.
+    static List<Slice> ConsumeAverage(List<Lot> lots, Dictionary<int, OpenTrade> opens, decimal qty)
+    {
+        var openQty = lots.Sum(x => x.Qty);
+        var openCost = lots.Sum(x => x.Cost);
+        var openFee = lots.Sum(x => x.Fee);
+        var targetCost = openCost * qty / openQty;
+        var targetFee = openFee * qty / openQty;
+        var plan = new List<(Lot Lot, decimal Qty, decimal Cost, decimal Fee)>(lots.Count);
+        foreach (var lot in lots)
+            plan.Add((lot, lot.Qty * qty / openQty, lot.Cost * qty / openQty, lot.Fee * qty / openQty));
+
+        var last = plan.Count - 1;
+        var tail = plan[last];
+        plan[last] = (
+            tail.Lot,
+            tail.Qty + (qty - plan.Sum(x => x.Qty)),
+            tail.Cost + (targetCost - plan.Sum(x => x.Cost)),
+            tail.Fee + (targetFee - plan.Sum(x => x.Fee)));
+
+        var slices = new List<Slice>();
+        foreach (var step in plan)
+        {
+            if (step.Qty == 0 && step.Cost == 0 && step.Fee == 0)
+                continue;
+            slices.Add(TakeExact(step.Lot, opens[step.Lot.TradeId], step.Qty, step.Cost, step.Fee));
+        }
+
+        lots.RemoveAll(x => x.Qty == 0);
+        return slices;
+    }
+
     static Slice Take(Lot lot, OpenTrade buy, decimal qty)
     {
         decimal cost;
@@ -450,6 +513,38 @@ public static class LedgerBook
             lot.Cost -= cost;
             lot.Fee -= fee;
             lot.Qty -= qty;
+        }
+
+        buy.RemainingQty -= qty;
+        buy.RemainingCost -= cost;
+        buy.RemainingFee -= fee;
+        return new Slice
+        {
+            BuyTradeId = lot.TradeId,
+            Qty = qty,
+            Price = lot.Price,
+            Cost = cost,
+            BuyFee = fee,
+        };
+    }
+
+    static Slice TakeExact(Lot lot, OpenTrade buy, decimal qty, decimal cost, decimal fee)
+    {
+        if (qty > lot.Qty)
+            qty = lot.Qty;
+        if (cost > lot.Cost)
+            cost = lot.Cost;
+        if (fee > lot.Fee)
+            fee = lot.Fee;
+        lot.Qty -= qty;
+        lot.Cost -= cost;
+        lot.Fee -= fee;
+        if (lot.Qty == 0)
+        {
+            cost += lot.Cost;
+            fee += lot.Fee;
+            lot.Cost = 0;
+            lot.Fee = 0;
         }
 
         buy.RemainingQty -= qty;

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 
 namespace TradeMonitor.Tests;
@@ -153,6 +154,13 @@ public class HostScriptTests
     }
 
     [Test]
+    public void Captured_output_drops_cursor_key_sequences()
+    {
+        var raw = "\u001b[?1h\u001b[?1l\u001b[?1h\u001b[?1lnode_modules is missing\n";
+        Assert.That(CleanTerminal(raw).Trim(), Is.EqualTo("node_modules is missing"));
+    }
+
+    [Test]
     public void Npm_ci_runs_when_modules_are_missing_or_the_lock_stamp_is_stale()
     {
         var pwsh = FindPwsh();
@@ -206,13 +214,14 @@ public class HostScriptTests
             Assert.Ignore("pwsh is not installed");
 
         var script = Path.Combine(RepoRoot(), "scripts", "install-startup-task.ps1");
-        var psi = new ProcessStartInfo(pwsh, "-NoProfile -Command -")
+        var psi = new ProcessStartInfo(pwsh, "-NoProfile -NonInteractive -Command -")
         {
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+        QuietConsole(psi);
         using var process = Process.Start(psi)!;
         process.StandardInput.Write($$"""
             $errors = $null
@@ -270,13 +279,14 @@ public class HostScriptTests
 
     static (int ExitCode, string Output) RunStdin(string pwsh, string command)
     {
-        var psi = new ProcessStartInfo(pwsh, "-NoProfile -Command -")
+        var psi = new ProcessStartInfo(pwsh, "-NoProfile -NonInteractive -Command -")
         {
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+        QuietConsole(psi);
         using var process = Process.Start(psi)!;
         process.StandardInput.Write(command);
         process.StandardInput.Close();
@@ -284,18 +294,19 @@ public class HostScriptTests
         var stderr = process.StandardError.ReadToEndAsync();
         process.WaitForExit();
         Task.WaitAll(stdout, stderr);
-        return (process.ExitCode, stdout.Result + stderr.Result);
+        return (process.ExitCode, CleanTerminal(stdout.Result + stderr.Result));
     }
 
     static (int ExitCode, string Output) Run(string pwsh, string script, string arguments, string? apiKey = null)
     {
         var file = Path.Combine(RepoRoot(), "scripts", script);
-        var psi = new ProcessStartInfo(pwsh, $"-NoProfile -File \"{file}\" {arguments}")
+        var psi = new ProcessStartInfo(pwsh, $"-NoProfile -NonInteractive -File \"{file}\" {arguments}")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+        QuietConsole(psi);
         psi.Environment.Remove("MCP_API_KEY");
         psi.Environment.Remove("MCP_URL");
         psi.Environment.Remove("ASPNETCORE_URLS");
@@ -307,7 +318,18 @@ public class HostScriptTests
         var stderr = process.StandardError.ReadToEndAsync();
         process.WaitForExit();
         Task.WaitAll(stdout, stderr);
-        return (process.ExitCode, stdout.Result + stderr.Result);
+        return (process.ExitCode, CleanTerminal(stdout.Result + stderr.Result));
+    }
+
+    // Linux pwsh writes cursor-key mode sequences to a redirected stdout.
+    static readonly Regex TerminalControls = new(@"\u001b\[[0-9;?]*[A-Za-z]", RegexOptions.CultureInvariant);
+
+    static string CleanTerminal(string text) => TerminalControls.Replace(text, "");
+
+    static void QuietConsole(ProcessStartInfo psi)
+    {
+        psi.Environment["TERM"] = "dumb";
+        psi.Environment["NO_COLOR"] = "1";
     }
 
     static string? FindPwsh()

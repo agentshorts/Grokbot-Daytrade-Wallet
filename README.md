@@ -20,6 +20,10 @@ Screenshots show sample data.
 
 *Wallets and open positions (dark)*
 
+![Live chart and trading panel (light)](docs/screenshots/live-light.webp)
+
+*Live chart and trading panel (light)*
+
 <img src="docs/screenshots/phone.webp" alt="Phone view" width="320">
 
 *Phone view*
@@ -32,7 +36,7 @@ Screenshots show sample data.
 | Coinbase | real | Read-only sync from the Coinbase Advanced Trade API (view-only key) |
 | Kalshi | real, secondary | Read-only sync from the Kalshi API |
 
-The app never places orders or moves money. Upstream clients are GET-only.
+Coinbase and Kalshi stay read-only. The Live page can record paper trades into a paper wallet. It does not send orders to Coinbase.
 
 ## Stack
 
@@ -60,6 +64,7 @@ The Vue app owns the site root. A fresh load or a shared link opens the app on t
 - `/trades` and `/trades?trade=<id>`, which opens that trade's drawer
 - `/wallets`
 - `/wallet/<key>`
+- `/live` public Coinbase chart, paper orders, and an in-memory simulation for a real wallet
 
 Ledger reads are JSON under `/api`:
 
@@ -75,7 +80,23 @@ Ledger reads are JSON under `/api`:
 | Wallets | `GET /api/wallets`, `GET /api/wallets/{key}`, `GET /api/wallets/{key}/balances`, `GET /api/wallets/{key}/history` |
 | Price marks | `GET /api/price-marks` |
 
-An `/api` path that is not a ledger read and is not `/api/health` returns 404. It does not return the app. `/mcp` is unchanged.
+An `/api` path that is not a ledger read, a live route, or `/api/health` returns 404. It does not return the app. `/mcp` is unchanged.
+
+## Live
+
+`/live` shows a public Coinbase USD product. The chart fills the left side. The trading panel on the right folds to a thin rail, a normal column, or a wide panel, and the choice is kept in local storage. On a narrow screen the panel stacks under the chart.
+
+Quick mode buys and sells at the public price in one click. Lots are listed with remaining quantity, buy price, the live price, and unrealized profit, most profitable first. Quick sell closes that lot. Sell at average sells the quantity you type against the average cost of what is still open. Both show the profit before the click.
+
+Orders mode places market, limit, stop-loss, and take-profit orders. They stay open until they fill or you cancel them. Paper orders are stored in SQLite and fill from the public price while the app is running, even if the page is closed. A real wallet never receives those writes. Choosing one opens a simulation labeled "Simulation, not saved", with a reset button. Nothing from that simulation is stored.
+
+Right-click the chart. A price level offers limit buy, limit sell, stop-loss, and take-profit at the cursor price. A lot line offers quick sell. An order line offers cancel and move. The time axis offers the candle size and zoom. Open orders and lot buy prices are drawn as horizontal lines.
+
+Sells record how they were matched. FIFO, the existing rule, consumes the oldest lots. A lot sell consumes only that buy. An average sell takes the same fraction of every open lot, so the matched cost is the average. Realized profit from those fills shows on Overview, Trades, and Wallets. Live unrealized profit uses the public price. Overview unrealized profit still uses recorded price marks. The page does not write price marks.
+
+Stop-limit orders are not in this version.
+
+A later step can read a Coinbase key from `C:\DevCurrent\WalletSync\.env` on the owner's machine. This repository does not contain that file, and Live does not use a Coinbase key.
 
 ## Run locally
 
@@ -91,7 +112,7 @@ dotnet watch
 
 `dotnet watch` starts the .NET host and the Vite dev server. The app listens on `https://127.0.0.1:5051` and `http://127.0.0.1:5050`.
 
-Open `https://127.0.0.1:5051`. Sign in from the header. The first run creates the SQLite database and the local seed users shown on the sign-in page.
+Open `https://127.0.0.1:5051`. Sign in from the header. The first run creates the SQLite database and the local seed users shown on the sign-in page. Each later start applies pending OrmLite migrations to that same file. Rows already stored stay as they are. A trade recorded before the Kind column existed is kept and marked Fill.
 
 The trading agent writes through MCP at `http://127.0.0.1:5050/mcp`. Tool names, example calls, and API key setup are in [docs/mcp.md](docs/mcp.md). Copy `.env.example` to `.env` and set `MCP_API_KEY` there, or put the same value in gitignored `appsettings.Local.json`. Do not commit the key.
 
@@ -103,7 +124,7 @@ From the repository root:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run.ps1
 ```
 
-The script copies `.env.example` to `.env` when `.env` is missing, generates `MCP_API_KEY` when that value is empty, builds the client and the server in Release, and starts the app at `http://127.0.0.1:5050` with `ASPNETCORE_ENVIRONMENT=Production`. It refuses any URL that is not a loopback address. The full key stays in `.env` and is not printed.
+The script copies `.env.example` to `.env` when `.env` is missing, generates `MCP_API_KEY` when that value is empty, builds the client and the server in Release, and starts the app at `http://127.0.0.1:5050` with `ASPNETCORE_ENVIRONMENT=Production`. It refuses any URL that is not a loopback address. The full key stays in `.env` and is not printed. When the host starts, it applies pending database migrations to an existing `TradeMonitor/App_Data/app.db` and leaves stored rows in place.
 
 `http://127.0.0.1:5050/api/health` reports database status, the last ledger write time, and the app version. That check stays on `/api/health`. Page links such as `http://127.0.0.1:5050/trades?trade=123` open the app. Ledger JSON for the same list is `http://127.0.0.1:5050/api/trades`.
 
@@ -130,6 +151,7 @@ This repository is public. Never commit keys, `.env` files, `*.pem` files, datab
 - Keep API keys in `MCP_API_KEY`, `dotnet user-secrets` (project `TradeMonitor`), or a gitignored `appsettings.Local.json`. `.env.example` shows the variable names with empty values.
 - `App_Data/` (the SQLite database) is gitignored.
 - Every push and pull request runs a gitleaks secret scan (`.github/workflows/gitleaks.yml`, config in `.gitleaks.toml`).
+- A future Coinbase read can use the key in `C:\DevCurrent\WalletSync\.env` on the owner's machine. Do not copy that file into this repository.
 
 ## Branches
 

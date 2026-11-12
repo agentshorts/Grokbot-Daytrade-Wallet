@@ -14,6 +14,30 @@ public enum TradeSide
     Sell,
 }
 
+// How a sell chooses lots. Fifo is the historical default and the MCP path.
+// Lot consumes the buy named by Trade.LotId. Average removes a proportional slice of every open lot.
+public enum CostingMethod
+{
+    Fifo,
+    Lot,
+    Average,
+}
+
+public enum LiveOrderType
+{
+    Market,
+    Limit,
+    StopLoss,
+    TakeProfit,
+}
+
+public enum LiveOrderStatus
+{
+    Open,
+    Filled,
+    Cancelled,
+}
+
 public enum TradeKind
 {
     Fill,
@@ -107,7 +131,62 @@ public class Trade
 
     public string? Note { get; set; }
 
+    // Fifo when a sell does not name a method. Existing rows and MCP fills stay fifo.
+    [Default("'Fifo'")]
+    public CostingMethod Costing { get; set; } = CostingMethod.Fifo;
+
+    // Buy trade consumed by a lot sell. Null for fifo and average.
+    public int? LotId { get; set; }
+
     public DateTime RecordedAt { get; set; }
+}
+
+// Resting paper order. Filled by the public price while the app is running. Real wallets do not use this table.
+[CompositeIndex(true, nameof(WalletId), nameof(ClientId))]
+[CompositeIndex(nameof(WalletId), nameof(Status), nameof(Symbol))]
+public class PaperOrder
+{
+    [AutoIncrement]
+    public int Id { get; set; }
+
+    [ForeignKey(typeof(Wallet), OnDelete = "CASCADE")]
+    public int WalletId { get; set; }
+
+    [Required]
+    [StringLength(128)]
+    public string ClientId { get; set; } = "";
+
+    [Required]
+    [StringLength(64)]
+    public string Symbol { get; set; } = "";
+
+    public TradeSide Side { get; set; }
+
+    public LiveOrderType Type { get; set; }
+
+    public decimal Qty { get; set; }
+
+    // Limit, stop, or take-profit price. Null on a market order.
+    public decimal? TriggerPrice { get; set; }
+
+    [Default("'Fifo'")]
+    public CostingMethod Costing { get; set; } = CostingMethod.Fifo;
+
+    public int? LotId { get; set; }
+
+    [Default("'Open'")]
+    public LiveOrderStatus Status { get; set; } = LiveOrderStatus.Open;
+
+    [StringLength(500)]
+    public string? LastError { get; set; }
+
+    public int? TradeId { get; set; }
+
+    public decimal? FilledPrice { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+
+    public DateTime? ClosedAt { get; set; }
 }
 
 [CompositeIndex(true, nameof(WalletId), nameof(ClientId))]
