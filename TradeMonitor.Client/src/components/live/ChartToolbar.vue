@@ -20,6 +20,8 @@ const props = defineProps<{
     deltaMode: DeltaMode
     hint: string
     showBaseline: boolean
+    showSwing: boolean
+    swingNotice: string
 }>()
 
 const emit = defineEmits<{
@@ -35,6 +37,7 @@ const emit = defineEmits<{
     'baseline-source': [value: BaselineSource]
     'baseline-price': [value: number]
     'delta-mode': [value: DeltaMode]
+    swing: []
 }>()
 
 const custom = ref('')
@@ -112,6 +115,8 @@ function addCustom() {
         </div>
         <button type="button" data-testid="chart-zone" class="rounded-md px-2 py-1 text-xs font-medium text-gray-600" @click="emit('zone')">{{ zoneLabel }}</button>
         <button type="button" data-testid="chart-volume" class="rounded-md px-2 py-1 text-xs font-medium" :class="showVolume ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'text-gray-600'" :aria-pressed="showVolume" @click="emit('volume')">Volume</button>
+        <button type="button" data-testid="swing-toggle" class="rounded-md px-2 py-1 text-xs font-medium" :class="showSwing ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'text-gray-600'" :aria-pressed="showSwing" @click="emit('swing')">Targets: Swing</button>
+        <p v-if="showSwing && swingNotice" data-testid="swing-notice" class="text-xs text-gray-500">{{ swingNotice }}</p>
         <div v-if="showBaseline" class="flex items-center gap-1">
             <select data-testid="baseline-source" class="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-950" :value="baselineSource" @change="emit('baseline-source', ($event.target as HTMLSelectElement).value as BaselineSource)">
                 <option value="first">First close</option>
