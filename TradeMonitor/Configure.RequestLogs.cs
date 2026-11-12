@@ -10,8 +10,13 @@ public class ConfigureRequestLogs : IHostingStartup
     public void Configure(IWebHostBuilder builder) => builder
         .ConfigureServices((context, services) => {
             
+            var requestLogger = new McpSqliteRequestLogger();
+            var requestLogDir = context.Configuration["RequestLogs:Dir"];
+            if (!string.IsNullOrWhiteSpace(requestLogDir))
+                requestLogger.DbDir = requestLogDir;
+
             services.AddPlugin(new RequestLogsFeature {
-                RequestLogger = new SqliteRequestLogger(),
+                RequestLogger = requestLogger,
                 // EnableResponseTracking = true,
                 EnableRequestBodyTracking = true,
                 EnableErrorTracking = true

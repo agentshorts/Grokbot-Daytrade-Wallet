@@ -13,8 +13,8 @@ public class AppHost() : AppHostBase("TradeMonitor"), IHostingStartup
             services.AddSingleton(context.Configuration.GetSection(nameof(AppConfig))?.Get<AppConfig>()
                 ?? new AppConfig {
                         BaseUrl = context.HostingEnvironment.IsDevelopment()
-                            ? "https://localhost:5051"
-                            : "http://localhost:5050",
+                            ? "https://127.0.0.1:5051"
+                            : "http://127.0.0.1:5050",
                     });
             services.AddSingleton<ILedgerClock, SystemLedgerClock>();
             }));
