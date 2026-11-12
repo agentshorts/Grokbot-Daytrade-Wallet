@@ -221,7 +221,7 @@ Recorded trades, newest first. Omit a filter to leave it open.
 
 ### pnl_by_day
 
-Daily P&L is not available yet. The tool returns `available: false` and the message `not available yet`. Use `wallet_balances` for the current realized and unrealized P&L.
+Daily P&L from recorded trades, fees, and price marks. `wallet` is optional. `from` and `to` are inclusive UTC times. Each day includes realized P&L, the change in unrealized P&L, fees, deposits, withdrawals, sweeps, and end-of-day total value. Unrealized change and total P&L are null when an open position has no mark. Transfers are not P&L.
 
 ```json
 {

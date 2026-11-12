@@ -407,6 +407,22 @@ public class QueryTrades : IGet, IReturn<QueryTradesResponse>
     public TradeSide? Side { get; set; }
     public DateTime? From { get; set; }
     public DateTime? To { get; set; }
+
+    [Description("all, paper, or real. Defaults to all.")]
+    public string? Mode { get; set; }
+
+    [Description("won, lost, open, or closed.")]
+    public string? Outcome { get; set; }
+
+    [Description("Case-insensitive match on symbol, title, note, wallet, client id, or order ref.")]
+    public string? Q { get; set; }
+
+    [Description("time, symbol, wallet, pnl, fee, qty, or price. Defaults to time.")]
+    public string? OrderBy { get; set; }
+
+    [Description("Defaults to true.")]
+    public bool? Descending { get; set; }
+
     public int? Take { get; set; }
     public int? Skip { get; set; }
 }
@@ -424,6 +440,8 @@ public class TradeView
 {
     public int Id { get; set; }
     public string Wallet { get; set; } = "";
+    public string WalletName { get; set; } = "";
+    public WalletMode Mode { get; set; }
     public int WalletId { get; set; }
     public string ClientId { get; set; } = "";
     public string Symbol { get; set; } = "";
@@ -438,4 +456,42 @@ public class TradeView
     public decimal? TargetPrice { get; set; }
     public string? Note { get; set; }
     public DateTime RecordedAt { get; set; }
+
+    [Description("Fill price for a buy. Quantity-weighted buy price for a sell, before fees. Quote currency per unit.")]
+    public decimal BuyPrice { get; set; }
+
+    [Description("Exit price when the fill is closed, latest mark when it is open, null when an open fill has no mark. Quote currency per unit.")]
+    public decimal? CurrentOrExitPrice { get; set; }
+
+    [Description("exit, mark, or unknown.")]
+    public string PriceKind { get; set; } = "";
+
+    [Description("open or closed.")]
+    public string Status { get; set; } = "";
+
+    [Description("Weighted exit price of the closed quantity. Null when none of the fill has been sold.")]
+    public decimal? ExitPrice { get; set; }
+
+    public decimal? LastMarkPrice { get; set; }
+    public DateTime? LastMarkAt { get; set; }
+
+    [Description("Matched cost of closed quantity in the wallet base currency, including allocated buy fees.")]
+    public decimal MatchedCost { get; set; }
+
+    [Description("Proceeds of closed quantity in the wallet base currency, after allocated sell fees.")]
+    public decimal Proceeds { get; set; }
+
+    public decimal RealizedPnl { get; set; }
+
+    [Description("Null when quantity is still open and the symbol has no price mark.")]
+    public decimal? UnrealizedPnl { get; set; }
+
+    [Description("Realized plus unrealized P&L. Null when unrealized P&L is unknown.")]
+    public decimal? Pnl { get; set; }
+
+    [Description("P&L as a percent of cost. Null when P&L is unknown or cost is zero.")]
+    public decimal? PnlPercent { get; set; }
+
+    public decimal RemainingQty { get; set; }
+    public bool ValuedAtCost { get; set; }
 }
