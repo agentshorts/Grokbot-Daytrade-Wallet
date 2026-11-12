@@ -1,5 +1,7 @@
 # MCP ledger tools
 
+Host setup, the API key, and a first recorded session are in [agent onboarding](agent-onboarding.md).
+
 The trading agent is the only writer. It talks to this app over MCP on the same PC. The server listens on `127.0.0.1` and the tools call the ledger services in process. They do not place orders, move money, or call a venue.
 
 Endpoint: `http://127.0.0.1:5050/mcp`
