@@ -20,6 +20,7 @@ const props = defineProps<{
     status: string
     error: string
     auth: boolean
+    showTrades: boolean
 }>()
 
 const emit = defineEmits<{
@@ -35,6 +36,7 @@ const emit = defineEmits<{
     place: [payload: { side: LiveSide; type: LiveOrderType; trigger: number | null; costing: LiveCosting; lotId: number | null }]
     cancel: [id: number]
     reset: []
+    'show-trades': [value: boolean]
 }>()
 
 const walletName = ref('')
@@ -176,6 +178,16 @@ function orderLabel(type: LiveOrderType) {
                     <option value="">Choose a wallet</option>
                     <option v-for="item in wallets" :key="item.key" :value="item.key">{{ item.name }} · {{ item.mode }}</option>
                 </select>
+            </label>
+            <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+                <input
+                    data-testid="show-trades"
+                    type="checkbox"
+                    class="size-4 rounded border-gray-300"
+                    :checked="showTrades"
+                    @change="emit('show-trades', ($event.target as HTMLInputElement).checked)"
+                />
+                Show my trades
             </label>
 
             <template v-if="tab === 'quick'">

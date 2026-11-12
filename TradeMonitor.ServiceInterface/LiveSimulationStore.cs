@@ -31,6 +31,7 @@ public sealed class LiveSimulationStore(IDbConnectionFactory dbFactory, ILedgerC
             Marks = db.Select<PriceMark>(x => x.WalletId == null || x.WalletId == wallet.Id).Select(Copy).ToList(),
         };
         session.NextTradeId = session.Trades.Count == 0 ? 1 : session.Trades.Max(x => x.Id) + 1;
+        session.SeedTradeId = session.NextTradeId;
         if (price is decimal mark && mark > 0)
             session.Prices[session.Symbol] = mark;
         lock (gate)
@@ -168,10 +169,36 @@ public sealed class LiveSimulationStore(IDbConnectionFactory dbFactory, ILedgerC
             session.Marks = db.Select<PriceMark>(x => x.WalletId == null || x.WalletId == wallet.Id).Select(Copy).ToList();
             session.Orders.Clear();
             session.NextTradeId = session.Trades.Count == 0 ? 1 : session.Trades.Max(x => x.Id) + 1;
+            session.SeedTradeId = session.NextTradeId;
             session.NextOrderId = 0;
             if (!string.IsNullOrWhiteSpace(symbol))
                 session.Symbol = Clean(symbol);
             return Describe(session, null);
+        }
+    }
+
+    public List<LiveTradeMark> Marks(string id, string symbol)
+    {
+        var session = Find(id);
+        var clean = Clean(symbol);
+        lock (session.Gate)
+        {
+            return session.Trades
+                .Where(x => x.Symbol.Equals(clean, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(x => x.ExecutedAt)
+                .ThenBy(x => x.Id)
+                .Select(x => new LiveTradeMark
+                {
+                    TradeId = x.Id,
+                    Side = x.Side,
+                    Kind = x.Kind,
+                    Qty = x.Qty,
+                    Price = x.Price,
+                    Fee = x.Fee,
+                    ExecutedAt = x.ExecutedAt,
+                    Simulated = x.Id >= session.SeedTradeId,
+                })
+                .ToList();
         }
     }
 
@@ -364,6 +391,7 @@ public sealed class LiveSimulationStore(IDbConnectionFactory dbFactory, ILedgerC
         public List<PaperOrder> Orders { get; } = [];
         public Dictionary<string, decimal> Prices { get; } = new(StringComparer.OrdinalIgnoreCase);
         public int NextTradeId { get; set; } = 1;
+        public int SeedTradeId { get; set; } = 1;
         public int NextOrderId { get; set; }
     }
 }

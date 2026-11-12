@@ -91,7 +91,7 @@ public class LedgerSchemaTests
 
             Assert.That(names, Does.Contain("Migration1001"));
             db.ExecuteSql("ALTER TABLE Trade DROP COLUMN Kind");
-            db.ExecuteSql("DELETE FROM Migration WHERE Name IN ('Migration1001', 'Migration1002')");
+            db.ExecuteSql("DELETE FROM Migration WHERE Name IN ('Migration1001', 'Migration1002', 'Migration1003')");
         }
 
         var again = ledger.Migrator.Run();
@@ -118,7 +118,7 @@ public class LedgerSchemaTests
             db.ExecuteSql("ALTER TABLE Trade DROP COLUMN LotId");
             db.ExecuteSql("ALTER TABLE Trade DROP COLUMN Costing");
             db.ExecuteSql("DROP TABLE PaperOrder");
-            db.ExecuteSql("DELETE FROM Migration WHERE Name = 'Migration1002'");
+            db.ExecuteSql("DELETE FROM Migration WHERE Name IN ('Migration1002', 'Migration1003')");
         }
 
         var again = ledger.Migrator.Run();

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import type { LiveBook, LiveCandle, LiveCosting, LiveOrderType, LiveProduct, LiveSide, PlaceOrderInput } from '@/api/live'
+import type { LiveBook, LiveCosting, LiveOrderType, LiveProduct, LiveSide, LiveTradeMark, PlaceOrderInput, TrackedSymbol } from '@/api/live'
 import type { WalletInfo } from '@/api/types'
 import ChartMenu from '@/components/live/ChartMenu.vue'
 import LiveChart from '@/components/live/LiveChart.vue'
@@ -8,24 +8,30 @@ import ProductSelect from '@/components/live/ProductSelect.vue'
 import TradingPanel from '@/components/live/TradingPanel.vue'
 import { explainLedgerError, useLedger } from '@/composables/useLedger'
 import { useLive } from '@/composables/useLive'
+import { useLiveStream } from '@/composables/useLiveStream'
 import { useTheme } from '@/composables/useTheme'
 import { formatMenuPrice } from '@/lib/chartMenu'
 import type { ChartHit } from '@/lib/chartMenu'
+import { applyTick, barsToPoints, bucketSeconds, type SeriesPoint } from '@/lib/liveSeries'
 import { quoteLots } from '@/lib/lotQuote'
 import { readPanelTab, readPanelWidth, writePanelTab, writePanelWidth, type PanelTab, type PanelWidth } from '@/lib/livePanel'
+import { toTradeMarks } from '@/lib/tradeMarkers'
 
 const ledger = useLedger()
 const live = useLive()
+const stream = useLiveStream()
 const { isDark } = useTheme()
 
 const products = ref<LiveProduct[]>([])
 const product = ref('BTC-USD')
 const granularity = ref('5m')
-const candles = ref<LiveCandle[]>([])
+const points = ref<SeriesPoint[]>([])
 const price = ref<number | null>(null)
 const wallets = ref<WalletInfo[]>([])
 const walletKey = ref('')
 const book = ref<LiveBook | null>(null)
+const marks = ref<LiveTradeMark[]>([])
+const showTrades = ref(true)
 const simulationId = ref<string | null>(null)
 const width = ref<PanelWidth>('normal')
 const tab = ref<PanelTab>('quick')
@@ -36,10 +42,13 @@ const busy = ref(false)
 const status = ref('')
 const error = ref('')
 const auth = ref(false)
+const ready = ref(false)
 const menu = ref<{ x: number; y: number; hit: ChartHit } | null>(null)
 const pendingMoveId = ref<number | null>(null)
 const chart = ref<{ zoom: (factor: number) => void; fit: () => void } | null>(null)
 let timer = 0
+let stopStream: (() => void) | null = null
+let sawLive = false
 
 const fitKey = computed(() => `${product.value}:${granularity.value}`)
 const realWallet = computed(() => wallets.value.find((item) => item.key === walletKey.value)?.mode === 'real')
@@ -51,6 +60,8 @@ const shownLots = computed(() =>
     })),
 )
 const shownBook = computed<LiveBook | null>(() => (book.value ? { ...book.value, lots: shownLots.value } : null))
+const chartMarkers = computed(() => (showTrades.value ? toTradeMarks(marks.value) : []))
+const linkLabel = computed(() => (stream.link.value === 'live' ? 'live' : stream.link.value === 'reconnecting' ? 'reconnecting' : 'connecting'))
 
 function rememberWidth(value: PanelWidth) {
     width.value = value
@@ -68,19 +79,43 @@ function fail(err: unknown) {
     auth.value = explained.code === 'auth'
 }
 
+function toProducts(rows: TrackedSymbol[]): LiveProduct[] {
+    return rows
+        .filter((row) => row.listed)
+        .map((row) => ({
+            productId: row.productId,
+            base: row.productId.split('-')[0] || row.productId,
+            quote: 'USD',
+            name: row.name || row.productId,
+            price: null,
+        }))
+}
+
+async function loadSymbols() {
+    const tracked = await live.tracked()
+    products.value = toProducts(tracked.results)
+    if (!products.value.some((item) => item.productId === product.value) && products.value[0]) product.value = products.value[0].productId
+}
+
+async function loadBars() {
+    const next = barsToPoints(await live.bars(product.value, granularity.value))
+    points.value = next
+    const last = next[next.length - 1]
+    if (price.value == null && last) price.value = last.value
+}
+
+function follow(next: string) {
+    stopStream?.()
+    stopStream = stream.subscribe(next, (tick) => {
+        if (tick.productId && tick.productId.toUpperCase() !== product.value.toUpperCase()) return
+        price.value = tick.price
+        points.value = applyTick(points.value, tick, bucketSeconds(granularity.value))
+    })
+}
+
 async function loadWallets() {
     const listed = await ledger.wallets()
     wallets.value = listed.results.filter((item) => !item.isArchived)
-}
-
-async function refreshMarket() {
-    if (products.value.length === 0) {
-        products.value = await live.products()
-        if (!products.value.some((item) => item.productId === product.value) && products.value[0]) product.value = products.value[0].productId
-    }
-    const [tick, rows] = await Promise.all([live.ticker(product.value), live.candles(product.value, granularity.value)])
-    if (tick) price.value = tick.price
-    candles.value = rows
 }
 
 async function refreshBook() {
@@ -93,14 +128,26 @@ async function refreshBook() {
         : await live.book(walletKey.value, product.value, sellQty)
     book.value = next
     if (next.simulationId) simulationId.value = next.simulationId
-    if (next.price != null) price.value = next.price
+    if (price.value == null && next.price != null) price.value = next.price
     if (!averageEdited.value) averageQty.value = next.average.openQty
 }
 
-async function refresh() {
+async function refreshTrades() {
+    if (!walletKey.value) {
+        marks.value = []
+        return
+    }
+    marks.value = await live.trades(walletKey.value, product.value, realWallet.value ? simulationId.value : null)
+}
+
+async function refreshSide() {
     try {
-        await refreshMarket()
-        if (walletKey.value) await refreshBook()
+        if (walletKey.value) {
+            await refreshBook()
+            await refreshTrades()
+        } else {
+            marks.value = []
+        }
         error.value = ''
         auth.value = false
     } catch (err) {
@@ -129,6 +176,7 @@ function order(input: PlaceOrderInput) {
         }
         const next = realWallet.value && simulationId.value ? await live.placeSimulation(simulationId.value, input) : await live.placePaper(walletKey.value, input)
         book.value = next
+        await refreshTrades()
         status.value = `${input.type === 'Market' ? 'Market' : input.type === 'StopLoss' ? 'Stop-loss' : input.type === 'TakeProfit' ? 'Take-profit' : 'Limit'} ${input.side.toLowerCase()} placed`
         menu.value = null
     })
@@ -156,6 +204,7 @@ function onMenu(id: string) {
         pendingMoveId.value = null
         void run(async () => {
             book.value = realWallet.value && simulationId.value ? await live.moveSimulation(simulationId.value, idToMove, hit.price) : await live.movePaper(idToMove, hit.price)
+            await refreshTrades()
             status.value = `Order moved to ${formatMenuPrice(hit.price)}`
         })
         menu.value = null
@@ -213,6 +262,7 @@ function onPlace(payload: { side: LiveSide; type: LiveOrderType; trigger: number
 function onCancel(id: number) {
     void run(async () => {
         book.value = realWallet.value && simulationId.value ? await live.cancelSimulation(simulationId.value, id) : await live.cancelPaper(id)
+        await refreshTrades()
         status.value = 'Order cancelled'
         menu.value = null
     })
@@ -224,7 +274,7 @@ function onCreate(payload: { name: string; cash: number }) {
         await loadWallets()
         walletKey.value = created.key
         simulationId.value = null
-        await refreshBook()
+        await refreshSide()
         status.value = `Paper wallet ${created.name} opened`
     })
 }
@@ -233,6 +283,7 @@ function onReset() {
     if (!simulationId.value) return
     void run(async () => {
         book.value = await live.resetSimulation(simulationId.value!, product.value)
+        await refreshTrades()
         status.value = 'Simulation reset'
     })
 }
@@ -242,35 +293,58 @@ function onWallet(key: string) {
     simulationId.value = null
     book.value = null
     averageEdited.value = false
-    void refresh()
+    void refreshSide()
 }
 
 watch(product, () => {
-    void refresh()
+    if (!ready.value) return
+    price.value = null
+    void (async () => {
+        try {
+            await loadBars()
+            follow(product.value)
+            await refreshSide()
+        } catch (err) {
+            fail(err)
+        }
+    })()
 })
 
 watch(granularity, () => {
-    void refresh()
+    if (!ready.value) return
+    void loadBars().catch(fail)
+})
+
+watch(stream.link, (value) => {
+    if (value === 'live') {
+        if (sawLive) void loadBars().catch(fail)
+        sawLive = true
+    }
 })
 
 onMounted(async () => {
     width.value = readPanelWidth(localStorage)
     tab.value = readPanelTab(localStorage)
     try {
-        products.value = await live.products()
-        if (!products.value.some((item) => item.productId === product.value) && products.value[0]) product.value = products.value[0].productId
+        await loadSymbols()
         await loadWallets()
-        await refresh()
+        await loadBars()
+        await refreshSide()
+        follow(product.value)
+        error.value = ''
+        auth.value = false
     } catch (err) {
         fail(err)
     }
+    ready.value = true
     timer = window.setInterval(() => {
-        void refresh()
+        void refreshSide()
     }, 2000)
 })
 
 onUnmounted(() => {
     window.clearInterval(timer)
+    stopStream?.()
 })
 </script>
 
@@ -282,12 +356,14 @@ onUnmounted(() => {
                 <p class="text-lg font-semibold text-gray-900 dark:text-white" data-testid="live-price">
                     {{ price == null ? 'Waiting for a public price' : formatMenuPrice(price) }}
                 </p>
+                <p class="text-xs text-gray-500" data-testid="live-link">{{ linkLabel }}</p>
                 <p class="text-xs text-gray-500">{{ granularity }} · public Coinbase</p>
             </div>
             <div class="relative min-h-0 flex-1" @click.stop>
                 <LiveChart
                     ref="chart"
-                    :candles="candles"
+                    :points="points"
+                    :markers="chartMarkers"
                     :price="price"
                     :lots="shownLots"
                     :orders="shownBook?.orders ?? []"
@@ -311,6 +387,7 @@ onUnmounted(() => {
             :status="status"
             :error="error"
             :auth="auth"
+            :show-trades="showTrades"
             @width="rememberWidth"
             @tab="rememberTab"
             @wallet="onWallet"
@@ -323,6 +400,7 @@ onUnmounted(() => {
             @place="onPlace"
             @cancel="onCancel"
             @reset="onReset"
+            @show-trades="showTrades = $event"
         />
     </div>
 </template>

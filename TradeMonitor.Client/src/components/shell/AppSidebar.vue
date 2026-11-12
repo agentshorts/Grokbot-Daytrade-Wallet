@@ -15,6 +15,7 @@ const items = [
     { label: 'Trades', path: '/trades', icon: 'trades' as const },
     { label: 'Wallets', path: '/wallets', icon: 'wallet' as const },
     { label: 'Live', path: '/live', icon: 'live' as const },
+    { label: 'Settings', path: '/settings', icon: 'settings' as const },
 ]
 
 const wide = computed(() => isMobile.value || open.value)

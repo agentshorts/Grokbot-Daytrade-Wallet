@@ -1,5 +1,5 @@
 import { LedgerReadError } from '@/api/errors'
-import { asRecord, pick, readFailure, readMoney } from '@/api/parse'
+import { asRecord, pick, readFailure, readMoney, readTime } from '@/api/parse'
 
 export interface LiveProduct {
     productId: string
@@ -21,6 +21,29 @@ export interface LiveTick {
     productId: string
     price: number
     at: string | null
+}
+
+export interface TrackedSymbol {
+    productId: string
+    name: string
+    sortOrder: number
+    listed: boolean
+}
+
+export interface TrackedSymbols {
+    catalogLoaded: boolean
+    results: TrackedSymbol[]
+}
+
+export interface LiveTradeMark {
+    tradeId: number
+    side: LiveSide
+    kind: string
+    qty: number
+    price: number
+    fee: number
+    executedAt: string | null
+    simulated: boolean
 }
 
 export interface LiveLot {
@@ -98,7 +121,13 @@ export interface PlaceOrderInput {
 export interface LiveClient {
     products(): Promise<LiveProduct[]>
     candles(product: string, granularity: string): Promise<LiveCandle[]>
+    bars(product: string, granularity: string): Promise<LiveCandle[]>
     ticker(product: string): Promise<LiveTick | null>
+    tracked(): Promise<TrackedSymbols>
+    addSymbol(product: string): Promise<TrackedSymbols>
+    removeSymbol(product: string): Promise<TrackedSymbols>
+    reorderSymbols(products: string[]): Promise<TrackedSymbols>
+    trades(wallet: string, symbol: string, simulationId?: string | null): Promise<LiveTradeMark[]>
     createPaperWallet(name: string, startingCash: number): Promise<PaperWalletResult>
     book(wallet: string, symbol: string, sellQty?: number): Promise<LiveBook>
     placePaper(wallet: string, order: PlaceOrderInput): Promise<LiveBook>
@@ -244,13 +273,58 @@ function parseCandles(body: unknown): LiveCandle[] {
     })
 }
 
-async function send(path: string, method: 'GET' | 'POST', body?: unknown): Promise<unknown> {
+function parseTracked(body: unknown): TrackedSymbols {
+    const record = asRecord(body) ?? {}
+    const rows = Array.isArray(pick(record, 'results')) ? (pick(record, 'results') as unknown[]) : []
+    return {
+        catalogLoaded: pick(record, 'catalogLoaded') === true,
+        results: rows.flatMap((row) => {
+            const item = asRecord(row)
+            if (!item) return []
+            const productId = text(item, 'productId')
+            if (!productId) return []
+            return [
+                {
+                    productId,
+                    name: text(item, 'name') || productId,
+                    sortOrder: num(item, 'sortOrder'),
+                    listed: pick(item, 'listed') !== false,
+                },
+            ]
+        }),
+    }
+}
+
+function parseTrades(body: unknown): LiveTradeMark[] {
+    const record = asRecord(body)
+    const rows = record && Array.isArray(pick(record, 'results')) ? (pick(record, 'results') as unknown[]) : []
+    return rows.flatMap((row) => {
+        const item = asRecord(row)
+        if (!item) return []
+        const price = readMoney(pick(item, 'price'))
+        if (price == null || price <= 0) return []
+        return [
+            {
+                tradeId: num(item, 'tradeId'),
+                side: side(text(item, 'side')),
+                kind: text(item, 'kind') || 'Fill',
+                qty: num(item, 'qty'),
+                price,
+                fee: num(item, 'fee'),
+                executedAt: readTime(pick(item, 'executedAt')),
+                simulated: pick(item, 'simulated') === true,
+            },
+        ]
+    })
+}
+
+async function send(path: string, method: 'GET' | 'POST' | 'DELETE', body?: unknown): Promise<unknown> {
     const response = await fetch(path, {
         method,
         credentials: 'same-origin',
         redirect: 'manual',
         headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
-        body: body ? JSON.stringify(body) : undefined,
+        ...(body ? { body: JSON.stringify(body) } : {}),
     })
     if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
         throw new LedgerReadError(401, 'Unauthorized', 'Sign in as an admin to use Live.')
@@ -282,13 +356,34 @@ export function createLiveClient(): LiveClient {
             const params = new URLSearchParams({ product, granularity })
             return parseCandles(await send(`/api/live/candles?${params}`, 'GET'))
         },
+        async bars(product, granularity) {
+            const params = new URLSearchParams({ product, granularity })
+            return parseCandles(await send(`/api/live/bars?${params}`, 'GET'))
+        },
         async ticker(product) {
             const body = asRecord(await send(`/api/live/ticker?product=${encodeURIComponent(product)}`, 'GET'))
             const result = body ? asRecord(pick(body, 'result')) : null
             if (!result) return null
             const price = readMoney(pick(result, 'price'))
             if (price == null) return null
-            return { productId: text(result, 'productId') || product, price, at: text(result, 'at') || null }
+            return { productId: text(result, 'productId') || product, price, at: readTime(pick(result, 'at')) }
+        },
+        async tracked() {
+            return parseTracked(await send('/api/live/tracked', 'GET'))
+        },
+        async addSymbol(product) {
+            return parseTracked(await send('/api/live/tracked', 'POST', { product }))
+        },
+        async removeSymbol(product) {
+            return parseTracked(await send(`/api/live/tracked/${encodeURIComponent(product)}`, 'DELETE'))
+        },
+        async reorderSymbols(products) {
+            return parseTracked(await send('/api/live/tracked/reorder', 'POST', { products }))
+        },
+        async trades(wallet, symbol, simulationId) {
+            const params = new URLSearchParams({ wallet, symbol })
+            if (simulationId) params.set('simulationId', simulationId)
+            return parseTrades(await send(`/api/live/trades?${params}`, 'GET'))
         },
         async createPaperWallet(name, startingCash) {
             const body = asRecord(await send('/api/live/paper-wallets', 'POST', { name, startingCash })) ?? {}

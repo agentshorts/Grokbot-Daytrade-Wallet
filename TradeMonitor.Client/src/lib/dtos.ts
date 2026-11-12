@@ -1456,20 +1456,6 @@ export class GetLiveTicker implements IReturn<GetLiveTickerResponse>, IGet
     public createResponse() { return new GetLiveTickerResponse(); }
 }
 
-/** @description Server-sent public prices for one product */
-// @Route("/api/live/stream", "GET")
-// @Api(Description="Server-sent public prices for one product")
-// @ValidateRequest(Validator="IsAdmin")
-export class StreamLiveTicker implements IReturnVoid, IGet
-{
-    public product?: string;
-
-    public constructor(init?: Partial<StreamLiveTicker>) { (Object as any).assign(this, init); }
-    public getTypeName() { return 'StreamLiveTicker'; }
-    public getMethod() { return 'GET'; }
-    public createResponse() {}
-}
-
 /** @description Create a paper wallet and its starting cash */
 // @Route("/api/live/paper-wallets", "POST")
 // @Api(Description="Create a paper wallet and its starting cash")

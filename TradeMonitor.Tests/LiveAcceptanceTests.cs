@@ -38,7 +38,7 @@ public class LiveAcceptanceTests
         market = new LiveMarketCache();
         orders = new PaperOrderBook(factory, clock);
         simulations = new LiveSimulationStore(factory, clock);
-        live = new LiveServices(factory, clock, market, orders, simulations);
+        live = new LiveServices(factory, clock, market, orders, simulations, new PriceBars(factory, clock), new TrackedSymbolBook(factory, market, clock));
         market.PublishProducts(
         [
             new LiveProduct { ProductId = "BTC-USD", Base = "BTC", Quote = "USD", Name = "Bitcoin" },
@@ -309,6 +309,71 @@ public class LiveAcceptanceTests
         Assert.That(handler.LastUrl, Is.EqualTo("https://api.exchange.coinbase.com/products"));
         Assert.That(handler.UserAgent, Does.Contain("TradeMonitor"));
         Assert.That(CoinbaseMessages.Products(body).Single().ProductId, Is.EqualTo("SOL-USD"));
+    }
+
+    [Test]
+    public void Chart_marks_include_saved_fills_and_flag_simulation_fills()
+    {
+        var key = Open("Marks");
+        ledger.Any(new RecordTrade
+        {
+            Wallet = key,
+            ClientId = "buy-fee",
+            Symbol = "BTC-USD",
+            Side = TradeSide.Buy,
+            Qty = 2,
+            Price = 10,
+            Fee = 0.25m,
+            ExecutedAt = clock.UtcNow,
+        });
+        clock.UtcNow = clock.UtcNow.AddMinutes(1);
+        Tick(12);
+        Place(key, TradeSide.Sell, LiveOrderType.Market, 1, null, CostingMethod.Fifo, null);
+        var marks = (GetLiveTradesResponse)live.Any(new GetLiveTrades { Wallet = key, Symbol = "BTC-USD" });
+        Assert.That(marks.Results.Select(x => (x.Side, x.Qty, x.Price, x.Fee, x.Kind, x.Simulated)), Is.EqualTo(new[]
+        {
+            (TradeSide.Buy, 2m, 10m, 0.25m, TradeKind.Fill, false),
+            (TradeSide.Sell, 1m, 12m, 0m, TradeKind.Fill, false),
+        }));
+
+        var real = (CreateWalletResponse)ledger.Any(new CreateWallet
+        {
+            Key = "marked",
+            Name = "Marked",
+            Mode = WalletMode.Real,
+            BaseCurrency = "USD",
+        });
+        ledger.Any(new RecordTransfer { Wallet = real.Result.Key, ClientId = "cash", Kind = TransferKind.Deposit, Amount = 100m });
+        ledger.Any(new RecordTrade
+        {
+            Wallet = real.Result.Key,
+            ClientId = "saved",
+            Symbol = "ETH-USD",
+            Side = TradeSide.Buy,
+            Qty = 1,
+            Price = 5,
+            Fee = 0.1m,
+            ExecutedAt = clock.UtcNow,
+        });
+        var opened = (LiveBookResponse)live.Any(new OpenLiveSimulation { Wallet = real.Result.Key, Symbol = "ETH-USD" });
+        clock.UtcNow = clock.UtcNow.AddMinutes(1);
+        market.PublishTick(new LiveTick { ProductId = "ETH-USD", Price = 6, At = clock.UtcNow });
+        live.Any(new PlaceSimulationOrder
+        {
+            Id = opened.SimulationId,
+            Symbol = "ETH-USD",
+            Side = TradeSide.Buy,
+            Type = LiveOrderType.Market,
+            Qty = 1,
+        });
+        var sim = (GetLiveTradesResponse)live.Any(new GetLiveTrades { SimulationId = opened.SimulationId, Symbol = "ETH-USD" });
+        Assert.That(sim.Results.Select(x => (x.Side, x.Price, x.Fee, x.Simulated)), Is.EqualTo(new[]
+        {
+            (TradeSide.Buy, 5m, 0.1m, false),
+            (TradeSide.Buy, 6m, 0m, true),
+        }));
+        using var db = factory.Open();
+        Assert.That(db.Count<Trade>(x => x.Symbol == "ETH-USD"), Is.EqualTo(1));
     }
 
     string Open(string name, decimal cash = 1000m) =>
