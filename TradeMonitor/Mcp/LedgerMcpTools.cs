@@ -5,15 +5,6 @@ using TradeMonitor.ServiceModel.Types;
 
 namespace TradeMonitor;
 
-public sealed class PnlByDayResult
-{
-    public bool Available { get; set; }
-    public string Message { get; set; } = "not available yet";
-    public string? Wallet { get; set; }
-    public DateTime? From { get; set; }
-    public DateTime? To { get; set; }
-}
-
 public sealed class PriceMarkInput
 {
     [Description("Instrument symbol, for example BTC-USD.")]
@@ -278,22 +269,23 @@ public class LedgerMcpTools(IHttpContextAccessor httpContextAccessor) : McpServi
 
     [McpServerTool(Name = "pnl_by_day", ReadOnly = true)]
     [Description(
-        "Daily realized and unrealized P&L is not available yet. " +
-        "The result message is \"not available yet\". Use wallet_balances for the current realized and unrealized P&L. " +
-        "from and to would be inclusive UTC ISO-8601 bounds, in the wallet base currency, once this report exists.")]
-    public PnlByDayResult PnlByDay(
-        [Description("Wallet slug. Omit for every wallet. Ignored until daily P&L is available.")] string? wallet = null,
-        [Description("Inclusive UTC ISO-8601 start. Ignored until daily P&L is available.")] DateTime? from = null,
-        [Description("Inclusive UTC ISO-8601 end. Ignored until daily P&L is available.")] DateTime? to = null)
+        "Daily P&L from recorded trades, fees, and price marks, in the wallet base currency (USD unless the wallet uses another code). " +
+        "wallet is optional. Omit it for every wallet. " +
+        "from and to are inclusive UTC ISO-8601 bounds. Omit either for no bound. " +
+        "Each day has realized P&L, the change in unrealized P&L, fees, deposits, withdrawals, sweeps, and end-of-day total value. " +
+        "Unrealized change and P&L are null when an open position has no mark. Transfers are not P&L. " +
+        "An unknown wallet is rejected.")]
+    public Task<PnlByDayResponse> PnlByDay(
+        [Description("Wallet slug. Omit for every wallet.")] string? wallet = null,
+        [Description("Inclusive UTC ISO-8601 start. Omit for no start bound.")] DateTime? from = null,
+        [Description("Inclusive UTC ISO-8601 end. Omit for no end bound.")] DateTime? to = null)
     {
-        return new PnlByDayResult
+        return SendAsync(new PnlByDay
         {
-            Available = false,
-            Message = "not available yet",
             Wallet = wallet,
             From = from,
             To = to,
-        };
+        });
     }
 
     static TEnum ParseEnum<TEnum>(string? value, string label, string expected) where TEnum : struct, Enum

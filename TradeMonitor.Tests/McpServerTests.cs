@@ -408,8 +408,26 @@ public class McpServerTests
             ["from"] = "2026-06-01T00:00:00Z",
             ["to"] = "2026-06-02T00:00:00Z",
         });
-        Assert.That(Bool(pnl, "available"), Is.False);
-        Assert.That(Text(Prop(pnl, "message")), Is.EqualTo("not available yet"));
+        var days = Prop(pnl, "results");
+        Assert.That(days.GetArrayLength(), Is.EqualTo(2));
+        var june1 = days[0];
+        Assert.That(Prop(june1, "date").GetRawText(), Does.Contain("2026-06-01"));
+        Assert.That(Decimal(Prop(june1, "realizedPnl")), Is.EqualTo(0m));
+        Assert.That(Decimal(Prop(june1, "unrealizedChange")), Is.EqualTo(1.5m));
+        Assert.That(Decimal(Prop(june1, "pnl")), Is.EqualTo(1.5m));
+        Assert.That(Decimal(Prop(june1, "fees")), Is.EqualTo(0.5m));
+        Assert.That(Decimal(Prop(june1, "deposits")), Is.EqualTo(50m));
+        Assert.That(Decimal(Prop(june1, "totalValue")), Is.EqualTo(51.5m));
+        Assert.That(Decimal(Prop(june1, "cash")), Is.EqualTo(39.5m));
+        Assert.That(Int(Prop(june1, "trades")), Is.EqualTo(1));
+        var june2 = days[1];
+        Assert.That(Prop(june2, "date").GetRawText(), Does.Contain("2026-06-02"));
+        Assert.That(Decimal(Prop(june2, "pnl")), Is.EqualTo(0m));
+        Assert.That(Int(Prop(june2, "trades")), Is.EqualTo(0));
+        Assert.That(Decimal(Prop(june2, "totalValue")), Is.EqualTo(51.5m));
+        var wallets = Prop(pnl, "wallets");
+        Assert.That(wallets.GetArrayLength(), Is.EqualTo(1));
+        Assert.That(Text(Prop(wallets[0], "wallet")), Is.EqualTo("paper"));
     }
 
     [Test]
