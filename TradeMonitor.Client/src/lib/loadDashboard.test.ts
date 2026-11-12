@@ -87,6 +87,12 @@ function recording(partial: Partial<LedgerClient> = {}) {
             calls.push({ method: 'priceMarks', query })
             return { total: 0, skip: 0, take: 0, results: [] }
         },
+        async predictions() {
+            return {
+                wallets: [],
+                total: { wallets: 0, bought: 0, sold: 0, fees: 0, realizedPnl: 0 },
+            }
+        },
         ...partial,
     } satisfies LedgerClient
     return { client, calls }

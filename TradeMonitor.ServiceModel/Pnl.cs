@@ -459,3 +459,43 @@ public class RebuildProjectionsResponse
     public int Snapshots { get; set; }
     public ResponseStatus? ResponseStatus { get; set; }
 }
+
+[Api("Realized P&L for prediction-market wallets, per contract and in total.")]
+[Tag("pnl")]
+[ValidateIsAdmin]
+[Route("/api/predictions", "GET")]
+public class GetPredictionPnl : IGet, IReturn<GetPredictionPnlResponse>
+{
+    [Description("Include archived prediction wallets. Defaults to false.")]
+    public bool IncludeArchived { get; set; }
+}
+
+public class GetPredictionPnlResponse
+{
+    public List<PredictionPnlRow> Wallets { get; set; } = [];
+    public PredictionPnlTotal Total { get; set; } = new();
+    public ResponseStatus? ResponseStatus { get; set; }
+}
+
+public class PredictionPnlRow
+{
+    public string Wallet { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Symbol { get; set; } = "";
+    public decimal Bought { get; set; }
+    public decimal Sold { get; set; }
+    public decimal Fees { get; set; }
+    public decimal RealizedPnl { get; set; }
+
+    [Description("open, closed, settled-0, settled-1, settled, or none.")]
+    public string Settlement { get; set; } = "";
+}
+
+public class PredictionPnlTotal
+{
+    public int Wallets { get; set; }
+    public decimal Bought { get; set; }
+    public decimal Sold { get; set; }
+    public decimal Fees { get; set; }
+    public decimal RealizedPnl { get; set; }
+}

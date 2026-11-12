@@ -14,6 +14,7 @@ const items = [
     { label: 'Overview', path: '/', icon: 'grid' as const },
     { label: 'Trades', path: '/trades', icon: 'trades' as const },
     { label: 'Wallets', path: '/wallets', icon: 'wallet' as const },
+    { label: 'Predictions', path: '/predictions', icon: 'predictions' as const },
     { label: 'Live', path: '/live', icon: 'live' as const },
     { label: 'Settings', path: '/settings', icon: 'settings' as const },
 ]

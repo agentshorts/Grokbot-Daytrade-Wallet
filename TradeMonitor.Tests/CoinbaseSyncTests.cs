@@ -402,6 +402,93 @@ public class CoinbaseSyncTests
         return new SyncRig(handler, client, gateway, syncer, log);
     }
 
+    [Test]
+    public async Task Prediction_products_are_skipped_and_pm_wallets_stay_untouched()
+    {
+        const string hand = "pm-KXBTCD-26NOV1210-T71199.99-KALSHI";
+        const string product = "KXBTCD-26NOV1212-T71699.99-KALSHI";
+        const string positionOnly = "KXBTCD-26NOV1211-T70000-KALSHI";
+        SeedCash(100m);
+        svc.Any(new CreateWallet
+        {
+            Key = hand,
+            Name = "BTC 71199.99",
+            Mode = WalletMode.Real,
+            Venue = "Coinbase",
+            BaseCurrency = "USD",
+        });
+        svc.Any(new RecordTransfer
+        {
+            Wallet = hand,
+            ClientId = "pm-cash",
+            Kind = TransferKind.Deposit,
+            Amount = 20m,
+            At = T1,
+        });
+        svc.Any(new RecordTrade
+        {
+            Wallet = hand,
+            ClientId = "pm-buy",
+            Symbol = "KXBTCD-26NOV1210-T71199.99-KALSHI",
+            Side = TradeSide.Buy,
+            Qty = 8.25m,
+            Price = 0.90m,
+            Fee = 0.20m,
+            ExecutedAt = T1,
+        });
+        svc.Any(new RecordPriceMark
+        {
+            Symbol = "KXBTCD-26NOV1210-T71199.99-KALSHI",
+            Price = 0.90m,
+            At = T1,
+            Wallet = hand,
+            ClientId = "pm-mark",
+            Source = "agent",
+        });
+
+        using var rig = Open();
+        rig.Handler.Contracts.Add(new ContractFill("pm1", "2026-11-12T15:10:00.000Z", "SELL", "0.90", "8.25", product, ""));
+        rig.Handler.Contracts.Add(new ContractFill("typed", "2026-11-12T15:11:00.000Z", "BUY", "0.40", "3", "PX-EVENT-1", ""));
+        rig.Handler.Contracts.Add(new ContractFill("venue", "2026-11-12T15:12:00.000Z", "BUY", "0.40", "3", "PX-EVENT-2", "UNKNOWN"));
+        rig.Handler.Products["PX-EVENT-1"] = new ProductMeta("PREDICTION_MARKET", null);
+        rig.Handler.Products["PX-EVENT-2"] = new ProductMeta(null, "KALSHI");
+        rig.Handler.Predictions.Add(new PredictionHolding(product, "8.25", "7.42"));
+        rig.Handler.Predictions.Add(new PredictionHolding(positionOnly, "2", "1.50"));
+        rig.Handler.Fills.Add(Eq("spot1", "2026-11-12T15:13:00.000Z"));
+        rig.Handler.EthdQty = 0.1m;
+
+        await rig.Syncer.CycleAsync(CancellationToken.None);
+        Assert.That(SkipLines(rig, product), Is.EqualTo(1));
+        Assert.That(SkipLines(rig, positionOnly), Is.EqualTo(1));
+        Assert.That(SkipLines(rig, "PX-EVENT-1"), Is.EqualTo(1));
+        Assert.That(SkipLines(rig, "PX-EVENT-2"), Is.EqualTo(1));
+        Assert.That(rig.Log.Lines.Count(line => line.Contains("eyJ", StringComparison.Ordinal)), Is.EqualTo(0));
+
+        await rig.Syncer.CycleAsync(CancellationToken.None);
+        Assert.That(SkipLines(rig, product), Is.EqualTo(2));
+
+        using var db = factory.Open();
+        var keys = db.Select<Wallet>().Select(wallet => wallet.Key).ToList();
+        Assert.That(keys.Where(key => key.StartsWith("coinbase-", StringComparison.Ordinal) && key.Contains("kalshi", StringComparison.OrdinalIgnoreCase)), Is.Empty);
+        Assert.That(keys, Does.Not.Contain("coinbase-px-event-1"));
+        Assert.That(keys, Does.Not.Contain("coinbase-px-event-2"));
+        var trades = db.Select<Trade>();
+        Assert.That(trades.Any(trade => trade.Symbol.EndsWith("-KALSHI", StringComparison.Ordinal) && trade.ClientId != "pm-buy"), Is.False);
+        Assert.That(trades.Select(trade => trade.ClientId), Does.Not.Contain("cb-fill-pm1").And.Not.Contain("cb-fill-typed").And.Not.Contain("cb-fill-venue"));
+        var transferIds = db.Select<Transfer>().Select(transfer => transfer.ClientId).ToList();
+        Assert.That(transferIds.Any(id => id.Contains("pm1", StringComparison.Ordinal) || id.Contains("typed", StringComparison.Ordinal) || id.Contains("venue", StringComparison.Ordinal)), Is.False);
+        Assert.That(trades.Count(trade => trade.ClientId == "pm-buy"), Is.EqualTo(1));
+        Assert.That(db.Select<PriceMark>().Count(mark => mark.ClientId == "pm-mark"), Is.EqualTo(1));
+        var handId = db.Single<Wallet>(wallet => wallet.Key == hand).Id;
+        Assert.That(db.Select<PriceMark>().Count(mark => mark.WalletId == handId), Is.EqualTo(1));
+        Assert.That(trades.Any(trade => trade.ClientId == "cb-fill-spot1"), Is.True);
+        Assert.That(db.Single<Wallet>(wallet => wallet.Key == hand).Kind, Is.EqualTo(WalletKind.PredictionMarket));
+        Assert.That(rig.Handler.Calls.All(call => call.Method == "GET"));
+    }
+
+    static int SkipLines(SyncRig rig, string product) =>
+        rig.Log.Lines.Count(line => line == "skipped prediction product " + product);
+
     void SeedBooks()
     {
         CreateWallet("coinbase-usdc", "Coinbase USDC");
@@ -541,6 +628,12 @@ public class CoinbaseSyncTests
 
     sealed record FakeFill(string Id, string At, string Side, string Price, string Size, bool InQuote, string Ticker);
 
+    public sealed record ContractFill(string Id, string At, string Side, string Price, string Size, string ProductId, string ProductType);
+
+    public sealed record PredictionHolding(string ProductId, string Qty, string Fiat);
+
+    public sealed record ProductMeta(string? Type, string? Venue);
+
     sealed record SpotHolding(string Asset, decimal Qty, decimal Fiat);
 
     sealed class CountingGateway(ILedgerGateway inner) : ILedgerGateway
@@ -615,6 +708,9 @@ public class CoinbaseSyncTests
     {
         public List<(string Method, string Path)> Calls { get; } = [];
         public List<FakeFill> Fills { get; } = [];
+        public List<ContractFill> Contracts { get; } = [];
+        public List<PredictionHolding> Predictions { get; } = [];
+        public Dictionary<string, ProductMeta> Products { get; } = new(StringComparer.Ordinal);
         public List<SpotHolding> Spots { get; } = [];
         public bool Down { get; set; }
         public bool CanTrade { get; set; }
@@ -640,11 +736,25 @@ public class CoinbaseSyncTests
             if (path == "/api/v3/brokerage/orders/historical/fills")
             {
                 var start = Query(request.RequestUri, "start_sequence_timestamp");
-                var rows = Fills.Where(fill => start == null || string.CompareOrdinal(fill.At, start) >= 0).Select(Dto);
+                var rows = Fills.Where(fill => start == null || string.CompareOrdinal(fill.At, start) >= 0).Select(Dto).Cast<object>().ToList();
+                rows.AddRange(Contracts.Where(fill => start == null || string.CompareOrdinal(fill.At, start) >= 0).Select(ContractDto));
                 return Task.FromResult(Json(new { fills = rows, cursor = (string?)null }));
             }
             if (path.StartsWith("/api/v3/brokerage/products/", StringComparison.Ordinal))
+            {
+                var id = Uri.UnescapeDataString(path["/api/v3/brokerage/products/".Length..]);
+                if (Products.TryGetValue(id, out var meta))
+                {
+                    return Task.FromResult(Json(new
+                    {
+                        base_increment = "0.01",
+                        product_type = meta.Type,
+                        product_venue = meta.Venue,
+                        venue = meta.Venue,
+                    }));
+                }
                 return Task.FromResult(Json(new { base_increment = "0.00001", base_currency_id = "ETHD" }));
+            }
             if (path.StartsWith("/api/v3/brokerage/market/products/", StringComparison.Ordinal))
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
                 {
@@ -691,9 +801,29 @@ public class CoinbaseSyncTests
             {
                 spot_positions = spots,
                 equity_positions = equity,
-                prediction_markets_positions = Array.Empty<object>(),
+                prediction_markets_positions = Predictions.Select(row => new
+                {
+                    product_id = row.ProductId,
+                    total_balance_contracts = row.Qty,
+                    total_balance_fiat = row.Fiat,
+                }).ToArray(),
             };
         }
+
+        static object ContractDto(ContractFill fill) => new
+        {
+            trade_id = fill.Id,
+            order_id = "o-" + fill.Id,
+            trade_time = fill.At,
+            trade_type = "FILL",
+            price = fill.Price,
+            size = fill.Size,
+            commission = "0.20",
+            product_id = fill.ProductId,
+            size_in_quote = false,
+            side = fill.Side,
+            product_type = fill.ProductType,
+        };
 
         static object Dto(FakeFill fill) => new
         {

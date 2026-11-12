@@ -37,15 +37,20 @@ public class LedgerMcpTools(IHttpContextAccessor httpContextAccessor) : McpServi
         "Create a wallet the agent will record into. key is a unique slug. " +
         "mode is Paper or Real and cannot change later. Paper is for simulated fills. Real is a hand-kept record of a venue account. " +
         "base_currency is an ISO currency code and defaults to USD. Amounts later recorded on this wallet use that currency. " +
+        "kind is Standard or PredictionMarket. For one Coinbase prediction contract, use key pm-<product id> and kind PredictionMarket, " +
+        "for example pm-KXBTCD-26NOV1210-T71199.99-KALSHI. Omit kind on a pm- key and it is stored as PredictionMarket. " +
+        "Record the buy, the sell or a settlement at 1 or 0, and the fee with trade_record on that wallet. " +
+        "Coinbase sync does not write pm- wallets. " +
         "The same key and the same values returns the existing wallet. The same key with different values is rejected. " +
         "This does not open an account or place an order.")]
     public Task<CreateWalletResponse> WalletCreate(
-        [Description("Unique wallet slug. Letters, numbers, and hyphens. This is the id other tools use.")] string key,
+        [Description("Unique wallet slug. Letters, numbers, and hyphens. This is the id other tools use. Use pm-<product id> for a prediction contract.")] string key,
         [Description("Display name.")] string name,
         [Description("Paper or Real. Immutable after create.")] string mode,
         [Description("Free-text venue, for example Coinbase. Omit when there is no venue.")] string? venue = null,
         [Description("Base currency code. Defaults to USD.")] string? base_currency = null,
-        [Description("Optional note.")] string? note = null)
+        [Description("Optional note.")] string? note = null,
+        [Description("Standard or PredictionMarket. Omit for Standard. A pm- key is PredictionMarket.")] string? kind = null)
     {
         return SendAsync(new CreateWallet
         {
@@ -55,6 +60,7 @@ public class LedgerMcpTools(IHttpContextAccessor httpContextAccessor) : McpServi
             Venue = venue,
             BaseCurrency = base_currency,
             Note = note,
+            Kind = ParseWalletKind(kind),
         });
     }
 
@@ -291,6 +297,17 @@ public class LedgerMcpTools(IHttpContextAccessor httpContextAccessor) : McpServi
             From = from,
             To = to,
         });
+    }
+
+    static WalletKind? ParseWalletKind(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+        var compact = value.Trim().Replace("-", "", StringComparison.Ordinal).Replace(" ", "", StringComparison.Ordinal);
+        if (compact.Equals("prediction", StringComparison.OrdinalIgnoreCase)
+            || compact.Equals("predictionmarket", StringComparison.OrdinalIgnoreCase))
+            return WalletKind.PredictionMarket;
+        return ParseEnum<WalletKind>(value, "Wallet kind", "Standard or PredictionMarket");
     }
 
     static TEnum ParseEnum<TEnum>(string? value, string label, string expected) where TEnum : struct, Enum

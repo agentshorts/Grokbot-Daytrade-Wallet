@@ -369,3 +369,27 @@ export interface PriceMarksResponse {
     take: number
     results: PriceMarkRow[]
 }
+
+export interface PredictionPnlRow {
+    wallet: string
+    name: string
+    symbol: string
+    bought: number
+    sold: number
+    fees: number
+    realizedPnl: number
+    settlement: string
+}
+
+export interface PredictionPnlTotal {
+    wallets: number
+    bought: number
+    sold: number
+    fees: number
+    realizedPnl: number
+}
+
+export interface PredictionPnlResponse {
+    wallets: PredictionPnlRow[]
+    total: PredictionPnlTotal
+}

@@ -65,6 +65,13 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/predictions': RouteRecordInfo<
+      '/predictions',
+      '/predictions',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
     '/profile': RouteRecordInfo<
       '/profile',
       '/profile',
@@ -167,6 +174,12 @@ declare module 'vue-router/auto-routes' {
     'src/pages/live.vue': {
       routes:
         | '/live'
+      views:
+        | never
+    }
+    'src/pages/predictions.vue': {
+      routes:
+        | '/predictions'
       views:
         | never
     }
