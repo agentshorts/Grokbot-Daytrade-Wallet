@@ -7,6 +7,10 @@ export interface LiveProduct {
     quote: string
     name: string
     price: number | null
+    baseIncrement?: number
+    quoteIncrement?: number
+    baseMinSize?: number
+    minMarketFunds?: number
 }
 
 export interface LiveCandle {
@@ -28,6 +32,10 @@ export interface TrackedSymbol {
     name: string
     sortOrder: number
     listed: boolean
+    baseIncrement?: number
+    quoteIncrement?: number
+    baseMinSize?: number
+    minMarketFunds?: number
 }
 
 export interface TrackedSymbols {
@@ -80,7 +88,7 @@ export interface LiveAverage {
 }
 
 export type LiveSide = 'Buy' | 'Sell'
-export type LiveOrderType = 'Market' | 'Limit' | 'StopLoss' | 'TakeProfit'
+export type LiveOrderType = 'Market' | 'Limit' | 'StopLoss' | 'TakeProfit' | 'StopBuy'
 export type LiveCosting = 'Fifo' | 'Lot' | 'Average'
 
 export interface LiveOrder {
@@ -170,6 +178,7 @@ function side(value: string): LiveSide {
 function orderType(value: string): LiveOrderType {
     const key = value.toLowerCase()
     if (key === 'limit') return 'Limit'
+    if (key === 'stopbuy' || key === 'stop-buy') return 'StopBuy'
     if (key === 'stoploss' || key === 'stop-loss') return 'StopLoss'
     if (key === 'takeprofit' || key === 'take-profit') return 'TakeProfit'
     return 'Market'
@@ -281,6 +290,10 @@ function parseProducts(body: unknown): LiveProduct[] {
                 quote: text(item, 'quote') || 'USD',
                 name: text(item, 'name') || productId,
                 price: readMoney(pick(item, 'price')),
+                baseIncrement: num(item, 'baseIncrement'),
+                quoteIncrement: num(item, 'quoteIncrement'),
+                baseMinSize: num(item, 'baseMinSize'),
+                minMarketFunds: num(item, 'minMarketFunds'),
             },
         ]
     })
@@ -320,6 +333,10 @@ function parseTracked(body: unknown): TrackedSymbols {
                     name: text(item, 'name') || productId,
                     sortOrder: num(item, 'sortOrder'),
                     listed: pick(item, 'listed') !== false,
+                    baseIncrement: num(item, 'baseIncrement'),
+                    quoteIncrement: num(item, 'quoteIncrement'),
+                    baseMinSize: num(item, 'baseMinSize'),
+                    minMarketFunds: num(item, 'minMarketFunds'),
                 },
             ]
         }),

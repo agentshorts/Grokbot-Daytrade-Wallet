@@ -54,7 +54,7 @@ const totals = computed(() => lotTotals(lots.value, closedLots.value.reduce((sum
 const orders = computed(() => (props.book?.orders ?? []).filter((order) => order.status.toLowerCase() === 'open' || order.status === ''))
 const average = computed(() => averageQuote(props.book?.average.openQty ?? 0, props.book?.average.openCost ?? 0, props.averageQty, props.price))
 const buyCost = computed(() => (props.price == null ? null : props.qty * props.price))
-const types = computed(() => (side.value === 'Buy' ? (['Market', 'Limit'] as LiveOrderType[]) : (['Market', 'Limit', 'StopLoss', 'TakeProfit'] as LiveOrderType[])))
+const types = computed(() => (side.value === 'Buy' ? (['Market', 'Limit', 'StopBuy'] as LiveOrderType[]) : (['Market', 'Limit', 'StopLoss', 'TakeProfit'] as LiveOrderType[])))
 
 const preview = computed(() => {
     const px = orderType.value === 'Market' ? props.price : Number(trigger.value)
@@ -98,6 +98,7 @@ function openTab(value: PanelTab) {
 function onSide(value: LiveSide) {
     side.value = value
     if (value === 'Buy' && (orderType.value === 'StopLoss' || orderType.value === 'TakeProfit')) orderType.value = 'Limit'
+    if (value === 'Sell' && orderType.value === 'StopBuy') orderType.value = 'Limit'
 }
 
 function createWallet() {
@@ -118,6 +119,7 @@ function placeOrder() {
 }
 
 function orderLabel(type: LiveOrderType) {
+    if (type === 'StopBuy') return 'Stop buy'
     if (type === 'StopLoss') return 'Stop-loss'
     if (type === 'TakeProfit') return 'Take-profit'
     return type

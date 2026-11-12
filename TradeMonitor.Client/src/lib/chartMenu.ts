@@ -30,7 +30,10 @@ export function chartMenu(hit: ChartHit, ctx?: { pendingMoveId?: number }): Menu
             actions.push({ id: 'move', label: `Move order to ${price}`, tone: 'neutral' })
         }
         actions.push(
+            { id: 'market-buy', label: 'Market buy', tone: 'buy' },
             { id: 'limit-buy', label: `Limit buy at ${price}`, tone: 'buy' },
+            { id: 'stop-buy', label: `Stop buy at ${price}`, tone: 'buy' },
+            { id: 'market-sell', label: 'Market sell', tone: 'sell' },
             { id: 'limit-sell', label: `Limit sell at ${price}`, tone: 'sell' },
             { id: 'stop', label: `Stop-loss at ${price}`, tone: 'sell' },
             { id: 'take', label: `Take-profit at ${price}`, tone: 'buy' },

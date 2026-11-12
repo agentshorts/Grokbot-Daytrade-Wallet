@@ -6,7 +6,15 @@ using TradeMonitor.ServiceModel.Types;
 
 namespace TradeMonitor.ServiceInterface;
 
-public sealed record TrackedRow(string ProductId, string Name, int SortOrder, bool Listed);
+public sealed record TrackedRow(
+    string ProductId,
+    string Name,
+    int SortOrder,
+    bool Listed,
+    decimal BaseIncrement,
+    decimal QuoteIncrement,
+    decimal BaseMinSize,
+    decimal MinMarketFunds);
 
 // The chart list, plus any symbol that still has an open order or a held position.
 public sealed class TrackedSymbolBook(IDbConnectionFactory dbFactory, ILiveMarket market, ILedgerClock clock)
@@ -107,7 +115,15 @@ public sealed class TrackedSymbolBook(IDbConnectionFactory dbFactory, ILiveMarke
     {
         var listed = !CatalogLoaded || market.IsListed(row.ProductId);
         var known = market.Products().FirstOrDefault(x => x.ProductId.Equals(row.ProductId, StringComparison.OrdinalIgnoreCase));
-        return new TrackedRow(row.ProductId, known?.Name ?? row.ProductId, row.SortOrder, listed);
+        return new TrackedRow(
+            row.ProductId,
+            known?.Name ?? row.ProductId,
+            row.SortOrder,
+            listed,
+            known?.BaseIncrement ?? 0,
+            known?.QuoteIncrement ?? 0,
+            known?.BaseMinSize ?? 0,
+            known?.MinMarketFunds ?? 0);
     }
 
     static string Clean(string? product)

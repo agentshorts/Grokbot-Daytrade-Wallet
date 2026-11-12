@@ -100,6 +100,10 @@ function toProducts(rows: TrackedSymbol[]): LiveProduct[] {
             quote: 'USD',
             name: row.name || row.productId,
             price: null,
+            baseIncrement: row.baseIncrement ?? 0,
+            quoteIncrement: row.quoteIncrement ?? 0,
+            baseMinSize: row.baseMinSize ?? 0,
+            minMarketFunds: row.minMarketFunds ?? 0,
         }))
 }
 
@@ -189,12 +193,16 @@ function order(input: PlaceOrderInput) {
         const next = realWallet.value && simulationId.value ? await live.placeSimulation(simulationId.value, input) : await live.placePaper(walletKey.value, input)
         book.value = next
         await refreshTrades()
-        status.value = `${input.type === 'Market' ? 'Market' : input.type === 'StopLoss' ? 'Stop-loss' : input.type === 'TakeProfit' ? 'Take-profit' : 'Limit'} ${input.side.toLowerCase()} placed`
+        const kind = input.type === 'Market' ? 'Market' : input.type === 'StopBuy' ? 'Stop buy' : input.type === 'StopLoss' ? 'Stop-loss' : input.type === 'TakeProfit' ? 'Take-profit' : 'Limit'
+        status.value = `${kind} ${input.side.toLowerCase()} placed`
         menu.value = null
     })
 }
 
-function onMenu(id: string) {
+const selected = computed(() => products.value.find((item) => item.productId === product.value) ?? null)
+
+function onMenu(action: { id: string; qty?: number }) {
+    const id = action.id
     const hit = menu.value?.hit
     if (!hit) return
     if (hit.kind === 'time') {
@@ -233,8 +241,12 @@ function onMenu(id: string) {
         return
     }
     if (hit.kind !== 'price') return
-    const shared = { symbol: product.value, qty: qty.value, triggerPrice: hit.price }
+    const amount = action.qty != null && action.qty > 0 ? action.qty : qty.value
+    const shared = { symbol: product.value, qty: amount, triggerPrice: hit.price }
+    if (id === 'market-buy') void order({ symbol: product.value, side: 'Buy', type: 'Market', qty: amount, costing: 'Fifo' })
     if (id === 'limit-buy') void order({ ...shared, side: 'Buy', type: 'Limit', costing: 'Fifo' })
+    if (id === 'stop-buy') void order({ ...shared, side: 'Buy', type: 'StopBuy', costing: 'Fifo' })
+    if (id === 'market-sell') void order({ symbol: product.value, side: 'Sell', type: 'Market', qty: amount, costing: 'Fifo' })
     if (id === 'limit-sell') void order({ ...shared, side: 'Sell', type: 'Limit', costing: 'Fifo' })
     if (id === 'stop') void order({ ...shared, side: 'Sell', type: 'StopLoss', costing: 'Fifo' })
     if (id === 'take') void order({ ...shared, side: 'Sell', type: 'TakeProfit', costing: 'Fifo' })
@@ -438,7 +450,24 @@ onUnmounted(() => {
                     :fit-key="fitKey"
                     @menu="menu = $event"
                 />
-                <ChartMenu v-if="menu" :hit="menu.hit" :x="menu.x" :y="menu.y" :pending-move-id="pendingMoveId ?? undefined" @action="onMenu" @click.stop />
+                <ChartMenu
+                    v-if="menu"
+                    :hit="menu.hit"
+                    :x="menu.x"
+                    :y="menu.y"
+                    :pending-move-id="pendingMoveId ?? undefined"
+                    :cash="shownBook?.cash ?? 0"
+                    :held-qty="shownBook?.average.openQty ?? 0"
+                    :market-price="price"
+                    :wallet-key="walletKey"
+                    :base-increment="selected?.baseIncrement ?? 0"
+                    :quote-increment="selected?.quoteIncrement ?? 0"
+                    :base-min-size="selected?.baseMinSize ?? 0"
+                    :min-market-funds="selected?.minMarketFunds ?? 0"
+                    @action="onMenu"
+                    @close="menu = null"
+                    @click.stop
+                />
             </div>
         </section>
         <TradingPanel

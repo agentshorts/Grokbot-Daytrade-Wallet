@@ -25,6 +25,10 @@ public class LiveProduct
     public string Quote { get; set; } = "USD";
     public string Name { get; set; } = "";
     public decimal? Price { get; set; }
+    public decimal BaseIncrement { get; set; }
+    public decimal QuoteIncrement { get; set; }
+    public decimal BaseMinSize { get; set; }
+    public decimal MinMarketFunds { get; set; }
 }
 
 [Api("Public candles for one Coinbase product")]
@@ -151,6 +155,10 @@ public class TrackedSymbolRow
     public string Name { get; set; } = "";
     public int SortOrder { get; set; }
     public bool Listed { get; set; }
+    public decimal BaseIncrement { get; set; }
+    public decimal QuoteIncrement { get; set; }
+    public decimal BaseMinSize { get; set; }
+    public decimal MinMarketFunds { get; set; }
 }
 
 [Api("Add a Coinbase USD product to the live chart")]
