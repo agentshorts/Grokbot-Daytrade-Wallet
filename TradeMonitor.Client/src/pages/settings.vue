@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import type { LiveProduct, TrackedSymbol } from '@/api/live'
 import { explainLedgerError } from '@/composables/useLedger'
 import { useLive } from '@/composables/useLive'
+import { atrHorizons, isAtrHorizon } from '@/lib/atrBands'
 import { intervalPresets } from '@/lib/chartInterval'
 import { readChartPrefs, rememberInterval, removeCustomInterval, writeChartPrefs, type ChartPrefs } from '@/lib/chartPrefs'
 import { quickRanges } from '@/lib/chartRange'
@@ -88,6 +89,11 @@ function toggleInterval(key: string) {
     const has = chart.value.favoriteIntervals.includes(key)
     const favoriteIntervals = has ? chart.value.favoriteIntervals.filter((item) => item !== key) : [...chart.value.favoriteIntervals, key]
     saveChart({ ...chart.value, favoriteIntervals: favoriteIntervals.length ? favoriteIntervals : [key] })
+}
+
+function onHorizon(value: string) {
+    if (!isAtrHorizon(value)) return
+    saveChart({ ...chart.value, atrHorizon: value })
 }
 
 function addCustom() {
@@ -205,6 +211,22 @@ onMounted(() => {
                     </label>
                 </div>
             </fieldset>
+            <div class="flex flex-wrap items-center gap-4">
+                <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+                    <input data-testid="chart-swing" type="checkbox" :checked="chart.showSwing" @change="saveChart({ ...chart, showSwing: !chart.showSwing })" />
+                    Targets: Swing
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+                    <input data-testid="chart-atr" type="checkbox" :checked="chart.showAtr" @change="saveChart({ ...chart, showAtr: !chart.showAtr })" />
+                    Targets: ATR
+                </label>
+                <label class="text-xs font-medium text-gray-500">
+                    ATR horizon
+                    <select data-testid="chart-atr-horizon" class="ms-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" :value="chart.atrHorizon" @change="onHorizon(($event.target as HTMLSelectElement).value)">
+                        <option v-for="item in atrHorizons" :key="item.id" :value="item.id">{{ item.label }}</option>
+                    </select>
+                </label>
+            </div>
             <form class="flex flex-wrap items-center gap-2" @submit.prevent="addCustom">
                 <input v-model="customInterval" data-testid="settings-custom-interval" class="w-28 rounded-lg border border-gray-200 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" placeholder="7m" />
                 <button type="submit" class="rounded-lg px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200">Save interval</button>

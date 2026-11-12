@@ -1,3 +1,4 @@
+import { isAtrHorizon, type AtrHorizon } from '@/lib/atrBands'
 import { intervalPresets, parseInterval } from '@/lib/chartInterval'
 import { quickRanges, type ChartRange } from '@/lib/chartRange'
 import { chartTypes, isChartType, type BaselineSource, type ChartType, type DeltaMode } from '@/lib/chartSeries'
@@ -18,6 +19,8 @@ export interface ChartPrefs {
     baselinePrice: number | null
     deltaMode: DeltaMode
     showSwing: boolean
+    showAtr: boolean
+    atrHorizon: AtrHorizon
 }
 
 export interface PrefsStorage {
@@ -39,6 +42,8 @@ export function defaultChartPrefs(): ChartPrefs {
         baselinePrice: null,
         deltaMode: 'change',
         showSwing: false,
+        showAtr: false,
+        atrHorizon: '1bar',
     }
 }
 
@@ -101,6 +106,8 @@ function sanitize(value: Partial<ChartPrefs>, fallback: ChartPrefs): ChartPrefs 
         baselinePrice,
         deltaMode,
         showSwing: value.showSwing === true,
+        showAtr: value.showAtr === true,
+        atrHorizon: typeof value.atrHorizon === 'string' && isAtrHorizon(value.atrHorizon) ? value.atrHorizon : '1bar',
     }
 }
 
