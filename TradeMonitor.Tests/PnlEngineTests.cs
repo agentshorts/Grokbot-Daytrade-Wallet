@@ -306,6 +306,87 @@ public class PnlEngineTests
         Assert.That(day.ValueChange, Is.EqualTo(day.Deposits - day.Withdrawals - day.Sweeps + day.Pnl));
     }
 
+    [Test]
+    public void Lot_sell_then_average_then_lot_realizes_167_and_leaves_the_12_lot()
+    {
+        var start = At(new DateTime(2026, 6, 1, 15, 0, 0, DateTimeKind.Utc));
+        var trades = new List<Trade>
+        {
+            Buy(1, 10, 3, start),
+            Buy(2, 4, 4, start.AddMinutes(1)),
+            Buy(3, 2, 12, start.AddMinutes(2)),
+            Sell(4, 10, 15, start.AddMinutes(3), CostingMethod.Lot, 1),
+            Sell(5, 3, 15, start.AddMinutes(4), CostingMethod.Average, null),
+            Sell(6, 2, 15, start.AddMinutes(5), CostingMethod.Lot, 2),
+        };
+        var replay = LedgerBook.Replay(1, trades, [Transfer(1, TransferKind.Deposit, 1000, start.AddMinutes(-1))], [], start);
+        Assert.That(replay.Oversold, Is.False);
+        Assert.That(replay.RealizedPnl, Is.EqualTo(167m));
+        Assert.That(replay.Cash, Is.EqualTo(1000m - 70m + 150m + 45m + 30m));
+
+        var lots = replay.LotTrades.ToDictionary(x => x.TradeId);
+        Assert.That(lots[1].RemainingQty, Is.EqualTo(0m));
+        Assert.That(lots[1].RealizedPnl, Is.EqualTo(120m));
+        Assert.That(lots[2].RemainingQty, Is.EqualTo(0m));
+        Assert.That(lots[2].RealizedPnl, Is.EqualTo(44m));
+        Assert.That(lots[3].RemainingQty, Is.EqualTo(1m));
+        Assert.That(lots[3].RemainingCost, Is.EqualTo(12m));
+        Assert.That(lots[3].RealizedPnl, Is.EqualTo(3m));
+        Assert.That(lots[4].RealizedPnl + lots[5].RealizedPnl + lots[6].RealizedPnl, Is.EqualTo(167m));
+        Assert.That(lots[1].RealizedPnl + lots[2].RealizedPnl + lots[3].RealizedPnl, Is.EqualTo(167m));
+    }
+
+    [Test]
+    public void Selling_every_share_at_average_matches_closing_each_lot()
+    {
+        var start = At(new DateTime(2026, 6, 1, 15, 0, 0, DateTimeKind.Utc));
+        var trades = new List<Trade>
+        {
+            Buy(1, 10, 3, start),
+            Buy(2, 4, 4, start.AddMinutes(1)),
+            Buy(3, 2, 12, start.AddMinutes(2)),
+            Sell(4, 16, 15, start.AddMinutes(3), CostingMethod.Average, null),
+        };
+        var replay = LedgerBook.Replay(1, trades, [Transfer(1, TransferKind.Deposit, 1000, start)], [], start);
+        Assert.That(replay.RealizedPnl, Is.EqualTo(170m));
+        Assert.That(replay.LotTrades.Where(x => x.Side == TradeSide.Buy).All(x => x.RemainingQty == 0), Is.True);
+    }
+
+    [Test]
+    public void Average_of_three_unit_lots_keeps_the_leftover_cost()
+    {
+        var start = At(new DateTime(2026, 6, 1, 15, 0, 0, DateTimeKind.Utc));
+        var trades = new List<Trade>
+        {
+            Buy(1, 1, 1, start),
+            Buy(2, 1, 1, start.AddMinutes(1)),
+            Buy(3, 1, 1, start.AddMinutes(2)),
+            Sell(4, 1, 2, start.AddMinutes(3), CostingMethod.Average, null),
+        };
+        var replay = LedgerBook.Replay(1, trades, [Transfer(1, TransferKind.Deposit, 10, start)], [], start);
+        Assert.That(replay.RealizedPnl, Is.EqualTo(1m));
+        var open = replay.LotTrades.Where(x => x.Side == TradeSide.Buy && x.RemainingQty > 0).ToList();
+        Assert.That(open.Sum(x => x.RemainingQty), Is.EqualTo(2m));
+        Assert.That(open.Sum(x => x.RemainingCost), Is.EqualTo(2m));
+    }
+
+    static Trade Buy(int id, decimal qty, decimal price, DateTime at) => Trade(id, TradeSide.Buy, qty, price, 0, at);
+
+    static Trade Sell(int id, decimal qty, decimal price, DateTime at, CostingMethod costing, int? lotId) => new()
+    {
+        Id = id,
+        WalletId = 1,
+        ClientId = id.ToString(),
+        Symbol = "BTC-USD",
+        Side = TradeSide.Sell,
+        Qty = qty,
+        Price = price,
+        Fee = 0,
+        ExecutedAt = at,
+        Costing = costing,
+        LotId = lotId,
+    };
+
     static WalletBook Book(LedgerReplay replay, List<Trade> trades) => new()
     {
         Wallet = new Wallet { Id = 1, Key = "paper", Name = "Paper", BaseCurrency = "USD" },

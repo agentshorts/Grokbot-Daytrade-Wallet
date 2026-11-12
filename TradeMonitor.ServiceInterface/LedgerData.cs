@@ -104,6 +104,8 @@ public static class TradeMaps
             Note = trade.Note,
             RecordedAt = trade.RecordedAt,
             BuyPrice = trade.Price,
+            Costing = trade.Costing,
+            LotId = trade.LotId,
         };
         if (lot == null)
             return view;

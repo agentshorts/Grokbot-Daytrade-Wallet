@@ -114,6 +114,8 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
                 OrderRef = trade.OrderRef,
                 TargetPrice = trade.TargetPrice,
                 RecordedAt = trade.RecordedAt,
+                Costing = trade.Costing,
+                LotId = trade.LotId,
             });
         }
 
@@ -415,6 +417,8 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
             OrderRef = draft.OrderRef,
             TargetPrice = draft.TargetPrice,
             Note = draft.Note,
+            Costing = draft.Costing,
+            LotId = draft.LotId,
             RecordedAt = now,
             Id = SyntheticId,
         };
@@ -604,8 +608,13 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
         var before = ReplayOrCorrupt(wallet, trades, transfers, marks);
         var after = LedgerBook.Replay(wallet.Id, trades.Append(candidate), transfers, marks, Now());
         if (after.Oversold)
+        {
+            var where = candidate.Costing == CostingMethod.Lot
+                ? $"the remaining quantity of {Num(after.OpenQty)} on lot {candidate.LotId}"
+                : $"the open quantity of {Num(after.OpenQty)}";
             throw Fail(400, "Oversell",
-                $"Sell of {Num(candidate.Qty)} {candidate.Symbol} exceeds the open quantity of {Num(after.OpenQty)} in wallet '{wallet.Key}'.");
+                $"Sell of {Num(candidate.Qty)} {candidate.Symbol} exceeds {where} in wallet '{wallet.Key}'.");
+        }
 
         if (candidate.Side == TradeSide.Buy && after.HasDeposits && after.Cash < -LedgerBook.CashDust)
         {
@@ -826,6 +835,25 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
         if (request.TargetPrice is decimal target && target <= 0)
             throw Fail(400, "InvalidRequest", "Target price must be greater than zero.");
 
+        var costingProvided = request.Costing.HasValue;
+        var costing = CostingMethod.Fifo;
+        if (costingProvided)
+        {
+            costing = request.Costing!.Value;
+            if (!Enum.IsDefined(costing))
+                throw Fail(400, "InvalidRequest", "Costing must be fifo, lot, or average.");
+        }
+
+        int? lotId = request.LotId;
+        if (lotId is <= 0)
+            throw Fail(400, "InvalidRequest", "Lot id must be greater than zero.");
+        if (side == TradeSide.Buy && (costing != CostingMethod.Fifo || lotId != null))
+            throw Fail(400, "InvalidRequest", "A buy cannot target a lot or an average.");
+        if (side == TradeSide.Sell && costing == CostingMethod.Lot && lotId == null)
+            throw Fail(400, "InvalidRequest", "A lot sell needs the buy trade id.");
+        if (side == TradeSide.Sell && costing != CostingMethod.Lot && lotId != null)
+            throw Fail(400, "InvalidRequest", "Only a lot sell can target a buy trade id.");
+
         var now = Now();
         return new TradeDraft(
             RequireKey(request.Wallet),
@@ -843,7 +871,10 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
             request.TargetPrice,
             RequireNote(request.Note),
             kind,
-            kindProvided);
+            kindProvided,
+            costing,
+            lotId,
+            costingProvided);
     }
 
     TransferDraft NormalizeTransfer(RecordTransfer request)
@@ -902,6 +933,10 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
         if (row.TargetPrice != draft.TargetPrice)
             return false;
         if (draft.KindProvided && row.Kind != draft.Kind)
+            return false;
+        if (draft.CostingProvided && row.Costing != draft.Costing)
+            return false;
+        if (draft.LotId != null && row.LotId != draft.LotId)
             return false;
         if (draft.ProvidedExecutedAt is DateTime at && AsUtc(row.ExecutedAt) != at)
             return false;
@@ -1160,7 +1195,10 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
         decimal? TargetPrice,
         string? Note,
         TradeKind Kind,
-        bool KindProvided);
+        bool KindProvided,
+        CostingMethod Costing,
+        int? LotId,
+        bool CostingProvided);
 
     sealed record TransferDraft(
         string Wallet,

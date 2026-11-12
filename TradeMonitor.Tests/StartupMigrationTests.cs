@@ -43,15 +43,22 @@ public class StartupMigrationTests
         var before = fixture.ReadRows($"SELECT {TradeColumns} FROM Trade ORDER BY ClientId");
         Assert.That(before, Has.Count.EqualTo(2));
         Assert.That(fixture.HasColumn("Trade", "Kind"), Is.False);
+        Assert.That(fixture.HasColumn("Trade", "Costing"), Is.False);
+        Assert.That(fixture.HasColumn("Trade", "LotId"), Is.False);
+        Assert.That(fixture.ReadRows("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'PaperOrder'"), Is.Empty);
         Assert.That(fixture.ReadRows("SELECT Name FROM Migration ORDER BY Name"), Is.EqualTo(new[] { "Migration1000" }));
         Assert.That(fixture.ReadRows("SELECT COUNT(*) FROM AspNetUsers"), Is.EqualTo(new[] { "0" }));
 
         fixture.Boot();
 
         Assert.That(fixture.HasColumn("Trade", "Kind"), Is.True);
+        Assert.That(fixture.HasColumn("Trade", "Costing"), Is.True);
+        Assert.That(fixture.HasColumn("Trade", "LotId"), Is.True);
         Assert.That(fixture.ReadRows($"SELECT {TradeColumns} FROM Trade ORDER BY ClientId"), Is.EqualTo(before));
         Assert.That(fixture.ReadRows("SELECT Kind FROM Trade ORDER BY ClientId"), Is.EqualTo(new[] { "Fill", "Fill" }));
-        Assert.That(fixture.ReadRows("SELECT Name FROM Migration ORDER BY Name"), Is.EqualTo(new[] { "Migration1000", "Migration1001" }));
+        Assert.That(fixture.ReadRows("SELECT Costing, ifnull(LotId, '<null>') FROM Trade ORDER BY ClientId"), Is.EqualTo(new[] { "Fifo|<null>", "Fifo|<null>" }));
+        Assert.That(fixture.ReadRows("SELECT COUNT(*) FROM PaperOrder"), Is.EqualTo(new[] { "0" }));
+        Assert.That(fixture.ReadRows("SELECT Name FROM Migration ORDER BY Name"), Is.EqualTo(new[] { "Migration1000", "Migration1001", "Migration1002" }));
         Assert.That(fixture.ReadRows("SELECT COUNT(*) FROM AspNetUsers"), Is.EqualTo(new[] { "0" }));
         Assert.That(fixture.ReadRows("SELECT Key, Name FROM Wallet ORDER BY Key"), Is.EqualTo(new[] { "paper|Paper book" }));
     }
@@ -64,8 +71,9 @@ public class StartupMigrationTests
         var afterFirst = fixture.Snapshot();
 
         Assert.That(afterFirst.Trades, Has.Count.EqualTo(2));
-        Assert.That(afterFirst.Trades.All(row => row.EndsWith("|Fill")), Is.True, string.Join("\n", afterFirst.Trades));
-        Assert.That(afterFirst.Migrations.Select(row => row.Split('|')[1]), Is.EqualTo(new[] { "Migration1000", "Migration1001" }));
+        Assert.That(afterFirst.Trades.All(row => row.Contains("|Fill|Fifo|<null>")), Is.True, string.Join("\n", afterFirst.Trades));
+        Assert.That(afterFirst.Migrations.Select(row => row.Split('|')[1]), Is.EqualTo(new[] { "Migration1000", "Migration1001", "Migration1002" }));
+        Assert.That(fixture.ReadRows("SELECT COUNT(*) FROM PaperOrder"), Is.EqualTo(new[] { "0" }));
 
         fixture.Boot();
         var afterSecond = fixture.Snapshot();
@@ -119,6 +127,10 @@ public class StartupMigrationTests
                 // Migration1000 creates Kind from the current Trade model. Databases created
                 // before that column existed only have Migration1000 recorded and no Kind column.
                 db.ExecuteSql("ALTER TABLE Trade DROP COLUMN Kind");
+                // The current Trade model creates Costing and LotId. A database from before
+                // Migration1002 has neither column and no PaperOrder table.
+                db.ExecuteSql("ALTER TABLE Trade DROP COLUMN LotId");
+                db.ExecuteSql("ALTER TABLE Trade DROP COLUMN Costing");
             }
 
             SqliteConnection.ClearAllPools();
@@ -158,7 +170,7 @@ public class StartupMigrationTests
         {
             using var db = Open();
             return new DatabaseSnapshot(
-                Rows(db, $"SELECT {TradeColumns}, Kind FROM Trade ORDER BY ClientId"),
+                Rows(db, $"SELECT {TradeColumns}, Kind, Costing, ifnull(LotId, '<null>') FROM Trade ORDER BY ClientId"),
                 Rows(db, "SELECT Key, Name, BaseCurrency, Mode FROM Wallet ORDER BY Key"),
                 Rows(db, "SELECT Id, Name, CompletedDate, ErrorCode, ErrorMessage FROM Migration ORDER BY Id"),
                 Rows(db, "SELECT COUNT(*) FROM AspNetUsers").Single());
