@@ -23,8 +23,11 @@
     "@servicestack/vue": "^3.1.11",
     "@unhead/vue": "^2.0.19",
     "@vueuse/core": "^14.1.0",
+    "echarts": "^6.1.0",
+    "lightweight-charts": "^5.3.0",
     "pinia": "^3.0.4",
     "vue": "^3.5.44",
+    "vue-echarts": "^8.3.2",
     "vue-router": "^4.6.4"
   },
   "devDependencies": {

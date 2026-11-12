@@ -11,11 +11,26 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AppHeader: typeof import('./src/components/shell/AppHeader.vue')['default']
+    AppSidebar: typeof import('./src/components/shell/AppSidebar.vue')['default']
+    ChartPending: typeof import('./src/components/shell/ChartPending.vue')['default']
+    KpiCard: typeof import('./src/components/KpiCard.vue')['default']
+    MoneyCell: typeof import('./src/components/MoneyCell.vue')['default']
     NavFooter: typeof import('./src/components/NavFooter.vue')['default']
     NavHeader: typeof import('./src/components/NavHeader.vue')['default']
+    NavIcon: typeof import('./src/components/shell/NavIcon.vue')['default']
     NavItem: typeof import('./src/components/NavItem.vue')['default']
     NavLink: typeof import('./src/components/NavLink.vue')['default']
+    PctCell: typeof import('./src/components/PctCell.vue')['default']
+    PositionList: typeof import('./src/components/PositionList.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    SegmentedControl: typeof import('./src/components/shell/SegmentedControl.vue')['default']
+    Sparkline: typeof import('./src/components/Sparkline.vue')['default']
+    StatePanel: typeof import('./src/components/shell/StatePanel.vue')['default']
+    ThemeToggle: typeof import('./src/components/shell/ThemeToggle.vue')['default']
+    TimeCell: typeof import('./src/components/TimeCell.vue')['default']
+    TradeList: typeof import('./src/components/TradeList.vue')['default']
+    WalletCard: typeof import('./src/components/WalletCard.vue')['default']
   }
 }
