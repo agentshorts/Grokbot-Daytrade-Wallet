@@ -1,19 +1,22 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import FilterSelect from '@/components/shell/FilterSelect.vue'
 import SegmentedControl from '@/components/shell/SegmentedControl.vue'
 import StatePanel from '@/components/shell/StatePanel.vue'
 import TradesTable from '@/components/TradesTable.vue'
 import { useFilterQuery } from '@/composables/useFilterQuery'
-import { rangeBounds, type LedgerQuery, type TradeRow } from '@/api'
+import { rangeBounds, type LedgerQuery, type TradeRow, type WalletInfo } from '@/api'
 import { explainLedgerError, useLedger } from '@/composables/useLedger'
-import { serializeFilters, type Filters } from '@/lib/filters'
+import { serializeFilters, type Filters, type LedgerMode } from '@/lib/filters'
 import { buildTradeCsv, downloadCsv } from '@/lib/tradeCsv'
-import { parseTradeQuery, writeTradeQuery, type TradeQueryState, type TradeSort } from '@/lib/tradeQuery'
+import { modeLabel, parseTradeQuery, writeTradeQuery, type TradeQueryState, type TradeSort } from '@/lib/tradeQuery'
 import { REFRESH_MS, startPolling } from '@/lib/refresh'
 
 const PAGE_SIZE = 25
 const EXPORT_TAKE = 1000
+/** The ledger read API rejects a take above this, so the symbol list pages at the same size. */
+const SYMBOL_TAKE = 1000
 
 const route = useRoute()
 const router = useRouter()
@@ -27,10 +30,14 @@ const error = ref<string | null>(null)
 const errorCode = ref<string | null>(null)
 const exportError = ref<string | null>(null)
 const exporting = ref(false)
-const symbolDraft = ref('')
 const searchDraft = ref('')
-const walletDraft = ref('')
+const wallets = ref<WalletInfo[]>([])
+const walletsSettled = ref(false)
+const symbols = ref<string[]>([])
 let ticket = 0
+let walletTicket = 0
+let symbolTicket = 0
+let loadedSymbolScope = ''
 let stopPolling = () => {}
 
 const tradeState = computed(() => parseTradeQuery(route.query))
@@ -40,6 +47,24 @@ const pageTo = computed(() => Math.min(total.value, (tradeState.value.page - 1) 
 const filtered = computed(() => {
     const state = tradeState.value
     return !!(state.symbol || state.side || state.outcome || state.q || filters.wallet || filters.mode !== 'all' || filters.range !== 'all')
+})
+const walletChoices = computed(() => wallets.value.filter((wallet) => filters.mode === 'all' || wallet.mode === filters.mode))
+const walletOptions = computed(() => {
+    const options = walletChoices.value.map((wallet) => ({ value: wallet.key, label: walletOptionLabel(wallet) }))
+    const selected = filters.wallet
+    if (selected && !options.some((option) => option.value === selected)) options.push({ value: selected, label: selected })
+    return options
+})
+const symbolValue = computed(() => {
+    const current = tradeState.value.symbol
+    if (!current) return ''
+    return symbols.value.find((symbol) => symbol.toLowerCase() === current.toLowerCase()) ?? current
+})
+const symbolOptions = computed(() => {
+    const options = symbols.value.map((symbol) => ({ value: symbol, label: symbol }))
+    const selected = symbolValue.value
+    if (selected && !options.some((option) => option.value.toLowerCase() === selected.toLowerCase())) options.push({ value: selected, label: selected })
+    return options
 })
 
 const listKey = computed(() =>
@@ -120,19 +145,21 @@ function replaceQuery(patch: Partial<TradeQueryState>, shell?: Partial<Filters>)
     void router.replace({ query: serializeFilters(writeTradeQuery(route.query, patch), nextFilters) })
 }
 
-function applySymbol() {
-    const symbol = symbolDraft.value.trim()
-    replaceQuery({ symbol: symbol || null, page: 1 })
-}
-
 function applySearch() {
     const q = searchDraft.value.trim()
     replaceQuery({ q: q || null, page: 1 })
 }
 
-function applyWallet() {
-    const wallet = walletDraft.value.trim()
-    replaceQuery({ page: 1 }, { wallet: wallet || null })
+function onWallet(value: string) {
+    const wallet = value || null
+    if (wallet === filters.wallet) return
+    replaceQuery({ page: 1 }, { wallet })
+}
+
+function onSymbol(value: string) {
+    const symbol = value || null
+    if (symbol === tradeState.value.symbol) return
+    replaceQuery({ symbol, page: 1 })
 }
 
 function onSide(value: string) {
@@ -159,10 +186,77 @@ function openTrade(id: number) {
 }
 
 function clearFilters() {
-    symbolDraft.value = ''
     searchDraft.value = ''
-    walletDraft.value = ''
     replaceQuery({ symbol: null, side: null, outcome: null, q: null, orderBy: 'time', descending: true, page: 1 }, { wallet: null })
+}
+
+function symbolScope(): { wallet: string | null; mode: string | null } {
+    return {
+        wallet: filters.wallet,
+        mode: filters.mode === 'all' ? null : filters.mode,
+    }
+}
+
+function sameSymbolScope(left: { wallet: string | null; mode: string | null }, right: { wallet: string | null; mode: string | null }) {
+    return left.wallet === right.wallet && left.mode === right.mode
+}
+
+/** Distinct symbols for the selected wallet, or for the current mode when no wallet is selected. */
+async function loadSymbols() {
+    if (filters.wallet && !walletsSettled.value) return
+    if (walletFallsOutOfMode(wallets.value, filters.mode, filters.wallet)) {
+        symbolTicket += 1
+        return
+    }
+    const mine = ++symbolTicket
+    const scope = symbolScope()
+    const key = `${scope.wallet ?? ''}\n${scope.mode ?? ''}`
+    if (key !== loadedSymbolScope) {
+        loadedSymbolScope = key
+        symbols.value = []
+    }
+    try {
+        const rows: TradeRow[] = []
+        let skip = 0
+        let total = Number.POSITIVE_INFINITY
+        while (rows.length < total) {
+            const page = await client.trades({
+                wallet: scope.wallet,
+                mode: scope.mode,
+                orderBy: 'symbol',
+                descending: false,
+                skip,
+                take: SYMBOL_TAKE,
+            })
+            if (mine !== symbolTicket || !sameSymbolScope(scope, symbolScope())) return
+            total = page.total
+            if (page.results.length === 0) break
+            rows.push(...page.results)
+            skip += page.results.length
+        }
+        if (mine !== symbolTicket || !sameSymbolScope(scope, symbolScope())) return
+        const next = distinctTradeSymbols(rows)
+        symbols.value = next
+        const current = tradeState.value.symbol
+        if (current && !next.some((symbol) => symbol.toLowerCase() === current.toLowerCase())) {
+            replaceQuery({ symbol: null, page: 1 })
+        }
+    } catch {
+        if (mine !== symbolTicket) return
+    }
+}
+
+async function loadWallets() {
+    const mine = ++walletTicket
+    try {
+        const page = await client.wallets({ includeArchived: true })
+        if (mine !== walletTicket) return
+        wallets.value = page.results
+    } catch {
+        if (mine !== walletTicket) return
+    } finally {
+        if (mine === walletTicket) walletsSettled.value = true
+    }
 }
 
 async function exportCsv() {
@@ -199,16 +293,7 @@ watch(
 watch(
     tradeState,
     (state) => {
-        symbolDraft.value = state.symbol ?? ''
         searchDraft.value = state.q ?? ''
-    },
-    { immediate: true },
-)
-
-watch(
-    () => filters.wallet,
-    (wallet) => {
-        walletDraft.value = wallet ?? ''
     },
     { immediate: true },
 )
@@ -217,18 +302,60 @@ watch(
     () => [filters.mode, filters.range, filters.wallet] as const,
     (next, prev) => {
         if (!prev) return
+        if (walletFallsOutOfMode(wallets.value, next[0], next[2])) {
+            replaceQuery({ page: 1 }, { wallet: null })
+            return
+        }
         if (next[0] === prev[0] && next[1] === prev[1] && next[2] === prev[2]) return
         if (tradeState.value.page > 1) replaceQuery({ page: 1 })
     },
 )
 
+watch(wallets, () => {
+    if (walletFallsOutOfMode(wallets.value, filters.mode, filters.wallet)) replaceQuery({ page: 1 }, { wallet: null })
+})
+
+watch(
+    () => [filters.mode, filters.wallet, walletsSettled.value] as const,
+    () => {
+        void loadSymbols()
+    },
+    { immediate: true },
+)
+
 onMounted(() => {
+    void loadWallets()
     stopPolling = startPolling(() => {
         void load(false)
+        void loadWallets()
+        void loadSymbols()
     }, REFRESH_MS)
 })
 
 onUnmounted(() => stopPolling())
+
+function walletOptionLabel(wallet: WalletInfo): string {
+    const name = wallet.name.trim() || wallet.key
+    const tag = modeLabel(wallet.mode)
+    return wallet.isArchived ? `${name} · ${tag} · Archived` : `${name} · ${tag}`
+}
+
+function walletFallsOutOfMode(rows: WalletInfo[], mode: LedgerMode, selected: string | null): boolean {
+    if (!selected || mode === 'all') return false
+    const match = rows.find((wallet) => wallet.key === selected)
+    return !!match && match.mode !== mode
+}
+
+function distinctTradeSymbols(rows: TradeRow[]): string[] {
+    const seen = new Map<string, string>()
+    for (const row of rows) {
+        const symbol = row.symbol.trim()
+        if (!symbol) continue
+        const key = symbol.toLowerCase()
+        if (!seen.has(key)) seen.set(key, symbol)
+    }
+    return [...seen.values()].sort((a, b) => a.localeCompare(b))
+}
 </script>
 
 <template>
@@ -259,32 +386,22 @@ onUnmounted(() => stopPolling())
 
         <div class="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
             <div class="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
-                <form class="flex items-end gap-2" data-testid="wallet-form" @submit.prevent="applyWallet">
-                    <label class="block text-sm">
-                        <span class="mb-1 block text-xs font-medium tracking-wide text-gray-400 uppercase">Wallet</span>
-                        <input
-                            v-model="walletDraft"
-                            class="w-40 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-900"
-                            aria-label="Wallet"
-                            data-testid="filter-wallet"
-                            placeholder="slug"
-                        />
-                    </label>
-                    <button type="submit" class="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium dark:border-gray-700">Apply</button>
-                </form>
-                <form class="flex items-end gap-2" data-testid="symbol-form" @submit.prevent="applySymbol">
-                    <label class="block text-sm">
-                        <span class="mb-1 block text-xs font-medium tracking-wide text-gray-400 uppercase">Symbol</span>
-                        <input
-                            v-model="symbolDraft"
-                            class="w-40 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-900"
-                            aria-label="Symbol"
-                            data-testid="filter-symbol"
-                            placeholder="BTC-USD"
-                        />
-                    </label>
-                    <button type="submit" class="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium dark:border-gray-700">Apply</button>
-                </form>
+                <FilterSelect
+                    label="Wallet"
+                    test-id="filter-wallet"
+                    empty-label="All wallets"
+                    :value="filters.wallet ?? ''"
+                    :options="walletOptions"
+                    @change="onWallet"
+                />
+                <FilterSelect
+                    label="Symbol"
+                    test-id="filter-symbol"
+                    empty-label="All symbols"
+                    :value="symbolValue"
+                    :options="symbolOptions"
+                    @change="onSymbol"
+                />
                 <form class="flex min-w-0 flex-1 items-end gap-2" data-testid="search-form" @submit.prevent="applySearch">
                     <label class="block min-w-0 flex-1 text-sm">
                         <span class="mb-1 block text-xs font-medium tracking-wide text-gray-400 uppercase">Search</span>

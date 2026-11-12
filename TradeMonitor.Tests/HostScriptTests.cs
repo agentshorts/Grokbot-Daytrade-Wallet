@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using NUnit.Framework;
 
 namespace TradeMonitor.Tests;
@@ -135,6 +136,69 @@ public class HostScriptTests
     }
 
     [Test]
+    public void Run_script_checks_the_lock_stamp_inside_skip_build()
+    {
+        var text = File.ReadAllText(Path.Combine(RepoRoot(), "scripts", "run.ps1"));
+        var skip = text.IndexOf("if (-not $SkipBuild)", StringComparison.Ordinal);
+        var reason = text.IndexOf("Get-NpmCiReason", StringComparison.Ordinal);
+        var npm = text.IndexOf("& npm ci", StringComparison.Ordinal);
+        var stamp = text.IndexOf("Set-NpmLockStamp", StringComparison.Ordinal);
+        var build = text.IndexOf("& npm run build", StringComparison.Ordinal);
+        Assert.That(skip, Is.GreaterThanOrEqualTo(0));
+        Assert.That(reason, Is.GreaterThan(skip));
+        Assert.That(npm, Is.GreaterThan(reason));
+        Assert.That(stamp, Is.GreaterThan(npm));
+        Assert.That(build, Is.GreaterThan(stamp));
+        Assert.That(text, Does.Contain("Reinstalling npm packages because $reason."));
+    }
+
+    [Test]
+    public void Npm_ci_runs_when_modules_are_missing_or_the_lock_stamp_is_stale()
+    {
+        var pwsh = FindPwsh();
+        if (pwsh == null)
+            Assert.Ignore("pwsh is not installed");
+
+        var root = Path.Combine(Path.GetTempPath(), "trademonitor-npm-" + Guid.NewGuid().ToString("N"));
+        var client = Path.Combine(root, "TradeMonitor.Client");
+        Directory.CreateDirectory(client);
+        var lockFile = Path.Combine(client, "package-lock.json");
+        File.WriteAllText(lockFile, "{\"name\":\"sample\",\"lockfileVersion\":3}\n");
+        var modules = Path.Combine(client, "node_modules");
+        var stampPath = Path.Combine(modules, ".trademonitor-lock.sha256");
+
+        try
+        {
+            Assert.That(NpmReason(pwsh, client), Is.EqualTo("node_modules is missing"));
+
+            Directory.CreateDirectory(modules);
+            Assert.That(
+                NpmReason(pwsh, client),
+                Is.EqualTo("package-lock.json changed since the last install"));
+
+            File.WriteAllText(stampPath, "0000000000000000000000000000000000000000000000000000000000000000\n");
+            Assert.That(
+                NpmReason(pwsh, client),
+                Is.EqualTo("package-lock.json changed since the last install"));
+
+            var stamped = InvokeHostLib(pwsh, $"Set-NpmLockStamp -ClientRoot '{QuotePs(client)}'");
+            Assert.That(stamped.ExitCode, Is.EqualTo(0), stamped.Output);
+            var expected = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(lockFile))).ToLowerInvariant();
+            Assert.That(File.ReadAllText(stampPath), Is.EqualTo(expected + "\n"));
+            Assert.That(NpmReason(pwsh, client), Is.EqualTo("current"));
+
+            File.AppendAllText(lockFile, "\n");
+            Assert.That(
+                NpmReason(pwsh, client),
+                Is.EqualTo("package-lock.json changed since the last install"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public void Startup_task_script_parses()
     {
         var pwsh = FindPwsh();
@@ -183,6 +247,44 @@ public class HostScriptTests
 
         Assert.Fail("MCP_API_KEY was not written");
         return "";
+    }
+
+    static string QuotePs(string value) => value.Replace("'", "''");
+
+    static string NpmReason(string pwsh, string client)
+    {
+        var result = InvokeHostLib(
+            pwsh,
+            "$reason = Get-NpmCiReason -ClientRoot '" + QuotePs(client) + "'\n" +
+            "if ([string]::IsNullOrWhiteSpace($reason)) { Write-Output 'current' } else { Write-Output $reason }");
+        Assert.That(result.ExitCode, Is.EqualTo(0), result.Output);
+        return result.Output.Trim();
+    }
+
+    static (int ExitCode, string Output) InvokeHostLib(string pwsh, string body)
+    {
+        var lib = QuotePs(Path.Combine(RepoRoot(), "scripts", "host-lib.ps1"));
+        var command = "$ErrorActionPreference = 'Stop'\n. '" + lib + "'\n" + body + "\n";
+        return RunStdin(pwsh, command);
+    }
+
+    static (int ExitCode, string Output) RunStdin(string pwsh, string command)
+    {
+        var psi = new ProcessStartInfo(pwsh, "-NoProfile -Command -")
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        using var process = Process.Start(psi)!;
+        process.StandardInput.Write(command);
+        process.StandardInput.Close();
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        process.WaitForExit();
+        Task.WaitAll(stdout, stderr);
+        return (process.ExitCode, stdout.Result + stderr.Result);
     }
 
     static (int ExitCode, string Output) Run(string pwsh, string script, string arguments, string? apiKey = null)

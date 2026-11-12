@@ -56,13 +56,15 @@ if (-not $SkipBuild) {
 
     Push-Location $client
     try {
-        $modules = Join-Path $client "node_modules"
-        if (-not (Test-Path -LiteralPath $modules)) {
+        $reason = Get-NpmCiReason -ClientRoot $client
+        if (-not [string]::IsNullOrWhiteSpace($reason)) {
+            Write-Host "Reinstalling npm packages because $reason."
             & npm ci
             if ($LASTEXITCODE -ne 0) {
                 [Console]::Error.WriteLine("npm ci failed ($LASTEXITCODE).")
                 exit 1
             }
+            Set-NpmLockStamp -ClientRoot $client
         }
         & npm run build
         if ($LASTEXITCODE -ne 0) {

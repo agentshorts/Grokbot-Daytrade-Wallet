@@ -432,6 +432,156 @@ public class McpServerTests
     }
 
     [Test]
+    public async Task Zero_price_settlement_sell_loses_the_cost_basis_and_fees()
+    {
+        await using var mcp = await Connect(adminKey);
+        await Call(mcp, "wallet_create", new Dictionary<string, object?>
+        {
+            ["key"] = "settle",
+            ["name"] = "Settle",
+            ["mode"] = "Paper",
+        });
+        await Call(mcp, "transfer_record", new Dictionary<string, object?>
+        {
+            ["wallet"] = "settle",
+            ["client_id"] = "dep",
+            ["kind"] = "deposit",
+            ["amount"] = 50m,
+        });
+
+        const decimal qty = 4m;
+        const decimal buyPrice = 0.42m;
+        const decimal buyFee = 0.15m;
+        const decimal sellFee = 0.05m;
+        var costBasis = qty * buyPrice + buyFee;
+
+        var buy = await Call(mcp, "trade_record", new Dictionary<string, object?>
+        {
+            ["wallet"] = "settle",
+            ["client_id"] = "buy",
+            ["symbol"] = "CONTRACT",
+            ["side"] = "Buy",
+            ["qty"] = qty,
+            ["price"] = buyPrice,
+            ["fee"] = buyFee,
+        });
+        Assert.That(EnumText(Prop(Prop(buy, "result"), "kind")), Is.EqualTo("Fill").IgnoreCase);
+
+        var sell = await Call(mcp, "trade_record", new Dictionary<string, object?>
+        {
+            ["wallet"] = "settle",
+            ["client_id"] = "settle",
+            ["symbol"] = "CONTRACT",
+            ["side"] = "Sell",
+            ["qty"] = qty,
+            ["price"] = 0m,
+            ["fee"] = sellFee,
+            ["kind"] = "settlement",
+        });
+        Assert.That(EnumText(Prop(Prop(sell, "result"), "kind")), Is.EqualTo("Settlement").IgnoreCase);
+        Assert.That(Decimal(Prop(Prop(sell, "result"), "price")), Is.EqualTo(0m));
+        Assert.That(Decimal(Prop(Prop(sell, "balance"), "realizedPnl")), Is.EqualTo(-costBasis - sellFee));
+        Assert.That(Decimal(Prop(Prop(sell, "balance"), "cash")), Is.EqualTo(50m - costBasis - sellFee));
+        Assert.That(Prop(Prop(sell, "balance"), "positions").GetArrayLength(), Is.EqualTo(0));
+
+        var zeroBuy = await mcp.CallToolAsync("trade_record", new Dictionary<string, object?>
+        {
+            ["wallet"] = "settle",
+            ["client_id"] = "free",
+            ["symbol"] = "CONTRACT",
+            ["side"] = "Buy",
+            ["qty"] = 1m,
+            ["price"] = 0m,
+            ["fee"] = 0m,
+        });
+        Assert.That(zeroBuy.IsError, Is.True);
+        Assert.That(Content(zeroBuy), Does.Contain("greater than zero"));
+
+        var negative = await mcp.CallToolAsync("trade_record", new Dictionary<string, object?>
+        {
+            ["wallet"] = "settle",
+            ["client_id"] = "neg",
+            ["symbol"] = "CONTRACT",
+            ["side"] = "Sell",
+            ["qty"] = 1m,
+            ["price"] = -0.01m,
+            ["fee"] = 0m,
+        });
+        Assert.That(negative.IsError, Is.True);
+        Assert.That(Content(negative), Does.Contain("negative").IgnoreCase);
+    }
+
+    [Test]
+    public async Task Buy_exceeding_cash_by_dust_is_accepted_and_clamped()
+    {
+        await using var mcp = await Connect(adminKey);
+        await Call(mcp, "wallet_create", new Dictionary<string, object?>
+        {
+            ["key"] = "dust",
+            ["name"] = "Dust",
+            ["mode"] = "Paper",
+        });
+        await Call(mcp, "transfer_record", new Dictionary<string, object?>
+        {
+            ["wallet"] = "dust",
+            ["client_id"] = "dep",
+            ["kind"] = "deposit",
+            ["amount"] = 10m,
+        });
+
+        const decimal dust = 0.000000000000001m;
+        var accepted = await Call(mcp, "trade_record", new Dictionary<string, object?>
+        {
+            ["wallet"] = "dust",
+            ["client_id"] = "dust-buy",
+            ["symbol"] = "BTC-USD",
+            ["side"] = "Buy",
+            ["qty"] = 1m,
+            ["price"] = 10m + dust,
+            ["fee"] = 0m,
+        });
+        Assert.That(Decimal(Prop(Prop(accepted, "balance"), "cash")), Is.EqualTo(0m));
+
+        var balances = await Call(mcp, "wallet_balances", new Dictionary<string, object?>
+        {
+            ["wallet"] = "dust",
+        });
+        Assert.That(Decimal(Prop(Prop(balances, "result"), "cash")), Is.EqualTo(0m));
+
+        await Call(mcp, "wallet_create", new Dictionary<string, object?>
+        {
+            ["key"] = "short",
+            ["name"] = "Short",
+            ["mode"] = "Paper",
+        });
+        await Call(mcp, "transfer_record", new Dictionary<string, object?>
+        {
+            ["wallet"] = "short",
+            ["client_id"] = "dep",
+            ["kind"] = "deposit",
+            ["amount"] = 10m,
+        });
+        var rejected = await mcp.CallToolAsync("trade_record", new Dictionary<string, object?>
+        {
+            ["wallet"] = "short",
+            ["client_id"] = "over",
+            ["symbol"] = "BTC-USD",
+            ["side"] = "Buy",
+            ["qty"] = 1m,
+            ["price"] = 10.01m,
+            ["fee"] = 0m,
+        });
+        Assert.That(rejected.IsError, Is.True);
+        Assert.That(Content(rejected), Does.Contain("more than the cash").IgnoreCase);
+
+        var still = await Call(mcp, "wallet_balances", new Dictionary<string, object?>
+        {
+            ["wallet"] = "short",
+        });
+        Assert.That(Decimal(Prop(Prop(still, "result"), "cash")), Is.EqualTo(10m));
+    }
+
+    [Test]
     public async Task Mcp_request_log_drops_the_key_and_the_body()
     {
         const string marker = "log-body-marker-9f3c";
@@ -651,6 +801,10 @@ public class McpServerTests
     }
 
     static string Text(JsonElement element) => element.GetString() ?? "";
+
+    static string EnumText(JsonElement element) => element.ValueKind == JsonValueKind.String
+        ? element.GetString() ?? ""
+        : element.GetRawText();
 
     static bool Bool(JsonElement element, string name) => Prop(element, name).GetBoolean();
 

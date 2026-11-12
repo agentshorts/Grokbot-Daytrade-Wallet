@@ -11,6 +11,7 @@ function row(partial: Partial<TradeRow> = {}): TradeRow {
         symbol: 'BTC-USD',
         title: 'First clip',
         side: 'buy',
+        kind: 'fill',
         qty: 0.01,
         price: 64000,
         fee: 0.5,

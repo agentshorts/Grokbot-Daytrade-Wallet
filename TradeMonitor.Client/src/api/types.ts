@@ -3,6 +3,7 @@
 
 export type WalletModeName = 'real' | 'paper'
 export type TradeSideName = 'buy' | 'sell'
+export type TradeKindName = 'fill' | 'settlement'
 export type PositionStatus = 'open' | 'closed'
 
 export interface LedgerQuery {
@@ -200,6 +201,7 @@ export interface TradeRow {
     symbol: string
     title: string | null
     side: TradeSideName
+    kind: TradeKindName
     qty: number
     price: number
     fee: number

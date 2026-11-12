@@ -118,3 +118,7 @@ export function modeLabel(mode: string): string {
 export function sideLabel(side: string): string {
     return side === 'sell' ? 'Sell' : 'Buy'
 }
+
+export function tradeKindLabel(kind: string): string {
+    return kind === 'settlement' ? 'Settlement' : 'Fill'
+}

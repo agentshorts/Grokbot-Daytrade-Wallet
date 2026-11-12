@@ -674,6 +674,104 @@ public class LedgerServiceTests
     }
 
     [Test]
+    public void Zero_price_settlement_sell_loses_the_cost_basis_and_fees()
+    {
+        Create("settle");
+        Move("settle", "dep", TransferKind.Deposit, 50m);
+
+        const decimal qty = 4m;
+        const decimal buyPrice = 0.42m;
+        const decimal buyFee = 0.15m;
+        const decimal sellFee = 0.05m;
+        var costBasis = qty * buyPrice + buyFee;
+
+        var buy = Fill("settle", "buy", TradeSide.Buy, qty, buyPrice, fee: buyFee, symbol: "CONTRACT");
+        Assert.That(buy.Result.Kind, Is.EqualTo(TradeKind.Fill));
+        Assert.That(buy.Balance.Positions[0].CostBasis, Is.EqualTo(costBasis));
+
+        var sell = Fill("settle", "settle", TradeSide.Sell, qty, 0m, fee: sellFee, symbol: "CONTRACT", kind: TradeKind.Settlement);
+        Assert.That(sell.Result.Kind, Is.EqualTo(TradeKind.Settlement));
+        Assert.That(sell.Result.Price, Is.EqualTo(0m));
+        Assert.That(sell.Balance.RealizedPnl, Is.EqualTo(-costBasis - sellFee));
+        Assert.That(sell.Balance.Fees, Is.EqualTo(buyFee + sellFee));
+        Assert.That(sell.Balance.Positions, Is.Empty);
+        Assert.That(sell.Balance.Cash, Is.EqualTo(50m - costBasis - sellFee));
+
+        var pnl = new PnlServices(factory, clock);
+        var detail = (GetTradeResponse)pnl.Any(new GetTrade { Id = sell.Result.Id });
+        Assert.That(detail.Result.Kind, Is.EqualTo(TradeKind.Settlement));
+        Assert.That(detail.Result.Price, Is.EqualTo(0m));
+        Assert.That(detail.Result.RealizedPnl, Is.EqualTo(-costBasis - sellFee));
+        Assert.That(detail.Result.Pnl, Is.EqualTo(-costBasis - sellFee));
+
+        var retry = Fill("settle", "settle", TradeSide.Sell, qty, 0m, fee: sellFee, symbol: "CONTRACT", kind: TradeKind.Settlement);
+        Assert.That(retry.AlreadyRecorded, Is.True);
+        Assert.That(retry.Result.Id, Is.EqualTo(sell.Result.Id));
+        var clash = Fails(() => Fill("settle", "settle", TradeSide.Sell, qty, 0m, fee: sellFee, symbol: "CONTRACT", kind: TradeKind.Fill));
+        Assert.That(clash.ErrorCode, Is.EqualTo("DifferentValues"));
+
+        const decimal fifoQty = 2m;
+        const decimal fifoPrice = 5m;
+        Fill("settle", "fifo-buy", TradeSide.Buy, fifoQty, fifoPrice, symbol: "FIFO");
+        var half = Fill("settle", "fifo-half", TradeSide.Sell, 1m, 0m, symbol: "FIFO");
+        Assert.That(half.Result.Kind, Is.EqualTo(TradeKind.Fill));
+        var halfDetail = (GetTradeResponse)pnl.Any(new GetTrade { Id = half.Result.Id });
+        Assert.That(halfDetail.Result.RealizedPnl, Is.EqualTo(-fifoPrice));
+        Assert.That(halfDetail.Result.Price, Is.EqualTo(0m));
+
+        const decimal restFee = 0.10m;
+        var rest = Fill("settle", "fifo-rest", TradeSide.Sell, 1m, 0m, fee: restFee, symbol: "FIFO", kind: TradeKind.Settlement);
+        var restDetail = (GetTradeResponse)pnl.Any(new GetTrade { Id = rest.Result.Id });
+        Assert.That(restDetail.Result.RealizedPnl, Is.EqualTo(-fifoPrice - restFee));
+        Assert.That(rest.Balance.RealizedPnl, Is.EqualTo(-costBasis - sellFee - (fifoQty * fifoPrice) - restFee));
+        Assert.That(rest.Balance.Positions, Is.Empty);
+    }
+
+    [Test]
+    public void Zero_price_buy_and_negative_price_are_rejected()
+    {
+        Create("prices");
+        Move("prices", "dep", TransferKind.Deposit, 10m);
+        Fill("prices", "buy", TradeSide.Buy, 1m, 1m);
+
+        var zeroBuy = Fails(() => Fill("prices", "free", TradeSide.Buy, 1m, 0m));
+        Assert.That(zeroBuy.Status, Is.EqualTo(400));
+        Assert.That(zeroBuy.ToString(), Does.Contain("greater than zero"));
+
+        var negativeBuy = Fails(() => Fill("prices", "neg-buy", TradeSide.Buy, 1m, -0.01m));
+        Assert.That(negativeBuy.ToString(), Does.Contain("cannot be negative"));
+
+        var negativeSell = Fails(() => Fill("prices", "neg-sell", TradeSide.Sell, 1m, -1m));
+        Assert.That(negativeSell.ToString(), Does.Contain("cannot be negative"));
+
+        var listed = (QueryTradesResponse)svc.Any(new QueryTrades { Wallet = "prices" });
+        Assert.That(listed.Total, Is.EqualTo(1));
+        Assert.That(Balances("prices").Cash, Is.EqualTo(9m));
+    }
+
+    [Test]
+    public void Buy_exceeding_cash_by_dust_is_accepted_and_clamped()
+    {
+        Create("dust");
+        Move("dust", "dep", TransferKind.Deposit, 10m);
+        const decimal dust = 0.000000000000001m;
+        var accepted = Fill("dust", "dust", TradeSide.Buy, 1m, 10m + dust);
+        Assert.That(accepted.Balance.Cash, Is.EqualTo(0m));
+        Assert.That(accepted.Balance.CashIsNegative, Is.False);
+        Assert.That(Balances("dust").Cash, Is.EqualTo(0m));
+        Assert.That(accepted.Balance.Positions[0].Qty, Is.EqualTo(1m));
+
+        Create("short");
+        Move("short", "dep", TransferKind.Deposit, 10m);
+        var rejected = Fails(() => Fill("short", "over", TradeSide.Buy, 1m, 10.01m));
+        Assert.That(rejected.Status, Is.EqualTo(400));
+        Assert.That(rejected.ErrorCode, Is.EqualTo("InsufficientCash"));
+        Assert.That(Balances("short").Cash, Is.EqualTo(10m));
+        var listed = (QueryTradesResponse)svc.Any(new QueryTrades { Wallet = "short" });
+        Assert.That(listed.Total, Is.EqualTo(0));
+    }
+
+    [Test]
     public void Invalid_amounts_are_rejected()
     {
         Create("alpha");
@@ -740,7 +838,8 @@ public class LedgerServiceTests
         string? note = null,
         decimal? target = null,
         string? title = null,
-        string? orderRef = null) =>
+        string? orderRef = null,
+        TradeKind? kind = null) =>
         (RecordTradeResponse)svc.Any(new RecordTrade
         {
             Wallet = wallet,
@@ -755,6 +854,7 @@ public class LedgerServiceTests
             TargetPrice = target,
             Title = title,
             OrderRef = orderRef,
+            Kind = kind,
         });
 
     WalletBalances Balances(string wallet) =>
