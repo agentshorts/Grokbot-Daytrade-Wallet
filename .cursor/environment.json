@@ -1,0 +1,9 @@
+{
+  "name": "TradeMonitor",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "user": "ubuntu",
+  "install": "dotnet restore TradeMonitor.slnx && npm ci --prefix TradeMonitor.Client"
+}
