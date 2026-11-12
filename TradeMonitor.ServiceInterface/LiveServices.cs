@@ -1,6 +1,3 @@
-using System.Text;
-using System.Text.Json;
-using System.Threading.Channels;
 using ServiceStack;
 using ServiceStack.Data;
 using ServiceStack.OrmLite;
@@ -14,7 +11,9 @@ public class LiveServices(
     ILedgerClock clock,
     ILiveMarket market,
     PaperOrderBook orders,
-    LiveSimulationStore simulations) : Service
+    LiveSimulationStore simulations,
+    PriceBars bars,
+    TrackedSymbolBook symbols) : Service
 {
     public object Any(GetLiveProducts request) =>
         new GetLiveProductsResponse { Results = market.Products().ToList() };
@@ -39,37 +38,84 @@ public class LiveServices(
         return new GetLiveTickerResponse { Result = market.Ticker(product) };
     }
 
-    public async Task Any(StreamLiveTicker request)
+    public object Any(GetLiveBars request)
     {
         var product = RequireSymbol(request.Product);
-        market.Watch(product, "5m");
-        var response = Response ?? throw Fail(500, "InvalidRequest", "No HTTP response is available.");
-        response.ContentType = "text/event-stream";
-        response.AddHeader("Cache-Control", "no-cache");
-        var token = (Request as IHasCancellationToken)?.Token ?? CancellationToken.None;
-        var channel = Channel.CreateUnbounded<LiveTick>();
-        using var subscription = market.Listen(tick =>
+        var key = CoinbaseMessages.GranularityKey(request.Granularity);
+        market.Watch(product, key);
+        return new GetLiveBarsResponse
         {
-            if (tick.ProductId.Equals(product, StringComparison.OrdinalIgnoreCase))
-                channel.Writer.TryWrite(tick);
-        });
-        var current = market.Ticker(product);
-        if (current != null)
-            channel.Writer.TryWrite(current);
-        try
-        {
-            await foreach (var tick in channel.Reader.ReadAllAsync(token))
-            {
-                var json = JsonSerializer.Serialize(new { product = tick.ProductId, price = tick.Price, at = tick.At });
-                var bytes = Encoding.UTF8.GetBytes($"data: {json}\n\n");
-                await response.OutputStream.WriteAsync(bytes.AsMemory(), token);
-                await response.OutputStream.FlushAsync(token);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
+            Product = product,
+            Granularity = key,
+            Results = bars.Candles(product, CoinbaseMessages.GranularitySeconds(key)),
+        };
     }
+
+    public object Any(GetLiveTrades request)
+    {
+        var symbol = RequireSymbol(request.Symbol);
+        if (!string.IsNullOrWhiteSpace(request.SimulationId))
+            return new GetLiveTradesResponse { Results = simulations.Marks(request.SimulationId, symbol) };
+        return new GetLiveTradesResponse { Results = LedgerMarks(RequireKey(request.Wallet), symbol) };
+    }
+
+    public object Any(GetTrackedSymbols request) =>
+        new GetTrackedSymbolsResponse { CatalogLoaded = symbols.CatalogLoaded, Results = Rows(symbols.List()) };
+
+    public object Any(AddTrackedSymbol request) =>
+        new GetTrackedSymbolsResponse { CatalogLoaded = symbols.CatalogLoaded, Results = Rows(symbols.Add(request.Product)) };
+
+    public object Any(RemoveTrackedSymbol request) =>
+        new GetTrackedSymbolsResponse { CatalogLoaded = symbols.CatalogLoaded, Results = Rows(symbols.Remove(request.Product)) };
+
+    public object Any(ReorderTrackedSymbols request) =>
+        new GetTrackedSymbolsResponse { CatalogLoaded = symbols.CatalogLoaded, Results = Rows(symbols.Reorder(request.Products)) };
+
+    List<LiveTradeMark> LedgerMarks(string wallet, string symbol)
+    {
+        var ledger = new LedgerServices(dbFactory, clock);
+        var marks = new List<LiveTradeMark>();
+        var skip = 0;
+        while (marks.Count < 5000)
+        {
+            var page = (QueryTradesResponse)ledger.Any(new QueryTrades
+            {
+                Wallet = wallet,
+                Symbol = symbol,
+                Take = 1000,
+                Skip = skip,
+                OrderBy = "time",
+                Descending = false,
+            });
+            if (page.Results.Count == 0)
+                break;
+            marks.AddRange(page.Results.Select(trade => new LiveTradeMark
+            {
+                TradeId = trade.Id,
+                Side = trade.Side,
+                Kind = trade.Kind,
+                Qty = trade.Qty,
+                Price = trade.Price,
+                Fee = trade.Fee,
+                ExecutedAt = trade.ExecutedAt,
+                Simulated = false,
+            }));
+            if (page.Results.Count < 1000)
+                break;
+            skip += page.Results.Count;
+        }
+
+        return marks;
+    }
+
+    static List<TrackedSymbolRow> Rows(IEnumerable<TrackedRow> rows) =>
+        rows.Select(row => new TrackedSymbolRow
+        {
+            ProductId = row.ProductId,
+            Name = row.Name,
+            SortOrder = row.SortOrder,
+            Listed = row.Listed,
+        }).ToList();
 
     public object Any(CreatePaperWallet request)
     {

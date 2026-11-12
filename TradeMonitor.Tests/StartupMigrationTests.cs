@@ -58,7 +58,12 @@ public class StartupMigrationTests
         Assert.That(fixture.ReadRows("SELECT Kind FROM Trade ORDER BY ClientId"), Is.EqualTo(new[] { "Fill", "Fill" }));
         Assert.That(fixture.ReadRows("SELECT Costing, ifnull(LotId, '<null>') FROM Trade ORDER BY ClientId"), Is.EqualTo(new[] { "Fifo|<null>", "Fifo|<null>" }));
         Assert.That(fixture.ReadRows("SELECT COUNT(*) FROM PaperOrder"), Is.EqualTo(new[] { "0" }));
-        Assert.That(fixture.ReadRows("SELECT Name FROM Migration ORDER BY Name"), Is.EqualTo(new[] { "Migration1000", "Migration1001", "Migration1002" }));
+        Assert.That(fixture.ReadRows("SELECT Name FROM Migration ORDER BY Name"), Is.EqualTo(new[] { "Migration1000", "Migration1001", "Migration1002", "Migration1003" }));
+        Assert.That(fixture.ReadRows("SELECT ProductId FROM TrackedSymbol ORDER BY SortOrder"), Is.EqualTo(new[]
+        {
+            "BTC-USD", "ETH-USD", "SOL-USD", "DOGE-USD", "LTC-USD", "POL-USD", "XRP-USD", "ADA-USD", "AVAX-USD", "LINK-USD",
+        }));
+        Assert.That(fixture.ReadRows("SELECT COUNT(*) FROM PriceBar"), Is.EqualTo(new[] { "0" }));
         Assert.That(fixture.ReadRows("SELECT COUNT(*) FROM AspNetUsers"), Is.EqualTo(new[] { "0" }));
         Assert.That(fixture.ReadRows("SELECT Key, Name FROM Wallet ORDER BY Key"), Is.EqualTo(new[] { "paper|Paper book" }));
     }
@@ -72,8 +77,9 @@ public class StartupMigrationTests
 
         Assert.That(afterFirst.Trades, Has.Count.EqualTo(2));
         Assert.That(afterFirst.Trades.All(row => row.Contains("|Fill|Fifo|<null>")), Is.True, string.Join("\n", afterFirst.Trades));
-        Assert.That(afterFirst.Migrations.Select(row => row.Split('|')[1]), Is.EqualTo(new[] { "Migration1000", "Migration1001", "Migration1002" }));
+        Assert.That(afterFirst.Migrations.Select(row => row.Split('|')[1]), Is.EqualTo(new[] { "Migration1000", "Migration1001", "Migration1002", "Migration1003" }));
         Assert.That(fixture.ReadRows("SELECT COUNT(*) FROM PaperOrder"), Is.EqualTo(new[] { "0" }));
+        Assert.That(fixture.ReadRows("SELECT COUNT(*) FROM TrackedSymbol"), Is.EqualTo(new[] { "10" }));
 
         fixture.Boot();
         var afterSecond = fixture.Snapshot();
@@ -83,6 +89,7 @@ public class StartupMigrationTests
         Assert.That(afterSecond.Migrations, Is.EqualTo(afterFirst.Migrations));
         Assert.That(afterSecond.Users, Is.EqualTo(afterFirst.Users));
         Assert.That(afterSecond.Users, Is.EqualTo("0"));
+        Assert.That(fixture.ReadRows("SELECT COUNT(*) FROM TrackedSymbol"), Is.EqualTo(new[] { "10" }));
     }
 
     sealed class LegacyDatabase : IDisposable

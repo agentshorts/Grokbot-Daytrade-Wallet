@@ -65,6 +65,7 @@ The Vue app owns the site root. A fresh load or a shared link opens the app on t
 - `/wallets`
 - `/wallet/<key>`
 - `/live` public Coinbase chart, paper orders, and an in-memory simulation for a real wallet
+- `/settings` the USD products followed by the live chart
 
 Ledger reads are JSON under `/api`:
 
@@ -84,7 +85,15 @@ An `/api` path that is not a ledger read, a live route, or `/api/health` returns
 
 ## Live
 
-`/live` shows a public Coinbase USD product. The chart fills the left side. The trading panel on the right folds to a thin rail, a normal column, or a wide panel, and the choice is kept in local storage. On a narrow screen the panel stacks under the chart.
+`/live` shows a public Coinbase USD product from the list on `/settings`. The chart fills the left side. The trading panel on the right folds to a thin rail, a normal column, or a wide panel, and the choice is kept in local storage. On a narrow screen the panel stacks under the chart.
+
+The chart loads stored prices first, then appends live ticks. Prices are pushed with ServiceStack Server Events on a channel named `price:` plus the product, for example `price:BTC-USD`. The page keeps one connection and subscribes to the product you are looking at. A label next to the price reads `live` while that connection is open and `reconnecting` while the browser is trying again, with the wait doubling from one second up to thirty seconds. The server asks the browser for a heartbeat about every 15 seconds.
+
+Each minute of a followed product is stored as one bar. Bars older than two days are folded into five-minute bars. Bars older than fourteen days are deleted. Fills still use the latest price, including after a restart, because the feed writes that price back into memory as it records the bar.
+
+`/settings` adds, removes, and reorders the followed products. Add comes from a search of public Coinbase USD products. The first run seeds BTC-USD, ETH-USD, SOL-USD, DOGE-USD, LTC-USD, POL-USD, XRP-USD, ADA-USD, AVAX-USD, and LINK-USD. A seeded product that Coinbase does not list stays on the settings page so it can be removed, and the chart and the feed skip it. The feed also follows a symbol that has an open paper order or a held position, even when it is not on the list.
+
+When a wallet is selected, its buys and sells for the chosen symbol are drawn on the chart. A buy is a green arrow up and a sell is a red arrow down, at the executed price and time. The tooltip shows quantity, price, fee, and kind. Simulation fills for a real wallet use the same arrows with a hollow center. Show my trades is on by default. A new fill shows up on the next refresh of the book.
 
 Quick mode buys and sells at the public price in one click. Lots are listed with remaining quantity, buy price, the live price, and unrealized profit, most profitable first. Quick sell closes that lot. Sell at average sells the quantity you type against the average cost of what is still open. Both show the profit before the click.
 

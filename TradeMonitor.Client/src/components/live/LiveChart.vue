@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { ColorType, LineSeries, LineStyle, createChart, type IChartApi, type IPriceLine, type ISeriesApi, type UTCTimestamp } from 'lightweight-charts'
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import type { LiveCandle, LiveOrder } from '@/api/live'
+import type { LiveOrder } from '@/api/live'
 import { hitTest, type ChartHit, type ChartLine } from '@/lib/chartMenu'
+import type { ChartTradeMark } from '@/lib/tradeMarkers'
+import type { SeriesPoint } from '@/lib/liveSeries'
 
 const props = defineProps<{
-    candles: LiveCandle[]
+    points: SeriesPoint[]
+    markers: ChartTradeMark[]
     price: number | null
     lots: { tradeId: number; qty: number; buyPrice: number; unrealizedPnl: number | null }[]
     orders: LiveOrder[]
@@ -22,7 +25,10 @@ let lines: IPriceLine[] = []
 let marks: { kind: 'lot' | 'order'; id: number; price: number }[] = []
 let observer: ResizeObserver | null = null
 let fitted = ''
+let drawnCount = 0
+let drawnFirst = 0
 const timeAxisHeight = 28
+const arrows = ref<{ id: number; x: number; y: number; side: 'buy' | 'sell'; simulated: boolean; text: string; color: string }[]>([])
 
 function options(dark: boolean) {
     const text = dark ? '#98a2b3' : '#667085'
@@ -42,17 +48,38 @@ function options(dark: boolean) {
     }
 }
 
-function points() {
-    const rows = props.candles
-        .filter((candle) => candle.start > 0)
-        .map((candle) => ({ time: candle.start as UTCTimestamp, value: candle.close }))
+function seriesData() {
+    const rows = props.points.filter((point) => point.time > 0 && point.value > 0).map((point) => ({ time: point.time as UTCTimestamp, value: point.value }))
     if (rows.length > 0) return rows
     if (props.price == null || props.price <= 0) return []
-    const now = Math.floor(Date.now() / 1000)
+    const bucket = Math.floor(Date.now() / 1000 / 60) * 60
     return [
-        { time: (now - 300) as UTCTimestamp, value: props.price },
-        { time: now as UTCTimestamp, value: props.price },
+        { time: (bucket - 60) as UTCTimestamp, value: props.price },
+        { time: bucket as UTCTimestamp, value: props.price },
     ]
+}
+
+function placeMarkers() {
+    if (!series || !chart) {
+        arrows.value = []
+        return
+    }
+    const placed = []
+    for (const mark of props.markers) {
+        const x = chart.timeScale().timeToCoordinate(mark.time as UTCTimestamp)
+        const y = series.priceToCoordinate(mark.price)
+        if (x == null || y == null || Number.isNaN(x) || Number.isNaN(y)) continue
+        placed.push({
+            id: mark.id,
+            x,
+            y: mark.side === 'buy' ? y + 6 : y - 16,
+            side: mark.side,
+            simulated: mark.simulated,
+            text: mark.text,
+            color: mark.side === 'buy' ? '#039855' : '#d92d20',
+        })
+    }
+    arrows.value = placed
 }
 
 function clearLines() {
@@ -100,7 +127,7 @@ function drawLines() {
 
 async function render() {
     await nextTick()
-    const data = points()
+    const data = seriesData()
     if (!host.value || data.length === 0) return
     if (!chart) {
         chart = createChart(host.value, options(!!props.dark))
@@ -112,8 +139,14 @@ async function render() {
     } else {
         chart.applyOptions(options(!!props.dark))
     }
-    series?.setData(data)
+    const first = data[0]?.time ?? 0
+    const append = drawnCount > 0 && data[0]?.time === drawnFirst && data.length >= drawnCount && data.length <= drawnCount + 1
+    if (append) series?.update(data[data.length - 1]!)
+    else series?.setData(data)
+    drawnCount = data.length
+    drawnFirst = first
     drawLines()
+    placeMarkers()
     if (fitted !== props.fitKey) {
         fitted = props.fitKey
         chart.timeScale().fitContent()
@@ -157,7 +190,7 @@ onMounted(() => {
 })
 
 watch(
-    () => [props.candles, props.price, props.lots, props.orders, props.dark, props.fitKey],
+    () => [props.points, props.price, props.lots, props.orders, props.markers, props.dark, props.fitKey],
     () => {
         void render()
     },
@@ -173,5 +206,29 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <div ref="host" data-testid="live-chart" class="h-full w-full" @contextmenu="onMenu" />
+    <div class="relative h-full w-full">
+        <div ref="host" data-testid="live-chart" class="h-full w-full" @contextmenu="onMenu" />
+        <div class="pointer-events-none absolute inset-0 overflow-hidden">
+            <svg
+                v-for="arrow in arrows"
+                :key="arrow.id"
+                class="absolute"
+                :style="{ left: `${arrow.x - 6}px`, top: `${arrow.y}px` }"
+                width="12"
+                height="10"
+                viewBox="0 0 12 10"
+            >
+                <title>{{ arrow.text }}</title>
+                <polygon
+                    :points="arrow.side === 'buy' ? '0,10 6,0 12,10' : '0,0 6,10 12,0'"
+                    :fill="arrow.simulated ? 'none' : arrow.color"
+                    :stroke="arrow.color"
+                    stroke-width="1.5"
+                />
+            </svg>
+        </div>
+        <ul class="sr-only" data-testid="trade-markers">
+            <li v-for="mark in markers" :key="mark.id" :data-side="mark.side" :data-simulated="String(mark.simulated)">{{ mark.text }}</li>
+        </ul>
+    </div>
 </template>
