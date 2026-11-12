@@ -4,7 +4,7 @@ on:
   pull_request: {}
   push:
     branches:
-      - '**'        # matches every branch
+      - '**'
 
 jobs:
   build:
@@ -18,36 +18,11 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Restore NuGet packages
-        run: dotnet restore TradeMonitor.slnx
-
-      # If your feed requires authentication, enable and configure the step below.
-      # This example uses a Personal Access Token stored in secrets.NUGET_API_KEY.
-      # Alternatively, you can use the NuGet Authenticate action from Azure Pipelines.
-      # - name: Authenticate private NuGet feed
-      #   env:
-      #     NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-      #   run: |
-      #     dotnet nuget add source "https://YOUR_FEED_URL/index.json" \
-      #       --name "PrivateFeed" \
-      #       --username "YOUR_USERNAME" \
-      #       --password "$NUGET_API_KEY" \
-      #       --store-password-in-clear-text
-
       - name: build
-        run: dotnet build --no-restore
-        working-directory: .
+        run: dotnet build TradeMonitor.slnx
 
       - name: test
-        run: |
-          dotnet test
-          if [ $? -eq 0 ]; then
-            echo TESTS PASSED
-          else
-            echo TESTS FAILED
-            exit 1
-          fi
-        working-directory: ./TradeMonitor.Tests
+        run: dotnet test TradeMonitor.slnx --no-build
 
   client:
     runs-on: ubuntu-latest
@@ -55,23 +30,21 @@ jobs:
       - name: checkout
         uses: actions/checkout@v7
 
-      - name: Setup Vite+ and install npm dependencies
-        uses: voidzero-dev/setup-vp@v1.22.0
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: '24'
-          working-directory: ./TradeMonitor.Client
-          cache: true
+          cache: npm
+          cache-dependency-path: TradeMonitor.Client/package-lock.json
 
-      # vp check + vue-tsc -b (tsgolint doesn't type check .vue SFCs)
-      - name: check (format, lint, type check)
-        run: npm run check
-        working-directory: ./TradeMonitor.Client
+      - name: install
+        run: npm ci
+        working-directory: TradeMonitor.Client
 
       - name: test
-        run: vp test run
-        working-directory: ./TradeMonitor.Client
+        run: npm run test:run
+        working-directory: TradeMonitor.Client
 
-      # vue-tsc -b && vp build
       - name: build
         run: npm run build
-        working-directory: ./TradeMonitor.Client
+        working-directory: TradeMonitor.Client

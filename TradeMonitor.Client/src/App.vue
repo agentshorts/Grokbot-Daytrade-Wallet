@@ -6,8 +6,7 @@ import { useHead } from '@unhead/vue'
 // they will be rendered correctly in the html results with vite-ssg
 useHead({
     title: 'TradeMonitor',
-    meta: [{ name: 'description', content: 'Vue SPA Starter Template' }],
-    script: [{ src: '/default.js' }],
+    meta: [{ name: 'description', content: 'Local dashboard for trading wallets.' }],
     bodyAttrs: {
         class: 'bg-white dark:bg-black dark:text-white',
     },

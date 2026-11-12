@@ -1,8 +1,6 @@
 /// <reference types="vite/client" />
 /// <reference types="vite-plugin-vue-layouts-next/client" />
-/// <reference types="vite-plugin-press/client" />
-
-import type { Author, Post } from '@/meta'
+/// <reference types="unplugin-vue-router/client" />
 
 declare module '*.vue' {
     import type { DefineComponent } from 'vue'

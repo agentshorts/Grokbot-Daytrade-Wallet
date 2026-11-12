@@ -11,62 +11,6 @@
             <div class="flex flex-grow flex-shrink flex-nowrap justify-end items-center">
                 <nav class="relative flex flex-grow leading-6 font-semibold text-slate-700 dark:text-slate-200">
                     <ul class="flex flex-wrap items-center justify-end w-full m-0">
-                        <li class="relative flex flex-wrap just-fu-start m-0">
-                            <RouterLink
-                                to="/counter"
-                                class="p-4 flex items-center justify-start mw-full hover:text-sky-500 dark:hover:text-sky-400"
-                                ActiveClass="text-blue-700 dark:text-blue-300"
-                                >Counter</RouterLink
-                            >
-                        </li>
-                        <li class="relative flex flex-wrap just-fu-start m-0">
-                            <RouterLink
-                                to="/weather"
-                                class="p-4 flex items-center justify-start mw-full hover:text-sky-500 dark:hover:text-sky-400"
-                                ActiveClass="text-blue-700 dark:text-blue-300"
-                                >Weather</RouterLink
-                            >
-                        </li>
-                        <li class="relative flex flex-wrap just-fu-start m-0">
-                            <RouterLink
-                                to="/bookings-auto"
-                                class="p-4 flex items-center justify-start mw-full hover:text-sky-500 dark:hover:text-sky-400"
-                                ActiveClass="text-blue-700 dark:text-blue-300"
-                                >Bookings</RouterLink
-                            >
-                        </li>
-                        <li class="relative flex flex-wrap just-fu-start m-0">
-                            <RouterLink
-                                to="/todomvc"
-                                class="p-4 flex items-center justify-start mw-full hover:text-sky-500 dark:hover:text-sky-400"
-                                ActiveClass="text-blue-700 dark:text-blue-300"
-                                >Todos</RouterLink
-                            >
-                        </li>
-                        <li class="relative flex flex-wrap just-fu-start m-0">
-                            <RouterLink
-                                to="/whatsnew"
-                                class="p-4 flex items-center justify-start mw-full hover:text-sky-500 dark:hover:text-sky-400"
-                                ActiveClass="text-blue-700 dark:text-blue-300"
-                                >What's New</RouterLink
-                            >
-                        </li>
-                        <li class="relative flex flex-wrap just-fu-start m-0">
-                            <RouterLink
-                                to="/blog"
-                                class="p-4 flex items-center justify-start mw-full hover:text-sky-500 dark:hover:text-sky-400"
-                                ActiveClass="text-blue-700 dark:text-blue-300"
-                                >Blog</RouterLink
-                            >
-                        </li>
-                        <li class="relative flex flex-wrap just-fu-start m-0">
-                            <RouterLink
-                                to="/videos"
-                                class="p-4 flex items-center justify-start mw-full hover:text-sky-500 dark:hover:text-sky-400"
-                                ActiveClass="text-blue-700 dark:text-blue-300"
-                                >Videos</RouterLink
-                            >
-                        </li>
                         <template v-if="hasRole('Admin')">
                             <li class="relative flex flex-wrap just-fu-start m-0">
                                 <RouterLink
@@ -103,8 +47,8 @@
                         </template>
                         <template v-else>
                             <li class="relative flex flex-wrap just-fu-start m-0">
-                                <RouterLink to="/Account/Login" class="m-2 mr-4">
-                                    <SecondaryButton class="m-2" href="/signin">Sign In</SecondaryButton>
+                                <RouterLink to="/signin" class="m-2 mr-4">
+                                    <SecondaryButton>Sign In</SecondaryButton>
                                 </RouterLink>
                             </li>
                         </template>
