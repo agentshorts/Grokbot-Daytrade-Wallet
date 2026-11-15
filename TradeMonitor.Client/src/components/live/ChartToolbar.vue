@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { atrHorizons, type AtrHorizon } from '@/lib/atrBands'
+import { forecastHorizons, type ForecastHorizon } from '@/lib/forecast'
 import { intervalPresets, parseInterval } from '@/lib/chartInterval'
 import { quickRanges, type ChartRange } from '@/lib/chartRange'
 import { chartTypes, type BaselineSource, type ChartType, type DeltaMode } from '@/lib/chartSeries'
@@ -28,6 +29,11 @@ const props = defineProps<{
     atrText: string
     atrNotice: string
     costText: string
+    showForecast: boolean
+    forecastHorizon: ForecastHorizon
+    forecastText: string
+    forecastNotice: string
+    coverageText: string
 }>()
 
 const emit = defineEmits<{
@@ -46,6 +52,8 @@ const emit = defineEmits<{
     swing: []
     atr: []
     horizon: [value: AtrHorizon]
+    forecast: []
+    'forecast-horizon': [value: ForecastHorizon]
 }>()
 
 const custom = ref('')
@@ -142,6 +150,24 @@ function addCustom() {
             </button>
             <p v-if="atrText" data-testid="atr-readout" class="text-xs text-gray-500">{{ atrText }}</p>
             <p v-if="costText" data-testid="atr-cost" class="text-xs text-gray-500">{{ costText }}</p>
+        </div>
+        <button type="button" data-testid="forecast-toggle" class="rounded-md px-2 py-1 text-xs font-medium" :class="showForecast ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'text-gray-600'" :aria-pressed="showForecast" @click="emit('forecast')">Targets: Forecast</button>
+        <div v-if="showForecast" class="flex flex-wrap items-center gap-1">
+            <button
+                v-for="item in forecastHorizons"
+                :key="item.id"
+                type="button"
+                :data-testid="`forecast-horizon-${item.id}`"
+                class="rounded-md px-2 py-1 text-xs font-medium"
+                :class="item.id === forecastHorizon ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'text-gray-600'"
+                :aria-pressed="item.id === forecastHorizon"
+                @click="emit('forecast-horizon', item.id)"
+            >
+                {{ item.label }}
+            </button>
+            <p v-if="forecastText" data-testid="forecast-readout" class="text-xs text-gray-500">{{ forecastText }}</p>
+            <p v-if="coverageText" data-testid="forecast-coverage" class="text-xs text-gray-500">{{ coverageText }}</p>
+            <p v-if="forecastNotice" data-testid="forecast-notice" class="text-xs text-gray-500">{{ forecastNotice }}</p>
         </div>
         <div v-if="showBaseline" class="flex items-center gap-1">
             <select data-testid="baseline-source" class="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-950" :value="baselineSource" @change="emit('baseline-source', ($event.target as HTMLSelectElement).value as BaselineSource)">

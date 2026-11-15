@@ -1,4 +1,5 @@
 import { isAtrHorizon, type AtrHorizon } from '@/lib/atrBands'
+import { isForecastHorizon, type ForecastHorizon } from '@/lib/forecast'
 import { intervalPresets, parseInterval } from '@/lib/chartInterval'
 import { quickRanges, type ChartRange } from '@/lib/chartRange'
 import { chartTypes, isChartType, type BaselineSource, type ChartType, type DeltaMode } from '@/lib/chartSeries'
@@ -21,6 +22,8 @@ export interface ChartPrefs {
     showSwing: boolean
     showAtr: boolean
     atrHorizon: AtrHorizon
+    showForecast: boolean
+    forecastHorizon: ForecastHorizon
 }
 
 export interface PrefsStorage {
@@ -44,6 +47,8 @@ export function defaultChartPrefs(): ChartPrefs {
         showSwing: false,
         showAtr: false,
         atrHorizon: '1bar',
+        showForecast: false,
+        forecastHorizon: '1h',
     }
 }
 
@@ -108,6 +113,8 @@ function sanitize(value: Partial<ChartPrefs>, fallback: ChartPrefs): ChartPrefs 
         showSwing: value.showSwing === true,
         showAtr: value.showAtr === true,
         atrHorizon: typeof value.atrHorizon === 'string' && isAtrHorizon(value.atrHorizon) ? value.atrHorizon : '1bar',
+        showForecast: value.showForecast === true,
+        forecastHorizon: typeof value.forecastHorizon === 'string' && isForecastHorizon(value.forecastHorizon) ? value.forecastHorizon : '1h',
     }
 }
 

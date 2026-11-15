@@ -4,6 +4,7 @@ import type { LiveProduct, TrackedSymbol } from '@/api/live'
 import { explainLedgerError } from '@/composables/useLedger'
 import { useLive } from '@/composables/useLive'
 import { atrHorizons, isAtrHorizon } from '@/lib/atrBands'
+import { forecastHorizons, isForecastHorizon } from '@/lib/forecast'
 import { intervalPresets } from '@/lib/chartInterval'
 import { readChartPrefs, rememberInterval, removeCustomInterval, writeChartPrefs, type ChartPrefs } from '@/lib/chartPrefs'
 import { quickRanges } from '@/lib/chartRange'
@@ -94,6 +95,11 @@ function toggleInterval(key: string) {
 function onHorizon(value: string) {
     if (!isAtrHorizon(value)) return
     saveChart({ ...chart.value, atrHorizon: value })
+}
+
+function onForecastHorizon(value: string) {
+    if (!isForecastHorizon(value)) return
+    saveChart({ ...chart.value, forecastHorizon: value })
 }
 
 function addCustom() {
@@ -224,6 +230,16 @@ onMounted(() => {
                     ATR horizon
                     <select data-testid="chart-atr-horizon" class="ms-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" :value="chart.atrHorizon" @change="onHorizon(($event.target as HTMLSelectElement).value)">
                         <option v-for="item in atrHorizons" :key="item.id" :value="item.id">{{ item.label }}</option>
+                    </select>
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+                    <input data-testid="chart-forecast" type="checkbox" :checked="chart.showForecast" @change="saveChart({ ...chart, showForecast: !chart.showForecast })" />
+                    Targets: Forecast
+                </label>
+                <label class="text-xs font-medium text-gray-500">
+                    Forecast horizon
+                    <select data-testid="chart-forecast-horizon" class="ms-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" :value="chart.forecastHorizon" @change="onForecastHorizon(($event.target as HTMLSelectElement).value)">
+                        <option v-for="item in forecastHorizons" :key="item.id" :value="item.id">{{ item.label }}</option>
                     </select>
                 </label>
             </div>

@@ -107,6 +107,8 @@ Stop-limit orders are not in this version.
 
 Live does not use a Coinbase key. The wallet sync, when enabled, reads its key from Windows Credential Manager. See Coinbase wallet sync below.
 
+The forecast layer uses TimesFM 2.5 (200M) through ONNX Runtime. The checkpoint `google/timesfm-2.5-200m-transformers` is Apache-2.0, and the ONNX export `pdufour/timesfm-2.5-200m-transformers-onnx` is Apache-2.0 as well. TimesFM 3.0 weights are not used; they are under a non-commercial license. Forecasting is off unless `Forecast:Enabled` is true. `scripts/fetch-timesfm.ps1` downloads `model.onnx` (SHA256 `4d6b58f3d21f6ffa1171f230d0b8001028d218e9b976bd60b3d7043b4033a751`) into `TradeMonitor/App_Data/models/timesfm-2.5/`, which is gitignored. The app runs with the model missing and shows "forecast model not installed". The range is a model range, not advice, and it never places an order.
+
 ## Run locally
 
 Requires the .NET 10 SDK and Node.js 24.

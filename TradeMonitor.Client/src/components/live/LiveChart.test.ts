@@ -28,13 +28,14 @@ const chart = vi.hoisted(() => {
                 setVisibleLogicalRange: vi.fn(),
             }),
             remove: vi.fn(),
+            removeSeries: vi.fn(),
         },
     }
 })
 
 vi.mock('lightweight-charts', () => ({
     ColorType: { Solid: 'solid' },
-    LineStyle: { Solid: 0, Dashed: 2 },
+    LineStyle: { Solid: 0, Dotted: 1, Dashed: 2 },
     LineType: { Simple: 0, WithSteps: 1 },
     LineSeries: {},
     AreaSeries: {},

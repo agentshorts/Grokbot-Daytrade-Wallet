@@ -24,6 +24,7 @@ import { deltaPoints, priceBars, showsDeltaPane, usesOhlc, type CandleBar, type 
 import { chartZone, formatChartCrosshair, formatChartTick, type ChartZoneMode } from '@/lib/chartTime'
 import type { SeriesPoint } from '@/lib/liveSeries'
 import type { PriceZone } from '@/lib/atrBands'
+import { forecastLabel, type ForecastStep } from '@/lib/forecast'
 import { stackLabelYs, type ChartGuide } from '@/lib/swingLevels'
 import type { ChartTradeMark } from '@/lib/tradeMarkers'
 
@@ -56,6 +57,7 @@ const props = withDefaults(
         intervalSeconds?: number
         guides?: ChartGuide[]
         zones?: PriceZone[]
+        forecast?: ForecastStep[]
     }>(),
     {
         chartType: 'candle',
@@ -67,6 +69,7 @@ const props = withDefaults(
         intervalSeconds: 300,
         guides: () => [],
         zones: () => [],
+        forecast: () => [],
     },
 )
 
@@ -82,6 +85,7 @@ let chart: IChartApi | null = null
 let main: Plot | null = null
 let delta: Plot | null = null
 let volume: Plot | null = null
+let forecastLine: Plot | null = null
 let plots: object[] = []
 let lines: IPriceLine[] = []
 let marks: { kind: 'lot' | 'order' | 'level'; id: number; price: number }[] = []
@@ -96,6 +100,8 @@ const timeAxisHeight = 28
 const arrows = ref<{ id: number; x: number; y: number; side: 'buy' | 'sell'; simulated: boolean; text: string; color: string; clock: string }[]>([])
 const guideLabels = ref<{ id: string; y: number; text: string; color: string; title: string }[]>([])
 const zoneRects = ref<{ id: string; top: number; height: number; color: string }[]>([])
+const forecastCones = ref({ outer: '', inner: '' })
+const forecastLabels = ref<{ id: string; x: number; y: number; text: string; title: string }[]>([])
 
 function zone(): string {
     return chartZone(props.timeZone, props.zoneName || undefined)
@@ -194,6 +200,7 @@ function clearSeries() {
     main = null
     delta = null
     volume = null
+    forecastLine = null
     stepMarkers = null
     lines = []
     marks = []
@@ -317,6 +324,76 @@ function placeMarkers() {
     arrows.value = placed
     placeGuideLabels()
     placeZones()
+    placeForecast(props.forecast)
+}
+
+function paintForecast() {
+    if (!chart) return
+    const rows = props.forecast
+    if (rows.length === 0) {
+        forecastLine?.setData([])
+        placeForecast([])
+        return
+    }
+    if (!forecastLine) {
+        forecastLine = add(LineSeries, {
+            color: '#7a5af8',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dotted,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false,
+        })
+    }
+    forecastLine.setData(rows.map((step) => ({ time: step.time as UTCTimestamp, value: step.q50 })))
+}
+
+function cone(rows: ForecastStep[], high: 'q90' | 'q70', low: 'q10' | 'q30'): string {
+    if (!chart || !main) return ''
+    const forward: string[] = []
+    const back: string[] = []
+    for (const step of rows) {
+        const x = chart.timeScale().timeToCoordinate(step.time as UTCTimestamp)
+        const yHigh = main.priceToCoordinate(step[high])
+        const yLow = main.priceToCoordinate(step[low])
+        if (x == null || yHigh == null || yLow == null || Number.isNaN(x) || Number.isNaN(yHigh) || Number.isNaN(yLow)) continue
+        forward.push(`${x},${yHigh}`)
+        back.push(`${x},${yLow}`)
+    }
+    if (forward.length < 2) return ''
+    return [...forward, ...back.reverse()].join(' ')
+}
+
+function placeForecast(rows: ForecastStep[]) {
+    if (!chart || !main || rows.length === 0) {
+        forecastCones.value = { outer: '', inner: '' }
+        forecastLabels.value = []
+        return
+    }
+    forecastCones.value = { outer: cone(rows, 'q90', 'q10'), inner: cone(rows, 'q70', 'q30') }
+    const last = rows[rows.length - 1]
+    if (!last) {
+        forecastLabels.value = []
+        return
+    }
+    const x = chart.timeScale().timeToCoordinate(last.time as UTCTimestamp)
+    if (x == null || Number.isNaN(x)) {
+        forecastLabels.value = []
+        return
+    }
+    const anchor = props.price ?? last.mean
+    const marks = [
+        { id: 'p90', price: last.q90, text: forecastLabel('P90', last.q90, anchor) },
+        { id: 'p50', price: last.q50, text: forecastLabel('Median', last.q50, anchor) },
+        { id: 'p10', price: last.q10, text: forecastLabel('P10', last.q10, anchor) },
+    ]
+    const placed = marks.flatMap((mark) => {
+        const y = main?.priceToCoordinate(mark.price)
+        if (y == null || Number.isNaN(y)) return []
+        return [{ id: mark.id, x, y, text: mark.text, title: 'model range, not advice' }]
+    })
+    const ys = stackLabelYs(placed)
+    forecastLabels.value = placed.map((row, index) => ({ ...row, y: ys[index] ?? row.y }))
 }
 
 function placeZones() {
@@ -447,6 +524,7 @@ async function render() {
         paint(data)
     }
     drawLines()
+    paintForecast()
     placeMarkers()
     placeBaselineHandle()
     if (fitted !== props.fitKey) {
@@ -520,7 +598,7 @@ onMounted(() => {
 })
 
 watch(
-    () => [props.points, props.candles, props.price, props.lots, props.orders, props.markers, props.guides, props.zones, props.dark, props.fitKey, props.chartType, props.showVolume, props.baselinePrice, props.deltaMode, props.timeZone, props.zoneName, props.intervalSeconds],
+    () => [props.points, props.candles, props.price, props.lots, props.orders, props.markers, props.guides, props.zones, props.forecast, props.dark, props.fitKey, props.chartType, props.showVolume, props.baselinePrice, props.deltaMode, props.timeZone, props.zoneName, props.intervalSeconds],
     () => {
         void render()
     },
@@ -540,6 +618,22 @@ onUnmounted(() => {
         <div ref="host" data-testid="live-chart" class="h-full w-full" @contextmenu="onMenu" @wheel="nudgeOverlay" @pointerup="nudgeOverlay" />
         <div class="pointer-events-none absolute inset-0 overflow-hidden">
             <div v-for="zone in zoneRects" :key="zone.id" data-testid="atr-zone" class="absolute inset-x-0" :style="{ top: `${zone.top}px`, height: `${zone.height}px`, background: zone.color }" />
+        </div>
+        <svg class="pointer-events-none absolute inset-0 h-full w-full overflow-hidden">
+            <polygon v-if="forecastCones.outer" data-testid="forecast-outer" :points="forecastCones.outer" fill="rgba(122,90,248,0.12)" />
+            <polygon v-if="forecastCones.inner" data-testid="forecast-inner" :points="forecastCones.inner" fill="rgba(122,90,248,0.24)" />
+        </svg>
+        <div class="pointer-events-none absolute inset-0 overflow-hidden">
+            <p
+                v-for="label in forecastLabels"
+                :key="label.id"
+                data-testid="forecast-label"
+                class="absolute rounded bg-white/80 px-1 text-[11px] font-medium text-violet-700 dark:bg-gray-950/80 dark:text-violet-300"
+                :style="{ left: `${label.x + 8}px`, top: `${label.y}px` }"
+                :title="label.title"
+            >
+                {{ label.text }}
+            </p>
         </div>
         <button
             v-if="baselineY != null"

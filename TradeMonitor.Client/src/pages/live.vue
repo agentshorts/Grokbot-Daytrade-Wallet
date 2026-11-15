@@ -18,8 +18,9 @@ import { readChartPrefs, rememberInterval, removeCustomInterval, writeChartPrefs
 import { chartQuery, rangeBounds, readChartQuery, type ChartRange } from '@/lib/chartRange'
 import { baselineValue, mergeCandles, type BaselineSource, type CandleBar, type ChartType, type DeltaMode } from '@/lib/chartSeries'
 import { atrLabel, atrReadout, atrZones, bandMenu, bandTarget, costAtrText, horizonBars, scaleBands, type AtrHorizon, type AtrSnapshot } from '@/lib/atrBands'
+import { forecastHorizonBars, type ForecastHorizon, type ForecastSnapshot } from '@/lib/forecast'
 import { nearestSwing, swingLabel, type ChartGuide, type SwingSnapshot } from '@/lib/swingLevels'
-import { chartZone, unixFromWall, wallInput, zoneAbbrev, type ChartZoneMode } from '@/lib/chartTime'
+import { chartZone, formatChartCrosshair, unixFromWall, wallInput, zoneAbbrev, type ChartZoneMode } from '@/lib/chartTime'
 import { applyCandleTick, bucketSeconds, toCandleBars } from '@/lib/liveSeries'
 import { quoteLots } from '@/lib/lotQuote'
 import { readPanelTab, readPanelWidth, readShowTrades, writePanelTab, writePanelWidth, writeShowTrades, type PanelTab, type PanelWidth } from '@/lib/livePanel'
@@ -67,6 +68,7 @@ const historyBusy = ref(false)
 const historyDone = ref(false)
 const swing = ref<SwingSnapshot>({ notice: '', levels: [], above: [], below: [] })
 const atr = ref<AtrSnapshot>({ atr: null, price: 0, period: 14, notice: '' })
+const forecast = ref<ForecastSnapshot>({ model: 'TimesFM 2.5', notice: '', coverage: '', generatedAt: 0, steps: [] })
 const draft = ref<{ side: LiveSide; type: LiveOrderType; trigger: number; token: number } | null>(null)
 let timer = 0
 let stopStream: (() => void) | null = null
@@ -102,6 +104,10 @@ const atrText = computed(() => (atr.value.atr == null ? '' : atrReadout(atr.valu
 const costText = computed(() => {
     if (!prefs.value.showAtr || atr.value.atr == null || price.value == null || averageCost.value == null) return ''
     return costAtrText(averageCost.value, price.value, atr.value.atr) ?? ''
+})
+const forecastText = computed(() => {
+    if (!forecast.value.generatedAt) return forecast.value.model
+    return `${forecast.value.model}, ${formatChartCrosshair(forecast.value.generatedAt, zoneName.value)}`
 })
 const menuExtra = computed(() => {
     const hit = menu.value?.hit
@@ -576,6 +582,7 @@ function onDeltaMode(value: DeltaMode) {
 
 const swingKey = computed(() => `${product.value}|${prefs.value.interval}|${candles.value[candles.value.length - 1]?.time ?? 0}|${prefs.value.showSwing ? 1 : 0}`)
 const atrKey = computed(() => `${product.value}|${prefs.value.interval}|${candles.value[candles.value.length - 1]?.time ?? 0}|${prefs.value.showAtr ? 1 : 0}|${prefs.value.atrHorizon}`)
+const forecastKey = computed(() => `${product.value}|${prefs.value.interval}|${candles.value[candles.value.length - 1]?.time ?? 0}|${prefs.value.showForecast ? 1 : 0}|${prefs.value.forecastHorizon}`)
 
 async function loadSwing() {
     if (!prefs.value.showSwing) return
@@ -627,6 +634,21 @@ function onHorizon(value: AtrHorizon) {
     savePrefs({ ...prefs.value, atrHorizon: value })
 }
 
+async function loadForecast() {
+    if (!prefs.value.showForecast) return
+    const token = forecastKey.value
+    try {
+        const next = await live.forecast(product.value, prefs.value.interval, forecastHorizonBars(prefs.value.forecastHorizon, bucket.value))
+        if (token === forecastKey.value) forecast.value = next
+    } catch (err) {
+        fail(err)
+    }
+}
+
+function onForecastHorizon(value: ForecastHorizon) {
+    savePrefs({ ...prefs.value, forecastHorizon: value })
+}
+
 watch([swingKey, ready], () => {
     if (!ready.value) return
     void loadSwing()
@@ -635,6 +657,11 @@ watch([swingKey, ready], () => {
 watch([atrKey, ready], () => {
     if (!ready.value) return
     void loadAtr()
+})
+
+watch([forecastKey, ready], () => {
+    if (!ready.value) return
+    void loadForecast()
 })
 
 watch(stream.link, (value) => {
@@ -741,6 +768,11 @@ onUnmounted(() => {
                 :atr-text="atrText"
                 :atr-notice="atr.notice"
                 :cost-text="costText"
+                :show-forecast="prefs.showForecast"
+                :forecast-horizon="prefs.forecastHorizon"
+                :forecast-text="forecastText"
+                :forecast-notice="forecast.notice"
+                :coverage-text="forecast.coverage"
                 @type="onType"
                 @interval="onInterval"
                 @add-interval="onAddInterval"
@@ -756,6 +788,8 @@ onUnmounted(() => {
                 @swing="savePrefs({ ...prefs, showSwing: !prefs.showSwing })"
                 @atr="savePrefs({ ...prefs, showAtr: !prefs.showAtr })"
                 @horizon="onHorizon"
+                @forecast="savePrefs({ ...prefs, showForecast: !prefs.showForecast })"
+                @forecast-horizon="onForecastHorizon"
             />
             <div class="relative min-h-0 flex-1" @click.stop>
                 <LiveChart
@@ -776,6 +810,7 @@ onUnmounted(() => {
                     :interval-seconds="bucket"
                     :guides="guides"
                     :zones="zones"
+                    :forecast="prefs.showForecast ? forecast.steps : []"
                     @menu="menu = $event"
                     @history="onHistory"
                     @baseline="onBaselinePrice"
