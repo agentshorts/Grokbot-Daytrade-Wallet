@@ -1,5 +1,7 @@
 import { asRecord, pick, readMoney, readTime } from '@/api/parse'
 import type { LiveCandle, LiveTick } from '@/api/live'
+import { parseInterval } from '@/lib/chartInterval'
+import type { CandleBar } from '@/lib/chartSeries'
 
 export interface SeriesPoint {
     time: number
@@ -7,12 +9,36 @@ export interface SeriesPoint {
 }
 
 export function bucketSeconds(granularity: string): number {
-    const key = granularity.trim().toLowerCase()
-    if (key === '1m') return 60
-    if (key === '15m') return 900
-    if (key === '1h') return 3600
-    if (key === '1d') return 86400
-    return 300
+    return parseInterval(granularity)?.seconds ?? 300
+}
+
+export function toCandleBars(bars: Pick<LiveCandle, 'start' | 'open' | 'high' | 'low' | 'close' | 'volume'>[]): CandleBar[] {
+    return bars
+        .filter((bar) => bar.start > 0 && bar.close > 0)
+        .map((bar) => ({
+            time: bar.start,
+            open: bar.open > 0 ? bar.open : bar.close,
+            high: bar.high > 0 ? bar.high : bar.close,
+            low: bar.low > 0 ? bar.low : bar.close,
+            close: bar.close,
+            volume: bar.volume ?? 0,
+        }))
+}
+
+export function applyCandleTick(bars: CandleBar[], tick: { price: number; at?: string | null }, bucket: number, nowMs = Date.now()): CandleBar[] {
+    if (!(tick.price > 0)) return bars
+    const parsed = tick.at ? Date.parse(tick.at) : Number.NaN
+    const ms = Number.isNaN(parsed) ? nowMs : parsed
+    const size = Math.max(60, bucket)
+    const time = Math.floor(ms / 1000 / size) * size
+    const fresh = { time, open: tick.price, high: tick.price, low: tick.price, close: tick.price, volume: 0 }
+    if (bars.length === 0) return [fresh]
+    const last = bars[bars.length - 1]!
+    if (time === last.time) {
+        return [...bars.slice(0, -1), { ...last, close: tick.price, high: Math.max(last.high, tick.price), low: Math.min(last.low, tick.price) }]
+    }
+    if (time > last.time) return [...bars, fresh]
+    return bars
 }
 
 export function barsToPoints(bars: Pick<LiveCandle, 'start' | 'close'>[]): SeriesPoint[] {

@@ -3,8 +3,15 @@ import { computed, onMounted, ref } from 'vue'
 import type { LiveProduct, TrackedSymbol } from '@/api/live'
 import { explainLedgerError } from '@/composables/useLedger'
 import { useLive } from '@/composables/useLive'
+import { intervalPresets } from '@/lib/chartInterval'
+import { readChartPrefs, rememberInterval, removeCustomInterval, writeChartPrefs, type ChartPrefs } from '@/lib/chartPrefs'
+import { quickRanges } from '@/lib/chartRange'
+import { chartTypes, type ChartType } from '@/lib/chartSeries'
 
 const live = useLive()
+const chart = ref<ChartPrefs>(readChartPrefs(localStorage))
+const customInterval = ref('')
+const intervalError = ref('')
 const rows = ref<TrackedSymbol[]>([])
 const catalog = ref<LiveProduct[]>([])
 const query = ref('')
@@ -66,6 +73,34 @@ async function move(index: number, delta: number) {
     }
 }
 
+function saveChart(next: ChartPrefs) {
+    chart.value = next
+    writeChartPrefs(localStorage, next)
+}
+
+function toggleType(id: ChartType) {
+    const has = chart.value.favoriteTypes.includes(id)
+    const favoriteTypes = has ? chart.value.favoriteTypes.filter((item) => item !== id) : [...chart.value.favoriteTypes, id]
+    saveChart({ ...chart.value, favoriteTypes: favoriteTypes.length ? favoriteTypes : [id] })
+}
+
+function toggleInterval(key: string) {
+    const has = chart.value.favoriteIntervals.includes(key)
+    const favoriteIntervals = has ? chart.value.favoriteIntervals.filter((item) => item !== key) : [...chart.value.favoriteIntervals, key]
+    saveChart({ ...chart.value, favoriteIntervals: favoriteIntervals.length ? favoriteIntervals : [key] })
+}
+
+function addCustom() {
+    const next = rememberInterval(chart.value, customInterval.value)
+    if (!next) {
+        intervalError.value = 'Use a number and a unit, such as 7m or 4h.'
+        return
+    }
+    intervalError.value = ''
+    customInterval.value = ''
+    saveChart(next)
+}
+
 onMounted(() => {
     void load().catch(fail)
 })
@@ -120,5 +155,62 @@ onMounted(() => {
             </li>
             <li v-if="rows.length === 0" class="px-3 py-4 text-sm text-gray-500">No symbols yet.</li>
         </ol>
+        <section data-testid="chart-settings" class="space-y-4">
+            <div>
+                <h2 class="text-sm font-semibold text-gray-900 dark:text-white">Chart</h2>
+                <p class="mt-1 text-sm text-gray-500">Defaults for the live chart on this browser. Favorites stay one click away in the header.</p>
+            </div>
+            <div class="grid gap-3 sm:grid-cols-2">
+                <label class="text-xs font-medium text-gray-500">
+                    Default type
+                    <select data-testid="chart-default-type" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" :value="chart.type" @change="saveChart({ ...chart, type: ($event.target as HTMLSelectElement).value as ChartType })">
+                        <option v-for="item in chartTypes" :key="item.id" :value="item.id">{{ item.label }}</option>
+                    </select>
+                </label>
+                <label class="text-xs font-medium text-gray-500">
+                    Default interval
+                    <select data-testid="chart-default-interval" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" :value="chart.interval" @change="saveChart({ ...chart, interval: ($event.target as HTMLSelectElement).value })">
+                        <option v-for="item in [...intervalPresets, ...chart.customIntervals]" :key="item" :value="item">{{ item }}</option>
+                    </select>
+                </label>
+                <label class="text-xs font-medium text-gray-500">
+                    Default range
+                    <select data-testid="chart-default-range" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" :value="chart.range === 'custom' ? 'All' : chart.range" @change="saveChart({ ...chart, range: ($event.target as HTMLSelectElement).value as ChartPrefs['range'] })">
+                        <option v-for="item in quickRanges" :key="item" :value="item">{{ item }}</option>
+                    </select>
+                </label>
+                <label class="text-xs font-medium text-gray-500">
+                    Time zone
+                    <select data-testid="chart-timezone" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" :value="chart.timeZone" @change="saveChart({ ...chart, timeZone: ($event.target as HTMLSelectElement).value === 'utc' ? 'utc' : 'local' })">
+                        <option value="local">Local time</option>
+                        <option value="utc">UTC</option>
+                    </select>
+                </label>
+            </div>
+            <fieldset>
+                <legend class="text-xs font-medium text-gray-500">Favorite chart types</legend>
+                <div class="mt-2 flex flex-wrap gap-2">
+                    <label v-for="item in chartTypes" :key="item.id" class="flex items-center gap-1 text-sm text-gray-700 dark:text-gray-200">
+                        <input type="checkbox" :checked="chart.favoriteTypes.includes(item.id)" @change="toggleType(item.id)" />
+                        {{ item.label }}
+                    </label>
+                </div>
+            </fieldset>
+            <fieldset>
+                <legend class="text-xs font-medium text-gray-500">Favorite intervals</legend>
+                <div class="mt-2 flex flex-wrap gap-2">
+                    <label v-for="item in intervalPresets" :key="item" class="flex items-center gap-1 text-sm text-gray-700 dark:text-gray-200">
+                        <input type="checkbox" :checked="chart.favoriteIntervals.includes(item)" @change="toggleInterval(item)" />
+                        {{ item }}
+                    </label>
+                </div>
+            </fieldset>
+            <form class="flex flex-wrap items-center gap-2" @submit.prevent="addCustom">
+                <input v-model="customInterval" data-testid="settings-custom-interval" class="w-28 rounded-lg border border-gray-200 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" placeholder="7m" />
+                <button type="submit" class="rounded-lg px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200">Save interval</button>
+                <button v-for="item in chart.customIntervals" :key="item" type="button" class="text-sm text-error-500" @click="saveChart(removeCustomInterval(chart, item))">Remove {{ item }}</button>
+            </form>
+            <p v-if="intervalError" class="text-sm text-error-500">{{ intervalError }}</p>
+        </section>
     </div>
 </template>

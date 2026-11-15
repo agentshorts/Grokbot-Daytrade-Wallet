@@ -104,6 +104,7 @@ public static class CoinbaseMessages
                     High = Decimal(values[2]),
                     Open = Decimal(values[3]),
                     Close = Decimal(values[4]),
+                    Volume = values.Count > 5 ? Decimal(values[5]) : 0,
                 });
                 continue;
             }
@@ -120,6 +121,7 @@ public static class CoinbaseMessages
                 High = Money(item, "high") ?? 0,
                 Low = Money(item, "low") ?? 0,
                 Close = Money(item, "close") ?? 0,
+                Volume = Money(item, "volume") ?? 0,
             });
         }
 

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import type { LiveBook, LiveCosting, LiveOrderType, LiveSide } from '@/api/live'
 import type { WalletInfo } from '@/api/types'
 import { formatMenuPrice } from '@/lib/chartMenu'
+import { chartZone, formatChartCrosshair, type ChartZoneMode } from '@/lib/chartTime'
 import { formatMoney, formatPct, formatQty, formatTimeCt } from '@/lib/format'
 import { averageQuote, lotTotals } from '@/lib/lotQuote'
 import type { PanelTab, PanelWidth } from '@/lib/livePanel'
@@ -20,6 +21,7 @@ const props = defineProps<{
     status: string
     error: string
     auth: boolean
+    timeZone?: ChartZoneMode
 }>()
 
 const emit = defineEmits<{
@@ -46,6 +48,13 @@ const costing = ref<LiveCosting>('Fifo')
 const lotId = ref('')
 
 const collapsed = computed(() => props.width === 'collapsed')
+
+function lotTime(iso: string | null | undefined): string {
+    if (!props.timeZone || !iso) return ''
+    const ms = Date.parse(iso)
+    if (Number.isNaN(ms)) return ''
+    return formatChartCrosshair(Math.floor(ms / 1000), chartZone(props.timeZone))
+}
 const simulated = computed(() => props.book?.simulated === true || props.wallets.find((item) => item.key === props.walletKey)?.mode === 'real')
 const lots = computed(() => props.book?.lots ?? [])
 const closedLots = computed(() => props.book?.closedLots ?? [])
@@ -214,7 +223,10 @@ function orderLabel(type: LiveOrderType) {
                         <tbody>
                             <tr v-for="lot in lots" :key="lot.tradeId" data-testid="lot-row">
                                 <td class="py-1 pe-2">{{ formatQty(lot.qty) }}</td>
-                                <td class="py-1 pe-2">{{ formatMenuPrice(lot.buyPrice) }}</td>
+                                <td class="py-1 pe-2">
+                                    {{ formatMenuPrice(lot.buyPrice) }}
+                                    <span v-if="lotTime(lot.executedAt)" class="block text-xs text-gray-500">{{ lotTime(lot.executedAt) }}</span>
+                                </td>
                                 <td class="py-1 pe-2">{{ price == null ? '' : formatMenuPrice(price) }}</td>
                                 <td class="py-1 pe-2 font-medium" :class="pnlClass(lot.unrealizedPnl)">
                                     {{ formatMoney(lot.unrealizedPnl) }}

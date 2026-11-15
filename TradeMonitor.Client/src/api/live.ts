@@ -19,6 +19,17 @@ export interface LiveCandle {
     high: number
     low: number
     close: number
+    volume?: number
+}
+
+export interface LiveBarPage {
+    product: string
+    granularity: string
+    requested: string
+    seconds: number
+    capped: boolean
+    hint: string
+    results: LiveCandle[]
 }
 
 export interface LiveTick {
@@ -142,7 +153,7 @@ export interface PlaceOrderInput {
 export interface LiveClient {
     products(): Promise<LiveProduct[]>
     candles(product: string, granularity: string): Promise<LiveCandle[]>
-    bars(product: string, granularity: string): Promise<LiveCandle[]>
+    bars(product: string, granularity: string, range?: { from?: number | null; to?: number | null }): Promise<LiveBarPage>
     ticker(product: string): Promise<LiveTick | null>
     tracked(): Promise<TrackedSymbols>
     addSymbol(product: string): Promise<TrackedSymbols>
@@ -299,6 +310,19 @@ function parseProducts(body: unknown): LiveProduct[] {
     })
 }
 
+function parseBarPage(body: unknown): LiveBarPage {
+    const record = asRecord(body) ?? {}
+    return {
+        product: text(record, 'product'),
+        granularity: text(record, 'granularity'),
+        requested: text(record, 'requested'),
+        seconds: num(record, 'seconds'),
+        capped: pick(record, 'capped') === true,
+        hint: text(record, 'hint'),
+        results: parseCandles(body),
+    }
+}
+
 function parseCandles(body: unknown): LiveCandle[] {
     const record = asRecord(body)
     const rows = record && Array.isArray(pick(record, 'results')) ? (pick(record, 'results') as unknown[]) : []
@@ -312,6 +336,7 @@ function parseCandles(body: unknown): LiveCandle[] {
                 high: num(item, 'high'),
                 low: num(item, 'low'),
                 close: num(item, 'close'),
+                volume: num(item, 'volume'),
             },
         ]
     })
@@ -405,9 +430,11 @@ export function createLiveClient(): LiveClient {
             const params = new URLSearchParams({ product, granularity })
             return parseCandles(await send(`/api/live/candles?${params}`, 'GET'))
         },
-        async bars(product, granularity) {
+        async bars(product, granularity, range) {
             const params = new URLSearchParams({ product, granularity })
-            return parseCandles(await send(`/api/live/bars?${params}`, 'GET'))
+            if (range?.from != null) params.set('from', String(range.from))
+            if (range?.to != null) params.set('to', String(range.to))
+            return parseBarPage(await send(`/api/live/bars?${params}`, 'GET'))
         },
         async ticker(product) {
             const body = asRecord(await send(`/api/live/ticker?product=${encodeURIComponent(product)}`, 'GET'))

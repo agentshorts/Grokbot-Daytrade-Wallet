@@ -37,6 +37,7 @@ public sealed class PriceBars(IDbConnectionFactory dbFactory, ILedgerClock clock
                     High = tick.Price,
                     Low = tick.Price,
                     Close = tick.Price,
+                    Volume = 0,
                     UpdatedAt = clock.UtcNow,
                 };
                 return;
@@ -88,6 +89,7 @@ public sealed class PriceBars(IDbConnectionFactory dbFactory, ILedgerClock clock
                     High = candle.High > 0 ? candle.High : candle.Close,
                     Low = candle.Low > 0 ? candle.Low : candle.Close,
                     Close = candle.Close,
+                    Volume = candle.Volume > 0 ? candle.Volume : 0,
                     UpdatedAt = clock.UtcNow,
                 });
             }
@@ -149,6 +151,7 @@ public sealed class PriceBars(IDbConnectionFactory dbFactory, ILedgerClock clock
                 High = rows.Max(x => x.High),
                 Low = rows.Min(x => x.Low),
                 Close = rows[^1].Close,
+                Volume = rows.Sum(x => x.Volume),
                 UpdatedAt = rows.Max(x => x.UpdatedAt),
             });
         }
@@ -167,14 +170,51 @@ public sealed class PriceBars(IDbConnectionFactory dbFactory, ILedgerClock clock
         return candles;
     }
 
+    public CandlePage Window(string symbol, CandleInterval requested, long? from, long? to, int cap = CandleInterval.Cap)
+    {
+        Flush();
+        symbol = symbol.Trim().ToUpperInvariant();
+        using var db = dbFactory.Open();
+        var rows = db.Select<PriceBar>(x => x.Symbol == symbol).OrderBy(x => x.Start).ToList();
+        return Window(rows, requested, from, to, cap);
+    }
+
+    public static CandlePage Window(IReadOnlyList<PriceBar> rows, CandleInterval requested, long? from, long? to, int cap = CandleInterval.Cap)
+    {
+        var filtered = rows.Where(row => InRange(row.Start, from, to, requested.Seconds)).OrderBy(row => row.Start).ToList();
+        var seconds = requested.Seconds;
+        var candles = Aggregate(filtered, seconds);
+        var capped = false;
+        if (cap > 0 && candles.Count > cap)
+        {
+            var coarser = CandleInterval.Coarsen(seconds, candles.Count, cap);
+            if (coarser != seconds)
+            {
+                seconds = coarser;
+                candles = Aggregate(filtered, seconds);
+            }
+
+            capped = true;
+            if (candles.Count > cap)
+                candles = candles.Skip(candles.Count - cap).ToList();
+        }
+
+        var key = CandleInterval.Format(seconds);
+        var hint = "";
+        if (capped)
+            hint = $"Showing {key} ({candles.Count} candles). {requested.Key} is finer than the {cap} candle cap.";
+        return new CandlePage(candles, seconds, key, requested.Key, capped, hint);
+    }
+
     public static List<LiveCandle> Aggregate(IReadOnlyList<PriceBar> rows, int seconds)
     {
+        var size = seconds < 60 ? 60 : seconds;
         var candles = new List<LiveCandle>();
         LiveCandle? current = null;
         var bucket = long.MinValue;
         foreach (var row in rows.OrderBy(x => x.Start))
         {
-            var start = row.Start - (row.Start % seconds);
+            var start = row.Start - (row.Start % size);
             if (current == null || start != bucket)
             {
                 current = new LiveCandle
@@ -184,6 +224,7 @@ public sealed class PriceBars(IDbConnectionFactory dbFactory, ILedgerClock clock
                     High = row.High,
                     Low = row.Low,
                     Close = row.Close,
+                    Volume = row.Volume,
                 };
                 candles.Add(current);
                 bucket = start;
@@ -193,9 +234,24 @@ public sealed class PriceBars(IDbConnectionFactory dbFactory, ILedgerClock clock
             current.High = Math.Max(current.High, row.High);
             current.Low = Math.Min(current.Low, row.Low);
             current.Close = row.Close;
+            current.Volume += row.Volume;
         }
 
         return candles;
+    }
+
+    static bool InRange(long start, long? from, long? to, int seconds)
+    {
+        if (to is long end && start >= end)
+            return false;
+        if (from is long begin)
+        {
+            var aligned = begin - (begin % seconds);
+            if (start < aligned)
+                return false;
+        }
+
+        return true;
     }
 
     public static long Bucket(DateTime at, int seconds)
@@ -216,6 +272,8 @@ public sealed class PriceBars(IDbConnectionFactory dbFactory, ILedgerClock clock
         row.High = Math.Max(row.High, bar.High);
         row.Low = Math.Min(row.Low, bar.Low);
         row.Close = bar.Close;
+        if (bar.Volume > 0)
+            row.Volume += bar.Volume;
         row.UpdatedAt = bar.UpdatedAt;
         db.Update(row);
     }
@@ -225,3 +283,12 @@ public sealed class PriceBars(IDbConnectionFactory dbFactory, ILedgerClock clock
 
     static long Unix(DateTime at) => new DateTimeOffset(AsUtc(at)).ToUnixTimeSeconds();
 }
+
+public sealed record CandlePage(
+    List<LiveCandle> Candles,
+    int Seconds,
+    string Key,
+    string Requested,
+    bool Capped,
+    string Hint);
+
