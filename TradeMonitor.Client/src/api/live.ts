@@ -3,6 +3,7 @@ import { asRecord, pick, readFailure, readMoney, readTime } from '@/api/parse'
 import { parseAtr, type AtrSnapshot } from '@/lib/atrBands'
 import { parseForecast, type ForecastSnapshot } from '@/lib/forecast'
 import { parseSwing, type SwingSnapshot } from '@/lib/swingLevels'
+import { parseStepLadder, type StepLadderInputs, type StepLadderSnapshot } from '@/lib/stepLadder'
 
 export interface LiveProduct {
     productId: string
@@ -160,6 +161,7 @@ export interface LiveClient {
     swing(symbol: string, interval: string): Promise<SwingSnapshot>
     atr(symbol: string, interval: string, period: number, horizonBars: number): Promise<AtrSnapshot>
     forecast(symbol: string, interval: string, horizon: number): Promise<ForecastSnapshot>
+    stepLadder(symbol: string, interval: string, inputs: StepLadderInputs, range?: { from?: number | null; to?: number | null }): Promise<StepLadderSnapshot>
     ticker(product: string): Promise<LiveTick | null>
     tracked(): Promise<TrackedSymbols>
     addSymbol(product: string): Promise<TrackedSymbols>
@@ -453,6 +455,18 @@ export function createLiveClient(): LiveClient {
         async forecast(symbol, interval, horizon) {
             const params = new URLSearchParams({ symbol, interval, horizon: String(horizon) })
             return parseForecast(await send(`/api/forecast?${params}`, 'GET'))
+        },
+        async stepLadder(symbol, interval, inputs, range) {
+            const params = new URLSearchParams({
+                symbol,
+                interval,
+                stepIncrease: String(inputs.stepIncrease),
+                dormantThreshold: String(inputs.dormantThreshold),
+                dormantPeriod: String(inputs.dormantPeriod),
+            })
+            if (range?.from != null) params.set('from', String(range.from))
+            if (range?.to != null) params.set('to', String(range.to))
+            return parseStepLadder(await send(`/api/studies/step-ladder?${params}`, 'GET'))
         },
         async ticker(product) {
             const body = asRecord(await send(`/api/live/ticker?product=${encodeURIComponent(product)}`, 'GET'))
