@@ -17,6 +17,7 @@ export interface ChartPrefs {
     baselineSource: BaselineSource
     baselinePrice: number | null
     deltaMode: DeltaMode
+    showSwing: boolean
 }
 
 export interface PrefsStorage {
@@ -37,6 +38,7 @@ export function defaultChartPrefs(): ChartPrefs {
         baselineSource: 'first',
         baselinePrice: null,
         deltaMode: 'change',
+        showSwing: false,
     }
 }
 
@@ -98,6 +100,7 @@ function sanitize(value: Partial<ChartPrefs>, fallback: ChartPrefs): ChartPrefs 
         baselineSource,
         baselinePrice,
         deltaMode,
+        showSwing: value.showSwing === true,
     }
 }
 

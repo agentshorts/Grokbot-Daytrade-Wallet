@@ -17,6 +17,7 @@ import type { ChartHit } from '@/lib/chartMenu'
 import { readChartPrefs, rememberInterval, removeCustomInterval, writeChartPrefs, type ChartPrefs } from '@/lib/chartPrefs'
 import { chartQuery, rangeBounds, readChartQuery, type ChartRange } from '@/lib/chartRange'
 import { baselineValue, mergeCandles, type BaselineSource, type CandleBar, type ChartType, type DeltaMode } from '@/lib/chartSeries'
+import { nearestSwing, swingLabel, type ChartGuide, type SwingSnapshot } from '@/lib/swingLevels'
 import { chartZone, unixFromWall, wallInput, zoneAbbrev, type ChartZoneMode } from '@/lib/chartTime'
 import { applyCandleTick, bucketSeconds, toCandleBars } from '@/lib/liveSeries'
 import { quoteLots } from '@/lib/lotQuote'
@@ -63,6 +64,8 @@ const pendingMoveId = ref<number | null>(null)
 const chart = ref<{ zoom: (factor: number) => void; fit: () => void } | null>(null)
 const historyBusy = ref(false)
 const historyDone = ref(false)
+const swing = ref<SwingSnapshot>({ notice: '', levels: [], above: [], below: [] })
+const draft = ref<{ side: LiveSide; type: LiveOrderType; trigger: number; token: number } | null>(null)
 let timer = 0
 let stopStream: (() => void) | null = null
 let sawLive = false
@@ -87,6 +90,21 @@ const shownLots = computed(() =>
 )
 const shownBook = computed<LiveBook | null>(() => (book.value ? { ...book.value, lots: shownLots.value } : null))
 const chartMarkers = computed(() => (showTrades.value ? toTradeMarks(marks.value) : []))
+const guides = computed<ChartGuide[]>(() => {
+    if (!prefs.value.showSwing || price.value == null) return []
+    const nearest = nearestSwing(swing.value.levels, price.value)
+    const rank = new Map<SwingSnapshot['levels'][number], number>()
+    nearest.above.forEach((level, index) => rank.set(level, index + 1))
+    nearest.below.forEach((level, index) => rank.set(level, index + 1))
+    return swing.value.levels.map((level) => ({
+        id: `${level.side}-${level.price}`,
+        price: level.price,
+        color: level.side === 'resistance' ? '#f04438' : '#12b76a',
+        title: 'possible target',
+        label: rank.has(level) ? swingLabel(level, price.value ?? 0, rank.get(level) ?? 1) : '',
+        width: Math.min(4, Math.max(1, level.strength)),
+    }))
+})
 const linkLabel = computed(() => (stream.link.value === 'live' ? 'live' : stream.link.value === 'reconnecting' ? 'reconnecting' : 'connecting'))
 
 function rememberWidth(value: PanelWidth) {
@@ -304,6 +322,12 @@ function onMenu(action: { id: string; qty?: number }) {
         if (lot) void order({ symbol: product.value, side: 'Sell', type: 'Market', qty: lot.qty, costing: 'Lot', lotId: lot.tradeId })
         return
     }
+    if (hit.kind === 'level') {
+        if (id === 'limit-sell') prefill('Sell', 'Limit', hit.price)
+        if (id === 'take') prefill('Sell', 'TakeProfit', hit.price)
+        if (id === 'stop') prefill('Sell', 'StopLoss', hit.price)
+        return
+    }
     if (hit.kind !== 'price') return
     const amount = action.qty != null && action.qty > 0 ? action.qty : qty.value
     const shared = { symbol: product.value, qty: amount, triggerPrice: hit.price }
@@ -314,6 +338,13 @@ function onMenu(action: { id: string; qty?: number }) {
     if (id === 'limit-sell') void order({ ...shared, side: 'Sell', type: 'Limit', costing: 'Fifo' })
     if (id === 'stop') void order({ ...shared, side: 'Sell', type: 'StopLoss', costing: 'Fifo' })
     if (id === 'take') void order({ ...shared, side: 'Sell', type: 'TakeProfit', costing: 'Fifo' })
+}
+
+function prefill(side: LiveSide, type: LiveOrderType, trigger: number) {
+    rememberTab('orders')
+    draft.value = { side, type, trigger, token: Date.now() }
+    status.value = `Order ready at ${formatMenuPrice(trigger)}`
+    menu.value = null
 }
 
 function onBuy() {
@@ -493,6 +524,19 @@ function onDeltaMode(value: DeltaMode) {
     savePrefs({ ...prefs.value, deltaMode: value })
 }
 
+const swingKey = computed(() => `${product.value}|${prefs.value.interval}|${candles.value[candles.value.length - 1]?.time ?? 0}|${prefs.value.showSwing ? 1 : 0}`)
+
+async function loadSwing() {
+    if (!prefs.value.showSwing) return
+    const token = swingKey.value
+    try {
+        const next = await live.swing(product.value, prefs.value.interval)
+        if (token === swingKey.value) swing.value = next
+    } catch (err) {
+        fail(err)
+    }
+}
+
 function onHistory() {
     if (!ready.value || historyBusy.value || historyDone.value) return
     const first = candles.value[0]
@@ -516,6 +560,11 @@ function onHistory() {
             historyBusy.value = false
         })
 }
+
+watch(swingKey, () => {
+    if (!ready.value) return
+    void loadSwing()
+})
 
 watch(stream.link, (value) => {
     if (value === 'live') {
@@ -614,6 +663,8 @@ onUnmounted(() => {
                 :delta-mode="prefs.deltaMode"
                 :hint="hint"
                 :show-baseline="showBaseline"
+                :show-swing="prefs.showSwing"
+                :swing-notice="swing.notice"
                 @type="onType"
                 @interval="onInterval"
                 @add-interval="onAddInterval"
@@ -626,6 +677,7 @@ onUnmounted(() => {
                 @baseline-source="onBaselineSource"
                 @baseline-price="onBaselinePrice"
                 @delta-mode="onDeltaMode"
+                @swing="savePrefs({ ...prefs, showSwing: !prefs.showSwing })"
             />
             <div class="relative min-h-0 flex-1" @click.stop>
                 <LiveChart
@@ -644,6 +696,7 @@ onUnmounted(() => {
                     :delta-mode="prefs.deltaMode"
                     :time-zone="prefs.timeZone"
                     :interval-seconds="bucket"
+                    :guides="guides"
                     @menu="menu = $event"
                     @history="onHistory"
                     @baseline="onBaselinePrice"
@@ -682,6 +735,7 @@ onUnmounted(() => {
             :error="error"
             :auth="auth"
             :time-zone="prefs.timeZone"
+            :draft="draft"
             @width="rememberWidth"
             @tab="rememberTab"
             @wallet="onWallet"

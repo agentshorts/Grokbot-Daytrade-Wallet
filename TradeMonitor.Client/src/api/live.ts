@@ -1,5 +1,6 @@
 import { LedgerReadError } from '@/api/errors'
 import { asRecord, pick, readFailure, readMoney, readTime } from '@/api/parse'
+import { parseSwing, type SwingSnapshot } from '@/lib/swingLevels'
 
 export interface LiveProduct {
     productId: string
@@ -154,6 +155,7 @@ export interface LiveClient {
     products(): Promise<LiveProduct[]>
     candles(product: string, granularity: string): Promise<LiveCandle[]>
     bars(product: string, granularity: string, range?: { from?: number | null; to?: number | null }): Promise<LiveBarPage>
+    swing(symbol: string, interval: string): Promise<SwingSnapshot>
     ticker(product: string): Promise<LiveTick | null>
     tracked(): Promise<TrackedSymbols>
     addSymbol(product: string): Promise<TrackedSymbols>
@@ -435,6 +437,10 @@ export function createLiveClient(): LiveClient {
             if (range?.from != null) params.set('from', String(range.from))
             if (range?.to != null) params.set('to', String(range.to))
             return parseBarPage(await send(`/api/live/bars?${params}`, 'GET'))
+        },
+        async swing(symbol, interval) {
+            const params = new URLSearchParams({ symbol, interval })
+            return parseSwing(await send(`/api/targets/swing?${params}`, 'GET'))
         },
         async ticker(product) {
             const body = asRecord(await send(`/api/live/ticker?product=${encodeURIComponent(product)}`, 'GET'))

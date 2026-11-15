@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { LiveBook, LiveCosting, LiveOrderType, LiveSide } from '@/api/live'
 import type { WalletInfo } from '@/api/types'
 import { formatMenuPrice } from '@/lib/chartMenu'
@@ -22,6 +22,7 @@ const props = defineProps<{
     error: string
     auth: boolean
     timeZone?: ChartZoneMode
+    draft?: { side: LiveSide; type: LiveOrderType; trigger: number; token: number } | null
 }>()
 
 const emit = defineEmits<{
@@ -48,6 +49,17 @@ const costing = ref<LiveCosting>('Fifo')
 const lotId = ref('')
 
 const collapsed = computed(() => props.width === 'collapsed')
+
+watch(
+    () => props.draft?.token,
+    () => {
+        const draft = props.draft
+        if (!draft) return
+        side.value = draft.side
+        orderType.value = draft.type
+        trigger.value = String(draft.trigger)
+    },
+)
 
 function lotTime(iso: string | null | undefined): string {
     if (!props.timeZone || !iso) return ''
@@ -349,7 +361,7 @@ function orderLabel(type: LiveOrderType) {
                     </label>
                     <label v-if="orderType !== 'Market'" class="text-xs font-medium text-gray-500">
                         Trigger
-                        <input v-model="trigger" class="mt-1 w-full rounded-lg border border-gray-200 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-950" type="number" min="0" step="any" />
+                        <input v-model="trigger" data-testid="order-trigger" class="mt-1 w-full rounded-lg border border-gray-200 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-950" type="number" min="0" step="any" />
                     </label>
                     <label v-if="side === 'Sell'" class="col-span-2 text-xs font-medium text-gray-500">
                         Match
