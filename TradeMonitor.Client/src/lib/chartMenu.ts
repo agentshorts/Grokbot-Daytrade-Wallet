@@ -2,6 +2,7 @@ export type ChartHit =
     | { kind: 'price'; price: number }
     | { kind: 'lot'; lotId: number; price: number }
     | { kind: 'order'; orderId: number; price: number }
+    | { kind: 'level'; price: number }
     | { kind: 'time' }
 
 export interface MenuAction {
@@ -11,9 +12,10 @@ export interface MenuAction {
 }
 
 export interface ChartLine {
-    kind: 'lot' | 'order'
+    kind: 'lot' | 'order' | 'level'
     id: number
     y: number
+    price?: number
 }
 
 /** $15, $15.25, and $4.375. The quantity is not part of the label. */
@@ -30,7 +32,10 @@ export function chartMenu(hit: ChartHit, ctx?: { pendingMoveId?: number }): Menu
             actions.push({ id: 'move', label: `Move order to ${price}`, tone: 'neutral' })
         }
         actions.push(
+            { id: 'market-buy', label: 'Market buy', tone: 'buy' },
             { id: 'limit-buy', label: `Limit buy at ${price}`, tone: 'buy' },
+            { id: 'stop-buy', label: `Stop buy at ${price}`, tone: 'buy' },
+            { id: 'market-sell', label: 'Market sell', tone: 'sell' },
             { id: 'limit-sell', label: `Limit sell at ${price}`, tone: 'sell' },
             { id: 'stop', label: `Stop-loss at ${price}`, tone: 'sell' },
             { id: 'take', label: `Take-profit at ${price}`, tone: 'buy' },
@@ -44,6 +49,14 @@ export function chartMenu(hit: ChartHit, ctx?: { pendingMoveId?: number }): Menu
         return [
             { id: 'cancel', label: 'Cancel order', tone: 'sell' },
             { id: 'move-here', label: 'Move order here', tone: 'neutral' },
+        ]
+    }
+    if (hit.kind === 'level') {
+        const price = formatMenuPrice(hit.price)
+        return [
+            { id: 'limit-sell', label: `Limit sell here at ${price}`, tone: 'sell' },
+            { id: 'take', label: `Take-profit here at ${price}`, tone: 'buy' },
+            { id: 'stop', label: `Stop here at ${price}`, tone: 'sell' },
         ]
     }
     return [
@@ -77,8 +90,10 @@ export function hitTest(input: {
         }
     }
     if (best) {
-        const price = input.price ?? 0
-        return best.kind === 'lot' ? { kind: 'lot', lotId: best.id, price } : { kind: 'order', orderId: best.id, price }
+        const price = best.kind === 'level' && best.price != null ? best.price : (input.price ?? 0)
+        if (best.kind === 'lot') return { kind: 'lot', lotId: best.id, price }
+        if (best.kind === 'level') return { kind: 'level', price }
+        return { kind: 'order', orderId: best.id, price }
     }
     if (input.price == null) return null
     return { kind: 'price', price: input.price }

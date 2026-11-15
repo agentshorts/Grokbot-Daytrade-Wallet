@@ -63,6 +63,10 @@ public class McpServerTests
         dbPath = Path.Combine(Path.GetTempPath(), "trademonitor-mcp-" + Guid.NewGuid().ToString("N") + ".db");
         logDir = Path.Combine(Path.GetTempPath(), "trademonitor-mcp-logs-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(logDir);
+        // The request log stores its monthly sqlite file in a process-wide named connection.
+        // Drop it so this host opens its own directory.
+        foreach (var name in OrmLiteConnectionFactory.NamedConnections.Keys.Where(key => key.StartsWith("requests_", StringComparison.Ordinal)).ToList())
+            OrmLiteConnectionFactory.NamedConnections.Remove(name);
         factory = new McpAppFactory(dbPath, logDir);
         using var _ = factory.CreateClient();
 
@@ -704,6 +708,41 @@ public class McpServerTests
         Assert.That(call.Status, Is.LessThan(400), call.Body);
         using var called = ParseMcpMessage(call.Body);
         Assert.That(called.RootElement.ToString(), Does.Contain("cli-paper"));
+    }
+
+    [Test]
+    public async Task Prediction_wallet_can_be_created_through_mcp()
+    {
+        const string key = "pm-KXBTCD-26NOV1210-T71199.99-KALSHI";
+        await using var mcp = await Connect(adminKey);
+        var created = await Call(mcp, "wallet_create", new Dictionary<string, object?>
+        {
+            ["key"] = key,
+            ["name"] = "BTC 71199.99",
+            ["mode"] = "Real",
+            ["venue"] = "Coinbase",
+            ["kind"] = "PredictionMarket",
+        });
+        Assert.That(Text(Prop(Prop(created, "result"), "key")), Is.EqualTo(key));
+        Assert.That(EnumText(Prop(Prop(created, "result"), "kind")), Is.EqualTo("PredictionMarket"));
+
+        var implied = await Call(mcp, "wallet_create", new Dictionary<string, object?>
+        {
+            ["key"] = "pm-KXBTCD-26NOV1211-T70000-KALSHI",
+            ["name"] = "BTC 70000",
+            ["mode"] = "Real",
+        });
+        Assert.That(EnumText(Prop(Prop(implied, "result"), "kind")), Is.EqualTo("PredictionMarket"));
+
+        var rejected = await mcp.CallToolAsync("wallet_create", new Dictionary<string, object?>
+        {
+            ["key"] = "pm-KXBTCD-26NOV1213-T1-KALSHI",
+            ["name"] = "Wrong kind",
+            ["mode"] = "Real",
+            ["kind"] = "Standard",
+        });
+        Assert.That(rejected.IsError, Is.True);
+        Assert.That(Content(rejected), Does.Contain("prediction"));
     }
 
     async Task<McpReply> PostMcp(HttpClient http, string json, string? session = null, string? protocol = null)

@@ -1,5 +1,8 @@
 import { LedgerReadError } from '@/api/errors'
-import { asRecord, pick, readFailure, readMoney } from '@/api/parse'
+import { asRecord, pick, readFailure, readMoney, readTime } from '@/api/parse'
+import { parseAtr, type AtrSnapshot } from '@/lib/atrBands'
+import { parseForecast, type ForecastSnapshot } from '@/lib/forecast'
+import { parseSwing, type SwingSnapshot } from '@/lib/swingLevels'
 
 export interface LiveProduct {
     productId: string
@@ -7,6 +10,10 @@ export interface LiveProduct {
     quote: string
     name: string
     price: number | null
+    baseIncrement?: number
+    quoteIncrement?: number
+    baseMinSize?: number
+    minMarketFunds?: number
 }
 
 export interface LiveCandle {
@@ -15,12 +22,61 @@ export interface LiveCandle {
     high: number
     low: number
     close: number
+    volume?: number
+}
+
+export interface LiveBarPage {
+    product: string
+    granularity: string
+    requested: string
+    seconds: number
+    capped: boolean
+    hint: string
+    results: LiveCandle[]
 }
 
 export interface LiveTick {
     productId: string
     price: number
     at: string | null
+}
+
+export interface TrackedSymbol {
+    productId: string
+    name: string
+    sortOrder: number
+    listed: boolean
+    baseIncrement?: number
+    quoteIncrement?: number
+    baseMinSize?: number
+    minMarketFunds?: number
+}
+
+export interface TrackedSymbols {
+    catalogLoaded: boolean
+    results: TrackedSymbol[]
+}
+
+export interface LiveTradeMark {
+    tradeId: number
+    side: LiveSide
+    kind: string
+    qty: number
+    price: number
+    fee: number
+    executedAt: string | null
+    simulated: boolean
+    realizedPnl?: number | null
+}
+
+export interface LiveClosedLot {
+    tradeId: number
+    qty: number
+    buyPrice: number
+    sellPrice: number
+    realizedPnl: number
+    executedAt: string | null
+    settlement: boolean
 }
 
 export interface LiveLot {
@@ -46,7 +102,7 @@ export interface LiveAverage {
 }
 
 export type LiveSide = 'Buy' | 'Sell'
-export type LiveOrderType = 'Market' | 'Limit' | 'StopLoss' | 'TakeProfit'
+export type LiveOrderType = 'Market' | 'Limit' | 'StopLoss' | 'TakeProfit' | 'StopBuy'
 export type LiveCosting = 'Fifo' | 'Lot' | 'Average'
 
 export interface LiveOrder {
@@ -74,6 +130,8 @@ export interface LiveBook {
     cash: number
     realizedPnl: number
     lots: LiveLot[]
+    closedLots: LiveClosedLot[]
+    settlements: LiveClosedLot[]
     average: LiveAverage
     orders: LiveOrder[]
     tradeId: number | null
@@ -98,7 +156,16 @@ export interface PlaceOrderInput {
 export interface LiveClient {
     products(): Promise<LiveProduct[]>
     candles(product: string, granularity: string): Promise<LiveCandle[]>
+    bars(product: string, granularity: string, range?: { from?: number | null; to?: number | null }): Promise<LiveBarPage>
+    swing(symbol: string, interval: string): Promise<SwingSnapshot>
+    atr(symbol: string, interval: string, period: number, horizonBars: number): Promise<AtrSnapshot>
+    forecast(symbol: string, interval: string, horizon: number): Promise<ForecastSnapshot>
     ticker(product: string): Promise<LiveTick | null>
+    tracked(): Promise<TrackedSymbols>
+    addSymbol(product: string): Promise<TrackedSymbols>
+    removeSymbol(product: string): Promise<TrackedSymbols>
+    reorderSymbols(products: string[]): Promise<TrackedSymbols>
+    trades(wallet: string, symbol: string, simulationId?: string | null): Promise<LiveTradeMark[]>
     createPaperWallet(name: string, startingCash: number): Promise<PaperWalletResult>
     book(wallet: string, symbol: string, sellQty?: number): Promise<LiveBook>
     placePaper(wallet: string, order: PlaceOrderInput): Promise<LiveBook>
@@ -128,6 +195,7 @@ function side(value: string): LiveSide {
 function orderType(value: string): LiveOrderType {
     const key = value.toLowerCase()
     if (key === 'limit') return 'Limit'
+    if (key === 'stopbuy' || key === 'stop-buy') return 'StopBuy'
     if (key === 'stoploss' || key === 'stop-loss') return 'StopLoss'
     if (key === 'takeprofit' || key === 'take-profit') return 'TakeProfit'
     return 'Market'
@@ -156,6 +224,20 @@ function parseLot(value: unknown): LiveLot | null {
     }
 }
 
+function parseClosed(value: unknown): LiveClosedLot | null {
+    const record = asRecord(value)
+    if (!record) return null
+    return {
+        tradeId: num(record, 'tradeId'),
+        qty: num(record, 'qty'),
+        buyPrice: num(record, 'buyPrice'),
+        sellPrice: num(record, 'sellPrice'),
+        realizedPnl: num(record, 'realizedPnl'),
+        executedAt: text(record, 'executedAt') || null,
+        settlement: pick(record, 'settlement') === true,
+    }
+}
+
 function parseOrder(value: unknown): LiveOrder | null {
     const record = asRecord(value)
     if (!record) return null
@@ -179,6 +261,8 @@ export function parseBook(body: unknown): LiveBook {
     const record = asRecord(body) ?? {}
     const average = asRecord(pick(record, 'average')) ?? {}
     const lots = Array.isArray(pick(record, 'lots')) ? (pick(record, 'lots') as unknown[]) : []
+    const closed = Array.isArray(pick(record, 'closedLots')) ? (pick(record, 'closedLots') as unknown[]) : []
+    const settlements = Array.isArray(pick(record, 'settlements')) ? (pick(record, 'settlements') as unknown[]) : []
     const orders = Array.isArray(pick(record, 'orders')) ? (pick(record, 'orders') as unknown[]) : []
     const mode = text(record, 'mode').toLowerCase() === 'real' ? 'Real' : 'Paper'
     return {
@@ -192,6 +276,8 @@ export function parseBook(body: unknown): LiveBook {
         cash: num(record, 'cash'),
         realizedPnl: num(record, 'realizedPnl'),
         lots: lots.map(parseLot).filter((lot): lot is LiveLot => lot != null),
+        closedLots: closed.map(parseClosed).filter((lot): lot is LiveClosedLot => lot != null),
+        settlements: settlements.map(parseClosed).filter((lot): lot is LiveClosedLot => lot != null),
         average: {
             openQty: num(average, 'openQty'),
             openCost: num(average, 'openCost'),
@@ -221,9 +307,26 @@ function parseProducts(body: unknown): LiveProduct[] {
                 quote: text(item, 'quote') || 'USD',
                 name: text(item, 'name') || productId,
                 price: readMoney(pick(item, 'price')),
+                baseIncrement: num(item, 'baseIncrement'),
+                quoteIncrement: num(item, 'quoteIncrement'),
+                baseMinSize: num(item, 'baseMinSize'),
+                minMarketFunds: num(item, 'minMarketFunds'),
             },
         ]
     })
+}
+
+function parseBarPage(body: unknown): LiveBarPage {
+    const record = asRecord(body) ?? {}
+    return {
+        product: text(record, 'product'),
+        granularity: text(record, 'granularity'),
+        requested: text(record, 'requested'),
+        seconds: num(record, 'seconds'),
+        capped: pick(record, 'capped') === true,
+        hint: text(record, 'hint'),
+        results: parseCandles(body),
+    }
 }
 
 function parseCandles(body: unknown): LiveCandle[] {
@@ -239,18 +342,69 @@ function parseCandles(body: unknown): LiveCandle[] {
                 high: num(item, 'high'),
                 low: num(item, 'low'),
                 close: num(item, 'close'),
+                volume: num(item, 'volume'),
             },
         ]
     })
 }
 
-async function send(path: string, method: 'GET' | 'POST', body?: unknown): Promise<unknown> {
+function parseTracked(body: unknown): TrackedSymbols {
+    const record = asRecord(body) ?? {}
+    const rows = Array.isArray(pick(record, 'results')) ? (pick(record, 'results') as unknown[]) : []
+    return {
+        catalogLoaded: pick(record, 'catalogLoaded') === true,
+        results: rows.flatMap((row) => {
+            const item = asRecord(row)
+            if (!item) return []
+            const productId = text(item, 'productId')
+            if (!productId) return []
+            return [
+                {
+                    productId,
+                    name: text(item, 'name') || productId,
+                    sortOrder: num(item, 'sortOrder'),
+                    listed: pick(item, 'listed') !== false,
+                    baseIncrement: num(item, 'baseIncrement'),
+                    quoteIncrement: num(item, 'quoteIncrement'),
+                    baseMinSize: num(item, 'baseMinSize'),
+                    minMarketFunds: num(item, 'minMarketFunds'),
+                },
+            ]
+        }),
+    }
+}
+
+function parseTrades(body: unknown): LiveTradeMark[] {
+    const record = asRecord(body)
+    const rows = record && Array.isArray(pick(record, 'results')) ? (pick(record, 'results') as unknown[]) : []
+    return rows.flatMap((row) => {
+        const item = asRecord(row)
+        if (!item) return []
+        const price = readMoney(pick(item, 'price'))
+        if (price == null || price <= 0) return []
+        return [
+            {
+                tradeId: num(item, 'tradeId'),
+                side: side(text(item, 'side')),
+                kind: text(item, 'kind') || 'Fill',
+                qty: num(item, 'qty'),
+                price,
+                fee: num(item, 'fee'),
+                executedAt: readTime(pick(item, 'executedAt')),
+                simulated: pick(item, 'simulated') === true,
+                realizedPnl: readMoney(pick(item, 'realizedPnl')),
+            },
+        ]
+    })
+}
+
+async function send(path: string, method: 'GET' | 'POST' | 'DELETE', body?: unknown): Promise<unknown> {
     const response = await fetch(path, {
         method,
         credentials: 'same-origin',
         redirect: 'manual',
         headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
-        body: body ? JSON.stringify(body) : undefined,
+        ...(body ? { body: JSON.stringify(body) } : {}),
     })
     if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
         throw new LedgerReadError(401, 'Unauthorized', 'Sign in as an admin to use Live.')
@@ -282,13 +436,48 @@ export function createLiveClient(): LiveClient {
             const params = new URLSearchParams({ product, granularity })
             return parseCandles(await send(`/api/live/candles?${params}`, 'GET'))
         },
+        async bars(product, granularity, range) {
+            const params = new URLSearchParams({ product, granularity })
+            if (range?.from != null) params.set('from', String(range.from))
+            if (range?.to != null) params.set('to', String(range.to))
+            return parseBarPage(await send(`/api/live/bars?${params}`, 'GET'))
+        },
+        async swing(symbol, interval) {
+            const params = new URLSearchParams({ symbol, interval })
+            return parseSwing(await send(`/api/targets/swing?${params}`, 'GET'))
+        },
+        async atr(symbol, interval, period, horizonBars) {
+            const params = new URLSearchParams({ symbol, interval, period: String(period), horizonBars: String(horizonBars) })
+            return parseAtr(await send(`/api/targets/atr?${params}`, 'GET'))
+        },
+        async forecast(symbol, interval, horizon) {
+            const params = new URLSearchParams({ symbol, interval, horizon: String(horizon) })
+            return parseForecast(await send(`/api/forecast?${params}`, 'GET'))
+        },
         async ticker(product) {
             const body = asRecord(await send(`/api/live/ticker?product=${encodeURIComponent(product)}`, 'GET'))
             const result = body ? asRecord(pick(body, 'result')) : null
             if (!result) return null
             const price = readMoney(pick(result, 'price'))
             if (price == null) return null
-            return { productId: text(result, 'productId') || product, price, at: text(result, 'at') || null }
+            return { productId: text(result, 'productId') || product, price, at: readTime(pick(result, 'at')) }
+        },
+        async tracked() {
+            return parseTracked(await send('/api/live/tracked', 'GET'))
+        },
+        async addSymbol(product) {
+            return parseTracked(await send('/api/live/tracked', 'POST', { product }))
+        },
+        async removeSymbol(product) {
+            return parseTracked(await send(`/api/live/tracked/${encodeURIComponent(product)}`, 'DELETE'))
+        },
+        async reorderSymbols(products) {
+            return parseTracked(await send('/api/live/tracked/reorder', 'POST', { products }))
+        },
+        async trades(wallet, symbol, simulationId) {
+            const params = new URLSearchParams({ wallet, symbol })
+            if (simulationId) params.set('simulationId', simulationId)
+            return parseTrades(await send(`/api/live/trades?${params}`, 'GET'))
         },
         async createPaperWallet(name, startingCash) {
             const body = asRecord(await send('/api/live/paper-wallets', 'POST', { name, startingCash })) ?? {}

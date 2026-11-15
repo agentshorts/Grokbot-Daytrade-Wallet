@@ -37,6 +37,8 @@ public static class LedgerBook
 
         foreach (var transfer in transfers)
         {
+            if (transfer.Excluded)
+                continue;
             events.Add(new Ev
             {
                 At = transfer.At,

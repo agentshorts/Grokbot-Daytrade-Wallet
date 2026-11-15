@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test'
-import { averageQuote, quoteLots } from '@/lib/lotQuote'
+import { averageQuote, lotTotals, quoteLots } from '@/lib/lotQuote'
 
 const lots = [
     { tradeId: 1, qty: 10, buyPrice: 3, cost: 30, executedAt: '2026-06-01T15:00:00Z' },
@@ -21,6 +21,9 @@ describe('lot quotes', () => {
         const partial = averageQuote(6, 40, 3, 15)
         expect(partial.matchedCost).toBe(20)
         expect(partial.profit).toBe(25)
+        expect(lotTotals(quoted, 0)).toMatchObject({ qty: 16, averageCost: 4.375, unrealized: 170, realized: 0, total: 170 })
+        const held = quoteLots(lots.filter((lot) => lot.qty !== 10), 15)
+        expect(lotTotals(held, 120)).toMatchObject({ qty: 6, unrealized: 50, realized: 120, total: 170 })
     })
 
     it('turns a profitable lot red when the price falls through the cost', () => {

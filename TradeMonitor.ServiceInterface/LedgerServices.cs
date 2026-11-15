@@ -121,6 +121,8 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
 
         foreach (var transfer in db.Select<Transfer>(x => x.WalletId == wallet.Id))
         {
+            if (transfer.Excluded && !request.IncludeExcluded)
+                continue;
             entries.Add(new WalletHistoryEntry
             {
                 Wallet = wallet.Key,
@@ -183,6 +185,8 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
         foreach (var book in LedgerData.Load(db, Now()))
         {
             if (wallet != null && book.Wallet.Id != wallet.Id)
+                continue;
+            if (wallet == null && book.Wallet.IsArchived)
                 continue;
             if (mode is WalletMode wanted && book.Wallet.Mode != wanted)
                 continue;
@@ -258,6 +262,8 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
         IEnumerable<PriceMark> rows = db.Select<PriceMark>();
         if (wallet != null)
             rows = rows.Where(x => x.WalletId == null || x.WalletId == wallet.Id);
+        else
+            rows = rows.Where(mark => mark.WalletId is not int id || !wallets.TryGetValue(id, out var owner) || !owner.IsArchived);
         if (symbol != null)
             rows = rows.Where(x => x.Symbol == symbol);
         if (from is DateTime fromAt)
@@ -361,6 +367,7 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
             Venue = draft.Venue,
             BaseCurrency = draft.BaseCurrency,
             Note = draft.Note,
+            Kind = draft.Kind,
             IsArchived = false,
             SortOrder = 0,
             CreatedAt = now,
@@ -653,26 +660,8 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
     List<PriceMark> ApplicableMarks(IDbConnection db, int walletId) =>
         db.Select<PriceMark>(x => x.WalletId == null || x.WalletId == walletId);
 
-    void ReplaceProjections(IDbConnection db, int walletId, DateTime updatedAt)
-    {
-        var wallet = db.SingleById<Wallet>(walletId);
-        var replay = LedgerBook.Replay(
-            walletId,
-            db.Select<Trade>(x => x.WalletId == walletId),
-            db.Select<Transfer>(x => x.WalletId == walletId),
-            ApplicableMarks(db, walletId),
-            updatedAt);
-        if (replay.Oversold)
-            throw Fail(500, "LedgerCorrupt",
-                $"Stored trades oversell {replay.OversellSymbol} in wallet '{wallet.Key}'.");
-
-        db.Delete<Position>(x => x.WalletId == walletId);
-        db.Delete<BalanceSnapshot>(x => x.WalletId == walletId);
-        foreach (var position in replay.Positions)
-            db.Insert(position);
-        foreach (var snapshot in replay.Snapshots)
-            db.Insert(snapshot);
-    }
+    void ReplaceProjections(IDbConnection db, int walletId, DateTime updatedAt) =>
+        LedgerProjections.Replace(db, walletId, updatedAt);
 
     WalletBalances ReadBalances(IDbConnection db, Wallet wallet)
     {
@@ -790,13 +779,15 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
         var venue = Clean(request.Venue);
         if (venue?.Length > Limits.Venue)
             throw Fail(400, "InvalidRequest", $"Venue cannot be longer than {Limits.Venue} characters.");
+        var key = RequireKey(request.Key);
         return new WalletDraft(
-            RequireKey(request.Key),
+            key,
             RequireText(request.Name, "Wallet name", Limits.Name),
             RequireMode(request.Mode),
             venue,
             currency,
-            RequireNote(request.Note));
+            RequireNote(request.Note),
+            ResolveKind(key, request.Kind));
     }
 
     TradeDraft NormalizeTrade(RecordTrade request)
@@ -920,7 +911,8 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
         && row.Mode == draft.Mode
         && Clean(row.Venue) == draft.Venue
         && string.Equals(row.BaseCurrency, draft.BaseCurrency, StringComparison.Ordinal)
-        && Clean(row.Note) == draft.Note;
+        && Clean(row.Note) == draft.Note
+        && row.Kind == draft.Kind;
 
     static bool SameTrade(Trade row, TradeDraft draft)
     {
@@ -970,6 +962,17 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
         if (draft.ProvidedAt is DateTime at && AsUtc(row.At) != at)
             return false;
         return true;
+    }
+
+    static WalletKind ResolveKind(string key, WalletKind? requested)
+    {
+        if (requested is WalletKind given && !Enum.IsDefined(given))
+            throw Fail(400, "InvalidRequest", "Wallet kind must be Standard or PredictionMarket.");
+        if (PredictionMarkets.IsHandWallet(key) && requested == WalletKind.Standard)
+            throw Fail(400, "InvalidRequest", "A pm- wallet is a prediction market wallet.");
+        if (PredictionMarkets.IsHandWallet(key))
+            return WalletKind.PredictionMarket;
+        return requested ?? WalletKind.Standard;
     }
 
     static WalletMode RequireMode(WalletMode? mode)
@@ -1177,7 +1180,7 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
 
     sealed class UniqueHit : Exception;
 
-    sealed record WalletDraft(string Key, string Name, WalletMode Mode, string? Venue, string BaseCurrency, string? Note);
+    sealed record WalletDraft(string Key, string Name, WalletMode Mode, string? Venue, string BaseCurrency, string? Note, WalletKind Kind);
 
     sealed record TradeDraft(
         string Wallet,

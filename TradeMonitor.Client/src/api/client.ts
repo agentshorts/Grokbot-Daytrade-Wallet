@@ -9,6 +9,7 @@ import {
     parseSummary,
     parseSymbols,
     parseTradeDetail,
+    parsePredictionPnl,
     parseTrades,
     parseWallet,
     parseWalletBalances,
@@ -21,6 +22,7 @@ import type {
     LedgerQuery,
     PnlDailyResponse,
     PositionsResponse,
+    PredictionPnlResponse,
     PriceMarksResponse,
     SummaryResponse,
     SymbolPnlResponse,
@@ -50,6 +52,7 @@ export interface LedgerClient {
     walletBalances(key: string): Promise<WalletBalancesResponse>
     walletHistory(key: string, query?: LedgerQuery): Promise<WalletHistoryResponse>
     priceMarks(query?: LedgerQuery): Promise<PriceMarksResponse>
+    predictions(): Promise<PredictionPnlResponse>
 }
 
 export function withQuery(path: string, query: LedgerQuery = {}): string {
@@ -144,6 +147,7 @@ export function createLedgerClient(transport: LedgerTransport = fetchTransport()
         walletBalances: (key) => request(transport, walletPath(key, '/balances'), {}, parseWalletBalances),
         walletHistory: (key, query) => request(transport, walletPath(key, '/history'), query, parseWalletHistory),
         priceMarks: (query) => request(transport, readPath('/price-marks'), query, parsePriceMarks),
+        predictions: () => request(transport, readPath('/predictions'), {}, parsePredictionPnl),
     }
 }
 

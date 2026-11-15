@@ -12,6 +12,9 @@ import type {
     PositionRow,
     PositionsResponse,
     PriceMarkRow,
+    PredictionPnlResponse,
+    PredictionPnlRow,
+    PredictionPnlTotal,
     PriceMarksResponse,
     SummaryResponse,
     SymbolPnlResponse,
@@ -218,6 +221,10 @@ function parseWalletCard(row: Record<string, unknown>): WalletCardModel {
         openPositions: count(row, 'openPositions'),
         lastActivityAt: readTime(pick(row, 'lastActivityAt')),
         sparkline: list(pick(row, 'sparkline'), parseEquityPoint),
+        kind: text(row, 'kind') ?? '',
+        settlement: text(row, 'settlement') ?? '',
+        lifetimeRealizedPnl: amount(row, 'lifetimeRealizedPnl'),
+        closeAt: readTime(pick(row, 'closeAt')),
     }
 }
 
@@ -583,6 +590,41 @@ export function parseWalletHistory(body: unknown): WalletHistoryResponse {
 
 export function parsePriceMarks(body: unknown): PriceMarksResponse {
     return page(body, parseMark)
+}
+
+function parsePredictionRow(row: Record<string, unknown>): PredictionPnlRow | null {
+    const wallet = text(row, 'wallet')
+    if (!wallet) return null
+    return {
+        wallet,
+        name: text(row, 'name') ?? wallet,
+        symbol: text(row, 'symbol') ?? '',
+        bought: amount(row, 'bought'),
+        sold: amount(row, 'sold'),
+        fees: amount(row, 'fees'),
+        realizedPnl: amount(row, 'realizedPnl'),
+        settlement: text(row, 'settlement') ?? '',
+        closeAt: readTime(pick(row, 'closeAt')),
+    }
+}
+
+function parsePredictionTotal(value: unknown): PredictionPnlTotal {
+    const row = asRecord(value) ?? {}
+    return {
+        wallets: count(row, 'wallets'),
+        bought: amount(row, 'bought'),
+        sold: amount(row, 'sold'),
+        fees: amount(row, 'fees'),
+        realizedPnl: amount(row, 'realizedPnl'),
+    }
+}
+
+export function parsePredictionPnl(body: unknown): PredictionPnlResponse {
+    const row = asRecord(body) ?? {}
+    return {
+        wallets: list(pick(row, 'wallets'), parsePredictionRow),
+        total: parsePredictionTotal(pick(row, 'total')),
+    }
 }
 
 export function readFailure(body: unknown, status: number): LedgerReadError {

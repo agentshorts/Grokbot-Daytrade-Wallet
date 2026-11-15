@@ -14,6 +14,7 @@ public static class OrderRules
             LiveOrderType.Limit when side == TradeSide.Sell => price >= level,
             LiveOrderType.StopLoss when side == TradeSide.Sell => price <= level,
             LiveOrderType.TakeProfit when side == TradeSide.Sell => price >= level,
+            LiveOrderType.StopBuy when side == TradeSide.Buy => price >= level,
             _ => false,
         };
     }
@@ -23,11 +24,13 @@ public static class OrderRules
         if (!Enum.IsDefined(side))
             return "Order side must be Buy or Sell.";
         if (!Enum.IsDefined(type))
-            return "Order type must be market, limit, stop-loss, or take-profit.";
+            return "Order type must be market, limit, stop buy, stop-loss, or take-profit.";
         if (!Enum.IsDefined(costing))
             return "Costing must be fifo, lot, or average.";
         if (qty <= 0)
             return "Quantity must be greater than zero.";
+        if (type == LiveOrderType.StopBuy && side != TradeSide.Buy)
+            return "A stop buy is a buy.";
         if (type is LiveOrderType.StopLoss or LiveOrderType.TakeProfit && side != TradeSide.Sell)
             return "Stop-loss and take-profit orders are sells.";
         if (type == LiveOrderType.Market && trigger != null)
@@ -54,6 +57,7 @@ public static class OrderRules
         var name = type switch
         {
             LiveOrderType.Limit => "Limit",
+            LiveOrderType.StopBuy => "Stop buy",
             LiveOrderType.StopLoss => "Stop-loss",
             LiveOrderType.TakeProfit => "Take-profit",
             _ => "Market",

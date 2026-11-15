@@ -22,21 +22,23 @@ public class PnlServices(ServiceStack.Data.IDbConnectionFactory dbFactory, ILedg
         var books = LedgerData.Load(db, Now());
         var universe = Universe(books, request.Wallet, request.IncludeArchived);
         var shown = mode == null ? universe : universe.Where(x => x.Wallet.Mode == mode.Value).ToList();
+        var wallets = shown
+            .Select(x => PnlReport.Summarize(x, from, to))
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.Name, StringComparer.Ordinal)
+            .ThenBy(x => x.Key, StringComparer.Ordinal)
+            .ToList();
+        AnnotatePredictions(shown, wallets);
         return new GetSummaryResponse
         {
-            Totals = PnlReport.Total(shown.Select(x => PnlReport.Summarize(x, from, to)).ToList()),
+            Totals = PnlReport.Total(wallets),
             Modes =
             [
                 ModeTotals("all", universe, from, to, null),
                 ModeTotals("paper", universe, from, to, WalletMode.Paper),
                 ModeTotals("real", universe, from, to, WalletMode.Real),
             ],
-            Wallets = shown
-                .Select(x => PnlReport.Summarize(x, from, to))
-                .OrderBy(x => x.SortOrder)
-                .ThenBy(x => x.Name, StringComparer.Ordinal)
-                .ThenBy(x => x.Key, StringComparer.Ordinal)
-                .ToList(),
+            Wallets = wallets,
         };
     }
 
@@ -133,6 +135,105 @@ public class PnlServices(ServiceStack.Data.IDbConnectionFactory dbFactory, ILedg
             MarkStaleAfterMinutes = PnlReport.MarkStaleMinutes,
             Results = PnlReport.Positions(shown, Now(), symbol, status),
         };
+    }
+
+    public object Any(GetPredictionPnl request)
+    {
+        using var db = dbFactory.Open();
+        var rows = LedgerData.Load(db, Now())
+            .Where(book => book.Wallet.Kind == WalletKind.PredictionMarket)
+            .Where(book => request.IncludeArchived || !book.Wallet.IsArchived)
+            .OrderBy(book => book.Wallet.SortOrder)
+            .ThenBy(book => book.Wallet.Name, StringComparer.Ordinal)
+            .ThenBy(book => book.Wallet.Key, StringComparer.Ordinal)
+            .Select(book =>
+            {
+                var row = PredictionRow(book);
+                row.CloseAt = SafeClose(LookupId(book));
+                return row;
+            })
+            .ToList();
+        return new GetPredictionPnlResponse
+        {
+            Wallets = rows,
+            Total = new PredictionPnlTotal
+            {
+                Wallets = rows.Count,
+                Bought = rows.Sum(row => row.Bought),
+                Sold = rows.Sum(row => row.Sold),
+                Fees = rows.Sum(row => row.Fees),
+                RealizedPnl = rows.Sum(row => row.RealizedPnl),
+            },
+        };
+    }
+
+    static PredictionPnlRow PredictionRow(WalletBook book)
+    {
+        var symbols = book.Trades
+            .Select(trade => trade.Symbol)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        return new PredictionPnlRow
+        {
+            Wallet = book.Wallet.Key,
+            Name = book.Wallet.Name,
+            Symbol = symbols.Count == 0 ? "" : string.Join(", ", symbols),
+            Bought = book.Trades.Where(trade => trade.Side == TradeSide.Buy).Sum(trade => trade.Qty),
+            Sold = book.Trades.Where(trade => trade.Side == TradeSide.Sell).Sum(trade => trade.Qty),
+            Fees = book.Replay.Fees,
+            RealizedPnl = book.Replay.RealizedPnl,
+            Settlement = SettlementOf(book),
+        };
+    }
+
+    void AnnotatePredictions(List<WalletBook> books, List<WalletCard> cards)
+    {
+        var byKey = books.ToDictionary(book => book.Wallet.Key, StringComparer.Ordinal);
+        foreach (var card in cards)
+        {
+            if (!byKey.TryGetValue(card.Key, out var book) || book.Wallet.Kind != WalletKind.PredictionMarket)
+                continue;
+            card.Kind = nameof(WalletKind.PredictionMarket);
+            card.Settlement = SettlementOf(book);
+            card.LifetimeRealizedPnl = book.Replay.RealizedPnl;
+            card.CloseAt = SafeClose(LookupId(book));
+        }
+    }
+
+    static string LookupId(WalletBook book)
+    {
+        var symbol = book.Trades.Select(trade => trade.Symbol).FirstOrDefault(value => ContractTickers.KalshiTicker(value) != null);
+        return symbol ?? book.Wallet.Key;
+    }
+
+    DateTime? SafeClose(string id)
+    {
+        try
+        {
+            return (HostContext.TryResolve<IContractCloses>() ?? NoContractCloses.Instance).CloseAt(id);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    static string SettlementOf(WalletBook book)
+    {
+        if (book.Trades.Count == 0)
+            return "none";
+        var open = book.Replay.States.LastOrDefault()?.Symbols.Values.Sum(symbol => symbol.Qty) ?? 0;
+        if (open > 0)
+            return "open";
+        var settlements = book.Trades.Where(trade => trade.Kind == TradeKind.Settlement && trade.Side == TradeSide.Sell).ToList();
+        if (settlements.Count == 0)
+            return book.Trades.Any(trade => trade.Side == TradeSide.Sell) ? "closed" : "open";
+        var prices = settlements.Select(trade => trade.Price).Distinct().ToList();
+        if (prices.Count == 1 && prices[0] == 0)
+            return "settled-0";
+        if (prices.Count == 1 && prices[0] == 1)
+            return "settled-1";
+        return "settled";
     }
 
     public object Any(GetTrade request)

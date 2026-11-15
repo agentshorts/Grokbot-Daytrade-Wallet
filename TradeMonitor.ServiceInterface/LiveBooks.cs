@@ -17,6 +17,7 @@ public static class LiveBooks
         int? tradeId)
     {
         var (lots, average) = LotQuote.Build(replay.LotTrades, symbol, price, sellQty);
+        var holding = LiveLots.Summarize(replay.LotTrades, symbol, price);
         return new LiveBookResponse
         {
             Wallet = wallet.Key,
@@ -29,6 +30,9 @@ public static class LiveBooks
             Cash = replay.Cash,
             RealizedPnl = replay.RealizedPnl,
             Lots = lots,
+            ClosedLots = holding.Closed,
+            Settlements = holding.Settlements,
+            Totals = holding.Totals,
             Average = average,
             Orders = orders.Where(x => x.Status == LiveOrderStatus.Open && string.Equals(x.Symbol, symbol, StringComparison.OrdinalIgnoreCase)).ToList(),
             TradeId = tradeId,

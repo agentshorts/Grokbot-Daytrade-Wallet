@@ -13,6 +13,9 @@ public class ConfigureLive : IHostingStartup
             services.AddSingleton<ILiveMarket>(sp => sp.GetRequiredService<LiveMarketCache>());
             services.AddSingleton<PaperOrderBook>();
             services.AddSingleton<LiveSimulationStore>();
+            services.AddSingleton<PriceBars>();
+            services.AddSingleton<TrackedSymbolBook>();
+            services.AddSingleton<LiveTickerPublisher>();
             services.AddHttpClient("coinbase-public", client =>
             {
                 client.Timeout = TimeSpan.FromSeconds(15);

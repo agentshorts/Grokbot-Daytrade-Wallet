@@ -6,10 +6,15 @@ title = "TradeMonitor gitleaks config"
 useDefault = true
 
 [allowlist]
-description = "Generated, vendored and lock files"
+description = "Generated, vendored and lock files, plus public prediction product ids"
 paths = [
   '''(^|/)node_modules/''',
   '''(^|/)(bin|obj|dist|wwwroot)/''',
   '''package-lock\.json$''',
   '''pnpm-lock\.yaml$''',
+]
+# Wallet keys and docs use pm- plus a public Kalshi product id. The generic-api-key
+# rule treats that string as a secret because the field is named key.
+regexes = [
+  '''pm-[A-Z0-9][A-Z0-9.-]*-KALSHI''',
 ]

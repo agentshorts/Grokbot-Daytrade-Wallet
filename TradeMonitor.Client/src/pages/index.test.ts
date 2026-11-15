@@ -29,6 +29,7 @@ async function mountHome(view: DashboardView | null, status: DashboardContext['s
             { path: '/trades', component: { template: '<div />' } },
             { path: '/wallets', component: { template: '<div />' } },
             { path: '/wallet/:key', component: { template: '<div />' } },
+            { path: '/predictions', component: { template: '<div />' } },
         ],
     })
     await router.push('/')
@@ -264,6 +265,7 @@ describe('overview page', () => {
     it('shows a loading state before the ledger answers', async () => {
         const { wrapper } = await mountHome(null, 'loading')
         expect(wrapper.get('h1').text()).toBe('Overview')
+        expect(wrapper.get('[data-testid="prediction-pnl"]').text()).toBe('Prediction markets')
         expect(wrapper.text()).toContain('Loading the book')
         expect(wrapper.find('[data-testid="kpi-value"]').exists()).toBe(false)
         expect(wrapper.find('[data-testid="chart"]').exists()).toBe(false)

@@ -1,8 +1,9 @@
 export type PanelWidth = 'collapsed' | 'normal' | 'expanded'
-export type PanelTab = 'quick' | 'orders'
+export type PanelTab = 'quick' | 'orders' | 'lots'
 
 export const PANEL_WIDTH_KEY = 'trademonitor.live.panel'
 export const PANEL_TAB_KEY = 'trademonitor.live.tab'
+export const SHOW_TRADES_KEY = 'trademonitor.live.showTrades'
 
 export interface PanelStorage {
     getItem(key: string): string | null
@@ -16,7 +17,17 @@ export function readPanelWidth(storage: PanelStorage): PanelWidth {
 }
 
 export function readPanelTab(storage: PanelStorage): PanelTab {
-    return storage.getItem(PANEL_TAB_KEY) === 'orders' ? 'orders' : 'quick'
+    const value = storage.getItem(PANEL_TAB_KEY)
+    if (value === 'orders' || value === 'lots') return value
+    return 'quick'
+}
+
+export function readShowTrades(storage: PanelStorage): boolean {
+    return storage.getItem(SHOW_TRADES_KEY) !== '0'
+}
+
+export function writeShowTrades(storage: PanelStorage, on: boolean) {
+    storage.setItem(SHOW_TRADES_KEY, on ? '1' : '0')
 }
 
 export function writePanelWidth(storage: PanelStorage, width: PanelWidth) {

@@ -25,6 +25,10 @@ public class LiveProduct
     public string Quote { get; set; } = "USD";
     public string Name { get; set; } = "";
     public decimal? Price { get; set; }
+    public decimal BaseIncrement { get; set; }
+    public decimal QuoteIncrement { get; set; }
+    public decimal BaseMinSize { get; set; }
+    public decimal MinMarketFunds { get; set; }
 }
 
 [Api("Public candles for one Coinbase product")]
@@ -54,6 +58,7 @@ public class LiveCandle
     public decimal High { get; set; }
     public decimal Low { get; set; }
     public decimal Close { get; set; }
+    public decimal Volume { get; set; }
 }
 
 [Api("Latest public price for one product")]
@@ -78,13 +83,120 @@ public class LiveTick
     public DateTime At { get; set; }
 }
 
-[Api("Server-sent public prices for one product")]
+[Api("Stored one-minute prices, aggregated to the requested candle size")]
 [Tag("live")]
 [ValidateIsAdmin]
-[Route("/api/live/stream", "GET")]
-public class StreamLiveTicker : IGet, IReturnVoid
+[Route("/api/live/bars", "GET")]
+public class GetLiveBars : IGet, IReturn<GetLiveBarsResponse>
 {
     public string? Product { get; set; }
+
+    [Description("Preset or custom interval such as 1m, 7m, 4h, 1d, or 1w. Defaults to 5m.")]
+    public string? Granularity { get; set; }
+
+    [Description("Inclusive range start, unix seconds. Omit for the stored history.")]
+    public long? From { get; set; }
+
+    [Description("Exclusive range end, unix seconds.")]
+    public long? To { get; set; }
+}
+
+public class GetLiveBarsResponse
+{
+    public string Product { get; set; } = "";
+    public string Granularity { get; set; } = "5m";
+    public string Requested { get; set; } = "5m";
+    public int Seconds { get; set; } = 300;
+    public bool Capped { get; set; }
+    public string Hint { get; set; } = "";
+    public List<LiveCandle> Results { get; set; } = [];
+    public ResponseStatus? ResponseStatus { get; set; }
+}
+
+[Api("Buys and sells for the selected wallet and symbol, including simulation fills")]
+[Tag("live")]
+[ValidateIsAdmin]
+[Route("/api/live/trades", "GET")]
+public class GetLiveTrades : IGet, IReturn<GetLiveTradesResponse>
+{
+    public string? Wallet { get; set; }
+    public string? Symbol { get; set; }
+    public string? SimulationId { get; set; }
+}
+
+public class GetLiveTradesResponse
+{
+    public List<LiveTradeMark> Results { get; set; } = [];
+    public ResponseStatus? ResponseStatus { get; set; }
+}
+
+public class LiveTradeMark
+{
+    public int TradeId { get; set; }
+    public TradeSide Side { get; set; }
+    public TradeKind Kind { get; set; } = TradeKind.Fill;
+    public decimal Qty { get; set; }
+    public decimal Price { get; set; }
+    public decimal Fee { get; set; }
+    public DateTime ExecutedAt { get; set; }
+    public bool Simulated { get; set; }
+
+    [Description("Realized P&L for a sell. Null on a buy.")]
+    public decimal? RealizedPnl { get; set; }
+}
+
+[Api("Symbols followed by the live chart, in display order")]
+[Tag("live")]
+[ValidateIsAdmin]
+[Route("/api/live/tracked", "GET")]
+public class GetTrackedSymbols : IGet, IReturn<GetTrackedSymbolsResponse>
+{
+}
+
+public class GetTrackedSymbolsResponse
+{
+    public bool CatalogLoaded { get; set; }
+    public List<TrackedSymbolRow> Results { get; set; } = [];
+    public ResponseStatus? ResponseStatus { get; set; }
+}
+
+public class TrackedSymbolRow
+{
+    public string ProductId { get; set; } = "";
+    public string Name { get; set; } = "";
+    public int SortOrder { get; set; }
+    public bool Listed { get; set; }
+    public decimal BaseIncrement { get; set; }
+    public decimal QuoteIncrement { get; set; }
+    public decimal BaseMinSize { get; set; }
+    public decimal MinMarketFunds { get; set; }
+}
+
+[Api("Add a Coinbase USD product to the live chart")]
+[Tag("live")]
+[ValidateIsAdmin]
+[Route("/api/live/tracked", "POST")]
+public class AddTrackedSymbol : IPost, IReturn<GetTrackedSymbolsResponse>
+{
+    public string? Product { get; set; }
+}
+
+[Api("Remove a product from the live chart")]
+[Tag("live")]
+[ValidateIsAdmin]
+[Route("/api/live/tracked/{Product}", "DELETE")]
+public class RemoveTrackedSymbol : IDelete, IReturn<GetTrackedSymbolsResponse>
+{
+    public string? Product { get; set; }
+}
+
+[Api("Set the live chart symbol order")]
+[Tag("live")]
+[ValidateIsAdmin]
+[Route("/api/live/tracked/reorder", "POST")]
+public class ReorderTrackedSymbols : IPost, IReturn<GetTrackedSymbolsResponse>
+{
+    public List<string> Products { get; set; } = [];
 }
 
 [Api("Create a paper wallet and its starting cash")]
@@ -129,6 +241,9 @@ public class LiveBookResponse
     public decimal Cash { get; set; }
     public decimal RealizedPnl { get; set; }
     public List<LiveLot> Lots { get; set; } = [];
+    public List<LiveClosedLot> ClosedLots { get; set; } = [];
+    public List<LiveClosedLot> Settlements { get; set; } = [];
+    public LiveLotTotals Totals { get; set; } = new();
     public LiveAverageQuote Average { get; set; } = new();
     public List<LiveOrder> Orders { get; set; } = [];
     public int? TradeId { get; set; }
@@ -146,6 +261,26 @@ public class LiveLot
     public decimal? UnrealizedPnl { get; set; }
     public decimal? UnrealizedPnlPercent { get; set; }
     public DateTime ExecutedAt { get; set; }
+}
+
+public class LiveClosedLot
+{
+    public int TradeId { get; set; }
+    public decimal Qty { get; set; }
+    public decimal BuyPrice { get; set; }
+    public decimal SellPrice { get; set; }
+    public decimal RealizedPnl { get; set; }
+    public DateTime ExecutedAt { get; set; }
+    public bool Settlement { get; set; }
+}
+
+public class LiveLotTotals
+{
+    public decimal Qty { get; set; }
+    public decimal AverageCost { get; set; }
+    public decimal? UnrealizedPnl { get; set; }
+    public decimal RealizedPnl { get; set; }
+    public decimal? TotalPnl { get; set; }
 }
 
 public class LiveAverageQuote

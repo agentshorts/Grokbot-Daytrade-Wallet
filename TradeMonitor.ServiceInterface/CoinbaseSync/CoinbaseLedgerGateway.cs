@@ -49,7 +49,7 @@ public sealed class CoinbaseLedgerGateway(IDbConnectionFactory dbFactory, ILedge
                 .Select(wallet => wallet.Id));
             var ids = new HashSet<string>(StringComparer.Ordinal);
             DateTime? latest = null;
-            foreach (var trade in db.Select<Trade>(trade => trade.ClientId.StartsWith("cb-fill-")))
+            foreach (var trade in db.Select<Trade>(trade => trade.ClientId.StartsWith(CoinbaseWallets.FillPrefix)))
             {
                 if (!coinbaseIds.Contains(trade.WalletId))
                     continue;

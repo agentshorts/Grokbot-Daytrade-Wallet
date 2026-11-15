@@ -27,6 +27,9 @@ public class CreateWallet : IPost, IReturn<CreateWalletResponse>
 
     [Description("Optional note.")]
     public string? Note { get; set; }
+
+    [Description("Standard or PredictionMarket. A pm- key is PredictionMarket. Omit for Standard.")]
+    public WalletKind? Kind { get; set; }
 }
 
 public class CreateWalletResponse
@@ -178,6 +181,9 @@ public class QueryWalletHistory : IGet, IReturn<QueryWalletHistoryResponse>
     public int? Take { get; set; }
 
     public int? Skip { get; set; }
+
+    [Description("Include transfers flagged out of totals. Defaults to false.")]
+    public bool IncludeExcluded { get; set; }
 }
 
 public class QueryWalletHistoryResponse

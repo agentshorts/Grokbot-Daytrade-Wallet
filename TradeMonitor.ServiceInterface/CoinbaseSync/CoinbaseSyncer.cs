@@ -10,6 +10,11 @@ public static class CoinbaseWallets
 {
     public const string Cash = "coinbase-usdc";
     public const string Source = "walletsync";
+    public const string FillPrefix = "cb-fill-";
+    public const string FundSourcePrefix = "cb-fund-src-";
+    public const string FundPrefix = "cb-fund-";
+    public const string ProceedsPrefix = "cb-proceeds-";
+    public const string ProceedsDestinationPrefix = "cb-proceeds-dst-";
 
     static readonly Regex NonAlnum = new("[^a-z0-9]+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
@@ -113,6 +118,7 @@ public sealed partial class CoinbaseSyncer
 
     Dictionary<string, Wallet> wallets = new(StringComparer.Ordinal);
     HashSet<string> knownFillIds = new(StringComparer.Ordinal);
+    readonly HashSet<string> skippedThisCycle = new(StringComparer.OrdinalIgnoreCase);
     DateTime? cursor;
 
     public CoinbaseSyncer(
@@ -144,10 +150,13 @@ public sealed partial class CoinbaseSyncer
     {
         if (!Loaded)
             LoadLedger();
+        skippedThisCycle.Clear();
         _ = await coinbase.AccountsAsync(cancellationToken);
         await LearnTickers(cancellationToken);
-        var fills = await SyncFills(cancellationToken);
-        var marks = await SyncHoldings(cancellationToken);
+        var breakdowns = await LoadBreakdowns(cancellationToken);
+        var predictionIds = PredictionIds(breakdowns);
+        var fills = await SyncFills(predictionIds, cancellationToken);
+        var marks = await SyncHoldings(breakdowns, cancellationToken);
         SaveState();
         return (fills, marks);
     }
@@ -175,7 +184,7 @@ public sealed partial class CoinbaseSyncer
         state.TickersLearned = true;
     }
 
-    async Task<int> SyncFills(CancellationToken cancellationToken)
+    async Task<int> SyncFills(HashSet<string> predictionIds, CancellationToken cancellationToken)
     {
         string? start = cursor is DateTime at ? Iso(at - FillOverlap) : null;
         var fills = (await coinbase.FillsAsync(start, cancellationToken))
@@ -190,7 +199,7 @@ public sealed partial class CoinbaseSyncer
                 log.Error("fill missing trade_id; skipped");
                 continue;
             }
-            var clientId = "cb-fill-" + fill.TradeId;
+            var clientId = CoinbaseWallets.FillPrefix + fill.TradeId;
             if (knownFillIds.Contains(clientId) || state.SkippedFills.ContainsKey(clientId))
                 continue;
             if (cursor is DateTime from && fill.TradeTimeUtc != default && fill.TradeTimeUtc < from - FillOverlap)
@@ -202,8 +211,13 @@ public sealed partial class CoinbaseSyncer
             }
             try
             {
-                await RecordFill(fill, clientId, cancellationToken);
-                added++;
+                if (await ShouldSkipPrediction(fill, predictionIds, cancellationToken))
+                {
+                    NoteSkippedProduct(fill.ProductId);
+                    continue;
+                }
+                if (await RecordFill(fill, clientId, cancellationToken))
+                    added++;
             }
             catch (LedgerToolException ex)
             {
@@ -215,10 +229,20 @@ public sealed partial class CoinbaseSyncer
         return added;
     }
 
-    async Task RecordFill(CbFill fill, string clientId, CancellationToken cancellationToken)
+    async Task<bool> RecordFill(CbFill fill, string clientId, CancellationToken cancellationToken)
     {
         var classified = await Classify(fill, cancellationToken);
+        if (PredictionMarkets.IsProductId(classified.Symbol) || PredictionMarkets.IsProductId(fill.ProductId))
+        {
+            NoteSkippedProduct(string.IsNullOrEmpty(fill.ProductId) ? classified.Symbol : fill.ProductId);
+            return false;
+        }
         var key = CoinbaseWallets.KeyFor(classified.Asset);
+        if (IsProtectedWallet(key))
+        {
+            NoteSkippedWallet(key);
+            return false;
+        }
         var side = fill.Side.Equals("BUY", StringComparison.OrdinalIgnoreCase) ? "Buy" : "Sell";
         var qty = fill.SizeInQuote && fill.Price > 0
             ? FloorTo(fill.Size / fill.Price, classified.Increment)
@@ -251,10 +275,16 @@ public sealed partial class CoinbaseSyncer
         knownFillIds.Add(clientId);
         if (cursor == null || fill.TradeTimeUtc > cursor)
             cursor = fill.TradeTimeUtc;
+        return true;
     }
 
     void FundBuy(string key, string tradeId, decimal cost, DateTime at)
     {
+        if (IsProtectedWallet(key))
+        {
+            NoteSkippedWallet(key);
+            return;
+        }
         var cash = ledger.Balances(key).Cash;
         var need = decimal.Round(cost - cash, 8, MidpointRounding.ToEven);
         if (need <= Eps)
@@ -268,7 +298,7 @@ public sealed partial class CoinbaseSyncer
                 ledger.RecordTransfer(new RecordTransfer
                 {
                     Wallet = CoinbaseWallets.Cash,
-                    ClientId = "cb-fund-src-" + tradeId,
+                    ClientId = CoinbaseWallets.FundSourcePrefix + tradeId,
                     Kind = TransferKind.Withdrawal,
                     Amount = take,
                     At = at,
@@ -279,7 +309,7 @@ public sealed partial class CoinbaseSyncer
         ledger.RecordTransfer(new RecordTransfer
         {
             Wallet = key,
-            ClientId = "cb-fund-" + tradeId,
+            ClientId = CoinbaseWallets.FundPrefix + tradeId,
             Kind = TransferKind.Deposit,
             Amount = need,
             At = at,
@@ -289,7 +319,7 @@ public sealed partial class CoinbaseSyncer
 
     void MoveProceeds(string key, string tradeId, decimal proceeds, DateTime at)
     {
-        if (key == CoinbaseWallets.Cash || !wallets.ContainsKey(CoinbaseWallets.Cash))
+        if (IsProtectedWallet(key) || key == CoinbaseWallets.Cash || !wallets.ContainsKey(CoinbaseWallets.Cash))
             return;
         var cash = ledger.Balances(key).Cash;
         var amount = decimal.Round(Math.Min(proceeds, cash), 8, MidpointRounding.ToEven);
@@ -298,7 +328,7 @@ public sealed partial class CoinbaseSyncer
         ledger.RecordTransfer(new RecordTransfer
         {
             Wallet = key,
-            ClientId = "cb-proceeds-" + tradeId,
+            ClientId = CoinbaseWallets.ProceedsPrefix + tradeId,
             Kind = TransferKind.Withdrawal,
             Amount = amount,
             At = at,
@@ -307,7 +337,7 @@ public sealed partial class CoinbaseSyncer
         ledger.RecordTransfer(new RecordTransfer
         {
             Wallet = CoinbaseWallets.Cash,
-            ClientId = "cb-proceeds-dst-" + tradeId,
+            ClientId = CoinbaseWallets.ProceedsDestinationPrefix + tradeId,
             Kind = TransferKind.Deposit,
             Amount = amount,
             At = at,
@@ -315,18 +345,23 @@ public sealed partial class CoinbaseSyncer
         });
     }
 
-    async Task<int> SyncHoldings(CancellationToken cancellationToken)
+    async Task<int> SyncHoldings(IReadOnlyList<CbBreakdown> breakdowns, CancellationToken cancellationToken)
     {
-        var (hold, cash) = await Holdings(cancellationToken);
+        var (hold, cash) = Holdings(breakdowns);
         foreach (var pair in hold)
         {
-            if (pair.Value.Fiat >= DustFiat)
+            if (pair.Value.Fiat < DustFiat)
+                continue;
+            var key = CoinbaseWallets.KeyFor(pair.Key);
+            if (IsProtectedWallet(key) || PredictionMarkets.IsProductId(pair.Key))
             {
-                EnsureWallet(
-                    CoinbaseWallets.KeyFor(pair.Key),
-                    pair.Key,
-                    "Real Coinbase " + pair.Value.Type + " holding found by WalletSync. No lot recorded until a fill is seen.");
+                NoteSkippedProduct(pair.Key);
+                continue;
             }
+            EnsureWallet(
+                key,
+                pair.Key,
+                "Real Coinbase " + pair.Value.Type + " holding found by WalletSync. No lot recorded until a fill is seen.");
         }
 
         var minute = Minute(clock.UtcNow);
@@ -337,10 +372,20 @@ public sealed partial class CoinbaseSyncer
                 continue;
             if (!wallets.TryGetValue(key, out var wallet) || wallet.IsArchived)
                 continue;
+            if (IsProtectedWallet(key))
+            {
+                NoteSkippedWallet(key);
+                continue;
+            }
             var balances = ledger.Balances(key);
             foreach (var position in balances.Positions)
             {
                 var symbol = position.Symbol;
+                if (PredictionMarkets.IsProductId(symbol))
+                {
+                    NoteSkippedProduct(symbol);
+                    continue;
+                }
                 var asset = symbol.EndsWith("-USD", StringComparison.Ordinal) ? symbol[..^4] : symbol;
                 if (!hold.TryGetValue(asset, out var holding) || holding.Qty <= 0)
                 {
@@ -396,13 +441,34 @@ public sealed partial class CoinbaseSyncer
         return marks.Count;
     }
 
-    async Task<(Dictionary<string, Holding> Hold, decimal Cash)> Holdings(CancellationToken cancellationToken)
+    async Task<List<CbBreakdown>> LoadBreakdowns(CancellationToken cancellationToken)
+    {
+        var list = new List<CbBreakdown>();
+        foreach (var portfolio in await coinbase.PortfoliosAsync(cancellationToken))
+            list.Add(await coinbase.BreakdownAsync(portfolio.Uuid, cancellationToken));
+        return list;
+    }
+
+    static HashSet<string> PredictionIds(IReadOnlyList<CbBreakdown> breakdowns)
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var breakdown in breakdowns)
+        {
+            foreach (var contract in breakdown.Prediction)
+            {
+                if (!string.IsNullOrEmpty(contract.ProductId))
+                    ids.Add(contract.ProductId);
+            }
+        }
+        return ids;
+    }
+
+    (Dictionary<string, Holding> Hold, decimal Cash) Holdings(IReadOnlyList<CbBreakdown> breakdowns)
     {
         var hold = new Dictionary<string, Holding>(StringComparer.Ordinal);
         decimal cash = 0;
-        foreach (var portfolio in await coinbase.PortfoliosAsync(cancellationToken))
+        foreach (var breakdown in breakdowns)
         {
-            var breakdown = await coinbase.BreakdownAsync(portfolio.Uuid, cancellationToken);
             foreach (var spot in breakdown.Spot)
             {
                 if (spot.IsCash)
@@ -435,16 +501,12 @@ public sealed partial class CoinbaseSyncer
             }
             foreach (var contract in breakdown.Prediction)
             {
-                if (!string.IsNullOrEmpty(contract.ProductId) && contract.Qty != 0)
+                if (!string.IsNullOrEmpty(contract.ProductId))
                 {
-                    hold[contract.ProductId] = new Holding
-                    {
-                        Qty = Math.Abs(contract.Qty),
-                        Fiat = Math.Abs(contract.Fiat),
-                        Type = "contract",
-                    };
+                    NoteSkippedProduct(contract.ProductId);
+                    continue;
                 }
-                else if (!state.PmShapeLogged)
+                if (!state.PmShapeLogged)
                 {
                     log.Info("prediction position fields: " + string.Join(", ", contract.FieldNames));
                     state.PmShapeLogged = true;
@@ -489,6 +551,14 @@ public sealed partial class CoinbaseSyncer
 
     bool EnsureWallet(string key, string label, string note)
     {
+        if (IsProtectedWallet(key) || PredictionMarkets.IsProductId(label))
+        {
+            if (IsProtectedWallet(key))
+                NoteSkippedWallet(key);
+            else
+                NoteSkippedProduct(label);
+            return false;
+        }
         if (wallets.TryGetValue(key, out var existing))
         {
             if (existing.IsArchived)
@@ -502,6 +572,42 @@ public sealed partial class CoinbaseSyncer
         var created = ledger.CreateWallet(key, "Coinbase " + label, note);
         wallets[key] = created;
         return true;
+    }
+
+    async Task<bool> ShouldSkipPrediction(CbFill fill, HashSet<string> predictionIds, CancellationToken cancellationToken)
+    {
+        if (PredictionMarkets.FieldsLookPrediction(fill.ProductType, null, null))
+            return true;
+        if (PredictionMarkets.IsProductId(fill.ProductId) || predictionIds.Contains(fill.ProductId))
+            return true;
+        var equity = fill.EquityTicker != null || fill.EquityCbrn != null
+            || string.Equals(fill.ProductType, "EQUITY", StringComparison.OrdinalIgnoreCase);
+        if (equity || SpotProduct().IsMatch(fill.ProductId) || string.IsNullOrEmpty(fill.ProductId))
+            return false;
+        var product = await Product(fill.ProductId, cancellationToken);
+        return PredictionMarkets.ProductLooksPrediction(product, fill.ProductId);
+    }
+
+    bool IsProtectedWallet(string key)
+    {
+        if (PredictionMarkets.IsHandWallet(key))
+            return true;
+        return wallets.TryGetValue(key, out var wallet) && wallet.Kind == WalletKind.PredictionMarket;
+    }
+
+    void NoteSkippedProduct(string? productId)
+    {
+        var label = string.IsNullOrEmpty(productId) ? "(unnamed)" : productId;
+        if (!skippedThisCycle.Add(label))
+            return;
+        log.Info("skipped prediction product " + label);
+    }
+
+    void NoteSkippedWallet(string key)
+    {
+        if (!skippedThisCycle.Add("wallet:" + key))
+            return;
+        log.Info("skipped prediction wallet " + key);
     }
 
     async Task<Classified> Classify(CbFill fill, CancellationToken cancellationToken)

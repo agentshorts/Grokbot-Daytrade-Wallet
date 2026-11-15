@@ -65,7 +65,14 @@ const daily = computed(() => (model.value && model.value.daily.some((day) => day
 function kpis(detail: WalletDetailModel): Kpi[] {
     const currency = detail.currency
     return [
-        { id: 'value', label: 'Total value', display: 'money', value: detail.totalValue, signed: false, currency },
+        {
+            id: 'value',
+            label: detail.closed ? 'Realized P&L' : 'Total value',
+            display: 'money',
+            value: detail.totalValue,
+            signed: detail.closed,
+            currency,
+        },
         { id: 'cash', label: 'Cash', display: 'money', value: detail.cash, signed: false, currency },
         { id: 'swept', label: 'Swept', display: 'money', value: detail.swept, signed: false, currency },
         { id: 'fees', label: 'Fees paid', display: 'money', value: detail.fees, signed: false, currency },
@@ -109,12 +116,20 @@ function kpis(detail: WalletDetailModel): Kpi[] {
                     <p v-if="model.venue && model.venue.toLowerCase() !== model.name.toLowerCase()" class="mt-2 text-sm text-gray-500 dark:text-gray-400">
                         {{ model.venue }}
                     </p>
-                    <h1 class="mt-1 text-xl font-semibold text-gray-900 dark:text-white/90">{{ model.name }}</h1>
+                    <h1 class="mt-1 text-xl font-semibold text-gray-900 dark:text-white/90" :title="model.ticker || model.name">{{ model.name }}</h1>
+                    <p v-if="model.ticker" class="mt-1 text-xs text-gray-500 dark:text-gray-400" :title="model.ticker">{{ model.ticker }}</p>
                     <span
                         v-if="model.isArchived"
                         class="mt-2 inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-white/10 dark:text-gray-300"
                     >
                         Archived
+                    </span>
+                    <span
+                        v-if="model.badge"
+                        data-testid="contract-badge"
+                        class="mt-2 ms-2 inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-white/10 dark:text-gray-300"
+                    >
+                        {{ model.badge }}
                     </span>
                 </div>
                 <span
@@ -156,7 +171,10 @@ function kpis(detail: WalletDetailModel): Kpi[] {
             <section class="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
                     <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Balance and equity</h2>
-                    <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">Cash is the balance. Equity is cash plus open positions.</p>
+                    <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">
+                        <template v-if="model.closed">Ends at the contract close. The line is realized P&L.</template>
+                        <template v-else>Cash is the balance. Equity is cash plus open positions.</template>
+                    </p>
                     <EChart :option="equity" :empty="!equity" />
                 </article>
                 <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">

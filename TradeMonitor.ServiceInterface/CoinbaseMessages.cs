@@ -41,6 +41,10 @@ public static class CoinbaseMessages
                 Quote = "USD",
                 Name = name,
                 Price = Money(item, "price"),
+                BaseIncrement = Money(item, "base_increment") ?? 0,
+                QuoteIncrement = Money(item, "quote_increment") ?? 0,
+                BaseMinSize = Money(item, "base_min_size") ?? 0,
+                MinMarketFunds = Money(item, "min_market_funds") ?? 0,
             });
         }
 
@@ -100,6 +104,7 @@ public static class CoinbaseMessages
                     High = Decimal(values[2]),
                     Open = Decimal(values[3]),
                     Close = Decimal(values[4]),
+                    Volume = values.Count > 5 ? Decimal(values[5]) : 0,
                 });
                 continue;
             }
@@ -116,6 +121,7 @@ public static class CoinbaseMessages
                 High = Money(item, "high") ?? 0,
                 Low = Money(item, "low") ?? 0,
                 Close = Money(item, "close") ?? 0,
+                Volume = Money(item, "volume") ?? 0,
             });
         }
 

@@ -1,6 +1,3 @@
-using System.Text;
-using System.Text.Json;
-using System.Threading.Channels;
 using ServiceStack;
 using ServiceStack.Data;
 using ServiceStack.OrmLite;
@@ -14,7 +11,9 @@ public class LiveServices(
     ILedgerClock clock,
     ILiveMarket market,
     PaperOrderBook orders,
-    LiveSimulationStore simulations) : Service
+    LiveSimulationStore simulations,
+    PriceBars bars,
+    TrackedSymbolBook symbols) : Service
 {
     public object Any(GetLiveProducts request) =>
         new GetLiveProductsResponse { Results = market.Products().ToList() };
@@ -39,37 +38,97 @@ public class LiveServices(
         return new GetLiveTickerResponse { Result = market.Ticker(product) };
     }
 
-    public async Task Any(StreamLiveTicker request)
+    public object Any(GetLiveBars request)
     {
         var product = RequireSymbol(request.Product);
-        market.Watch(product, "5m");
-        var response = Response ?? throw Fail(500, "InvalidRequest", "No HTTP response is available.");
-        response.ContentType = "text/event-stream";
-        response.AddHeader("Cache-Control", "no-cache");
-        var token = (Request as IHasCancellationToken)?.Token ?? CancellationToken.None;
-        var channel = Channel.CreateUnbounded<LiveTick>();
-        using var subscription = market.Listen(tick =>
+        if (!CandleInterval.TryParse(request.Granularity, emptyIsDefault: true, out var interval, out var error))
+            throw Fail(400, "InvalidInterval", error);
+        if (request.From is long from && request.To is long to && from >= to)
+            throw Fail(400, "InvalidRange", "Range start must be before range end.");
+        market.Watch(product, interval.Key);
+        var page = bars.Window(product, interval, request.From, request.To);
+        return new GetLiveBarsResponse
         {
-            if (tick.ProductId.Equals(product, StringComparison.OrdinalIgnoreCase))
-                channel.Writer.TryWrite(tick);
-        });
-        var current = market.Ticker(product);
-        if (current != null)
-            channel.Writer.TryWrite(current);
-        try
-        {
-            await foreach (var tick in channel.Reader.ReadAllAsync(token))
-            {
-                var json = JsonSerializer.Serialize(new { product = tick.ProductId, price = tick.Price, at = tick.At });
-                var bytes = Encoding.UTF8.GetBytes($"data: {json}\n\n");
-                await response.OutputStream.WriteAsync(bytes.AsMemory(), token);
-                await response.OutputStream.FlushAsync(token);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
+            Product = product,
+            Granularity = page.Key,
+            Requested = page.Requested,
+            Seconds = page.Seconds,
+            Capped = page.Capped,
+            Hint = page.Hint,
+            Results = page.Candles,
+        };
     }
+
+    public object Any(GetLiveTrades request)
+    {
+        var symbol = RequireSymbol(request.Symbol);
+        if (!string.IsNullOrWhiteSpace(request.SimulationId))
+            return new GetLiveTradesResponse { Results = simulations.Marks(request.SimulationId, symbol) };
+        return new GetLiveTradesResponse { Results = LedgerMarks(RequireKey(request.Wallet), symbol) };
+    }
+
+    public object Any(GetTrackedSymbols request) =>
+        new GetTrackedSymbolsResponse { CatalogLoaded = symbols.CatalogLoaded, Results = Rows(symbols.List()) };
+
+    public object Any(AddTrackedSymbol request) =>
+        new GetTrackedSymbolsResponse { CatalogLoaded = symbols.CatalogLoaded, Results = Rows(symbols.Add(request.Product)) };
+
+    public object Any(RemoveTrackedSymbol request) =>
+        new GetTrackedSymbolsResponse { CatalogLoaded = symbols.CatalogLoaded, Results = Rows(symbols.Remove(request.Product)) };
+
+    public object Any(ReorderTrackedSymbols request) =>
+        new GetTrackedSymbolsResponse { CatalogLoaded = symbols.CatalogLoaded, Results = Rows(symbols.Reorder(request.Products)) };
+
+    List<LiveTradeMark> LedgerMarks(string wallet, string symbol)
+    {
+        var ledger = new LedgerServices(dbFactory, clock);
+        var marks = new List<LiveTradeMark>();
+        var skip = 0;
+        while (marks.Count < 5000)
+        {
+            var page = (QueryTradesResponse)ledger.Any(new QueryTrades
+            {
+                Wallet = wallet,
+                Symbol = symbol,
+                Take = 1000,
+                Skip = skip,
+                OrderBy = "time",
+                Descending = false,
+            });
+            if (page.Results.Count == 0)
+                break;
+            marks.AddRange(page.Results.Select(trade => new LiveTradeMark
+            {
+                TradeId = trade.Id,
+                Side = trade.Side,
+                Kind = trade.Kind,
+                Qty = trade.Qty,
+                Price = trade.Price,
+                Fee = trade.Fee,
+                ExecutedAt = trade.ExecutedAt,
+                Simulated = false,
+                RealizedPnl = trade.Side == TradeSide.Sell ? trade.RealizedPnl : null,
+            }));
+            if (page.Results.Count < 1000)
+                break;
+            skip += page.Results.Count;
+        }
+
+        return marks;
+    }
+
+    static List<TrackedSymbolRow> Rows(IEnumerable<TrackedRow> rows) =>
+        rows.Select(row => new TrackedSymbolRow
+        {
+            ProductId = row.ProductId,
+            Name = row.Name,
+            SortOrder = row.SortOrder,
+            Listed = row.Listed,
+            BaseIncrement = row.BaseIncrement,
+            QuoteIncrement = row.QuoteIncrement,
+            BaseMinSize = row.BaseMinSize,
+            MinMarketFunds = row.MinMarketFunds,
+        }).ToList();
 
     public object Any(CreatePaperWallet request)
     {
@@ -130,7 +189,8 @@ public class LiveServices(
     {
         var symbol = RequireSymbol(request.Symbol);
         RequireListed(symbol);
-        return orders.Place(Draft(RequireKey(request.Wallet), symbol, request.Side, request.Type, request.Qty, request.TriggerPrice, request.Costing, request.LotId, request.ClientId), Price(symbol));
+        var price = Price(symbol);
+        return orders.Place(Sized(Draft(RequireKey(request.Wallet), symbol, request.Side, request.Type, request.Qty, request.TriggerPrice, request.Costing, request.LotId, request.ClientId), price), price);
     }
 
     public object Any(CancelPaperOrder request)
@@ -167,10 +227,11 @@ public class LiveServices(
     {
         var symbol = RequireSymbol(request.Symbol);
         RequireListed(symbol);
+        var price = Price(symbol);
         return simulations.Place(
             request.Id ?? "",
-            Draft("", symbol, request.Side, request.Type, request.Qty, request.TriggerPrice, request.Costing, request.LotId, null),
-            Price(symbol));
+            Sized(Draft("", symbol, request.Side, request.Type, request.Qty, request.TriggerPrice, request.Costing, request.LotId, null), price),
+            price);
     }
 
     public object Any(CancelSimulationOrder request) =>
@@ -206,12 +267,23 @@ public class LiveServices(
             throw Fail(400, "UnknownProduct", $"Unknown USD product '{symbol}'.");
     }
 
+    OrderDraft Sized(OrderDraft draft, decimal? price)
+    {
+        var product = market.Products().FirstOrDefault(item => item.ProductId.Equals(draft.Symbol, StringComparison.OrdinalIgnoreCase));
+        var steps = new ProductSteps(product?.BaseIncrement ?? 0, product?.QuoteIncrement ?? 0, product?.BaseMinSize ?? 0, product?.MinMarketFunds ?? 0);
+        var reference = draft.Type == LiveOrderType.Market ? price ?? 0 : draft.TriggerPrice ?? price ?? 0;
+        var fit = OrderSize.FitQty(draft.Qty, reference, steps);
+        if (fit.Error != null)
+            throw Fail(400, "BelowMinimum", fit.Error);
+        return draft with { Qty = fit.Qty };
+    }
+
     static OrderDraft Draft(string wallet, string symbol, TradeSide? side, LiveOrderType? type, decimal qty, decimal? trigger, CostingMethod? costing, int? lotId, string? clientId)
     {
         if (side is not TradeSide knownSide || !Enum.IsDefined(knownSide))
             throw Fail(400, "InvalidRequest", "Order side must be Buy or Sell.");
         if (type is not LiveOrderType knownType || !Enum.IsDefined(knownType))
-            throw Fail(400, "InvalidRequest", "Order type must be market, limit, stop-loss, or take-profit.");
+            throw Fail(400, "InvalidRequest", "Order type must be market, limit, stop buy, stop-loss, or take-profit.");
         var method = costing ?? CostingMethod.Fifo;
         return new OrderDraft(wallet, symbol, knownSide, knownType, qty, trigger, method, lotId, clientId);
     }

@@ -12,6 +12,9 @@ public sealed class LiveFeedHostedService(
     IHostEnvironment environment,
     IHttpClientFactory httpFactory,
     LiveMarketCache cache,
+    LiveTickerPublisher publisher,
+    TrackedSymbolBook symbols,
+    PriceBars bars,
     PaperOrderBook orders,
     LiveSimulationStore simulations,
     ILogger<LiveFeedHostedService> log) : BackgroundService
@@ -65,16 +68,24 @@ public sealed class LiveFeedHostedService(
 
     async Task PollWatched(CancellationToken ct)
     {
+        var seeded = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         while (!ct.IsCancellationRequested)
         {
-            foreach (var product in cache.Watched())
+            foreach (var product in symbols.PollSymbols())
             {
                 try
                 {
                     using var http = httpFactory.CreateClient("coinbase-public");
                     var ticker = await http.GetStringAsync($"https://api.exchange.coinbase.com/products/{Uri.EscapeDataString(product)}/ticker", ct);
                     foreach (var tick in CoinbaseMessages.Ticks(ticker))
-                        cache.PublishTick(tick);
+                        publisher.Publish(tick);
+                    if (!bars.Any(product) && (!seeded.TryGetValue(product, out var tried) || clockAge(tried) > TimeSpan.FromMinutes(5)))
+                    {
+                        seeded[product] = DateTime.UtcNow;
+                        var history = await http.GetStringAsync($"https://api.exchange.coinbase.com/products/{Uri.EscapeDataString(product)}/candles?granularity=60", ct);
+                        bars.Seed(product, CoinbaseMessages.Candles(history));
+                    }
+
                     var candles = await http.GetStringAsync($"https://api.exchange.coinbase.com/products/{Uri.EscapeDataString(product)}/candles?granularity=300", ct);
                     cache.PublishCandles(product, "5m", CoinbaseMessages.Candles(candles));
                 }
@@ -88,6 +99,7 @@ public sealed class LiveFeedHostedService(
                 }
             }
 
+            bars.Flush();
             try
             {
                 await Task.Delay(TimeSpan.FromSeconds(2), ct);
@@ -99,12 +111,14 @@ public sealed class LiveFeedHostedService(
         }
     }
 
+    static TimeSpan clockAge(DateTime at) => DateTime.UtcNow - at;
+
     async Task RunSocket(CancellationToken ct)
     {
         var useExchange = true;
         while (!ct.IsCancellationRequested)
         {
-            var products = cache.Watched();
+            var products = symbols.PollSymbols();
             if (products.Count == 0)
             {
                 await Delay(TimeSpan.FromSeconds(1), ct);
@@ -122,7 +136,7 @@ public sealed class LiveFeedHostedService(
                     ? JsonSerializer.Serialize(new { type = "subscribe", product_ids = products, channels = new[] { "ticker" } })
                     : JsonSerializer.Serialize(new { type = "subscribe", product_ids = products, channel = "ticker" });
                 await socket.SendAsync(Encoding.UTF8.GetBytes(payload), WebSocketMessageType.Text, true, ct);
-                await ReadSocket(socket, ct);
+                await ReadSocket(socket, products, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -137,10 +151,11 @@ public sealed class LiveFeedHostedService(
         }
     }
 
-    async Task ReadSocket(ClientWebSocket socket, CancellationToken ct)
+    async Task ReadSocket(ClientWebSocket socket, IReadOnlyList<string> subscribed, CancellationToken ct)
     {
         var buffer = new byte[64 * 1024];
         var builder = new StringBuilder();
+        var nextCheck = DateTime.UtcNow.AddSeconds(2);
         while (socket.State == WebSocketState.Open && !ct.IsCancellationRequested)
         {
             builder.Clear();
@@ -155,8 +170,22 @@ public sealed class LiveFeedHostedService(
             while (!result.EndOfMessage);
 
             foreach (var tick in CoinbaseMessages.Ticks(builder.ToString()))
-                cache.PublishTick(tick);
+                publisher.Publish(tick);
+            if (DateTime.UtcNow >= nextCheck)
+            {
+                nextCheck = DateTime.UtcNow.AddSeconds(2);
+                if (!SameSet(subscribed, symbols.PollSymbols()))
+                    return;
+            }
         }
+    }
+
+    static bool SameSet(IReadOnlyList<string> left, IReadOnlyList<string> right)
+    {
+        if (left.Count != right.Count)
+            return false;
+        var seen = new HashSet<string>(left, StringComparer.OrdinalIgnoreCase);
+        return right.All(seen.Contains);
     }
 
     static async Task Delay(TimeSpan delay, CancellationToken ct)

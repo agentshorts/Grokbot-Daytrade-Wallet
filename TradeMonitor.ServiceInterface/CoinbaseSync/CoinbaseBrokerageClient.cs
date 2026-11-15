@@ -71,7 +71,13 @@ public sealed record CbAccount(string Currency, decimal Available);
 
 public sealed record CbPortfolio(string Uuid);
 
-public sealed record CbProduct(string? BaseIncrement, string? BaseCurrencyId);
+public sealed record CbProduct(
+    string? BaseIncrement,
+    string? BaseCurrencyId,
+    string? ProductType = null,
+    string? ProductVenue = null,
+    string? Venue = null,
+    bool PredictionDetails = false);
 
 public readonly record struct CbPermissions(bool CanTrade, bool CanTransfer);
 
@@ -213,9 +219,19 @@ public sealed partial class CoinbaseBrokerageClient : ICoinbaseReadApi, IDisposa
         try
         {
             using var doc = await GetAsync("/api/v3/brokerage/products/" + Segment(productId), null, true, cancellationToken);
+            var body = doc.RootElement;
+            if (body.TryGetProperty("product", out var nested)
+                && nested.ValueKind == JsonValueKind.Object
+                && !body.TryGetProperty("base_increment", out _))
+                body = nested;
+            var details = HasPredictionDetails(body);
             return new CbProduct(
-                CoinbaseJson.Text(doc.RootElement, "base_increment"),
-                CoinbaseJson.Text(doc.RootElement, "base_currency_id"));
+                CoinbaseJson.Text(body, "base_increment"),
+                CoinbaseJson.Text(body, "base_currency_id"),
+                CoinbaseJson.Text(body, "product_type"),
+                CoinbaseJson.Text(body, "product_venue"),
+                CoinbaseJson.Text(body, "venue"),
+                details);
         }
         catch (CoinbaseRejectedException)
         {
@@ -337,6 +353,16 @@ public sealed partial class CoinbaseBrokerageClient : ICoinbaseReadApi, IDisposa
             builder.Append(Uri.EscapeDataString(pair.Value));
         }
         return builder.ToString();
+    }
+
+    static bool HasPredictionDetails(JsonElement body)
+    {
+        foreach (var name in new[] { "prediction_market_product_details", "prediction_market_details", "prediction_details" })
+        {
+            if (body.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
+                return true;
+        }
+        return false;
     }
 
     static string Segment(string productId)
