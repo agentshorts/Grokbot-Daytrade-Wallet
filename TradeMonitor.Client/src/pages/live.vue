@@ -17,6 +17,7 @@ import type { ChartHit } from '@/lib/chartMenu'
 import { readChartPrefs, rememberInterval, removeCustomInterval, writeChartPrefs, type ChartPrefs } from '@/lib/chartPrefs'
 import { chartQuery, rangeBounds, readChartQuery, type ChartRange } from '@/lib/chartRange'
 import { baselineValue, mergeCandles, type BaselineSource, type CandleBar, type ChartType, type DeltaMode } from '@/lib/chartSeries'
+import { atrLabel, atrReadout, atrZones, bandMenu, bandTarget, costAtrText, horizonBars, scaleBands, type AtrHorizon, type AtrSnapshot } from '@/lib/atrBands'
 import { nearestSwing, swingLabel, type ChartGuide, type SwingSnapshot } from '@/lib/swingLevels'
 import { chartZone, unixFromWall, wallInput, zoneAbbrev, type ChartZoneMode } from '@/lib/chartTime'
 import { applyCandleTick, bucketSeconds, toCandleBars } from '@/lib/liveSeries'
@@ -65,6 +66,7 @@ const chart = ref<{ zoom: (factor: number) => void; fit: () => void } | null>(nu
 const historyBusy = ref(false)
 const historyDone = ref(false)
 const swing = ref<SwingSnapshot>({ notice: '', levels: [], above: [], below: [] })
+const atr = ref<AtrSnapshot>({ atr: null, price: 0, period: 14, notice: '' })
 const draft = ref<{ side: LiveSide; type: LiveOrderType; trigger: number; token: number } | null>(null)
 let timer = 0
 let stopStream: (() => void) | null = null
@@ -90,7 +92,25 @@ const shownLots = computed(() =>
 )
 const shownBook = computed<LiveBook | null>(() => (book.value ? { ...book.value, lots: shownLots.value } : null))
 const chartMarkers = computed(() => (showTrades.value ? toTradeMarks(marks.value) : []))
-const guides = computed<ChartGuide[]>(() => {
+const horizonCount = computed(() => horizonBars(prefs.value.atrHorizon, bucket.value))
+const liveBands = computed(() => {
+    if (!prefs.value.showAtr || price.value == null || atr.value.atr == null) return []
+    return scaleBands(price.value, atr.value.atr, horizonCount.value)
+})
+const zones = computed(() => (price.value == null ? [] : atrZones(price.value, liveBands.value)))
+const atrText = computed(() => (atr.value.atr == null ? '' : atrReadout(atr.value.period, prefs.value.interval, prefs.value.atrHorizon, atr.value.atr, horizonCount.value)))
+const costText = computed(() => {
+    if (!prefs.value.showAtr || atr.value.atr == null || price.value == null || averageCost.value == null) return ''
+    return costAtrText(averageCost.value, price.value, atr.value.atr) ?? ''
+})
+const menuExtra = computed(() => {
+    const hit = menu.value?.hit
+    if (!hit || hit.kind !== 'price' || price.value == null) return []
+    return bandMenu(hit.price, price.value, liveBands.value)
+})
+const guides = computed<ChartGuide[]>(() => [...swingGuides(), ...atrGuides()])
+
+function swingGuides(): ChartGuide[] {
     if (!prefs.value.showSwing || price.value == null) return []
     const nearest = nearestSwing(swing.value.levels, price.value)
     const rank = new Map<SwingSnapshot['levels'][number], number>()
@@ -104,7 +124,31 @@ const guides = computed<ChartGuide[]>(() => {
         label: rank.has(level) ? swingLabel(level, price.value ?? 0, rank.get(level) ?? 1) : '',
         width: Math.min(4, Math.max(1, level.strength)),
     }))
-})
+}
+
+function atrGuides(): ChartGuide[] {
+    if (price.value == null) return []
+    return liveBands.value.flatMap((band) => [
+        {
+            id: `atr-up-${band.mult}`,
+            price: band.upper,
+            color: '#12b76a',
+            title: 'possible target',
+            label: atrLabel(band.mult, band.upper, price.value ?? 0, 'up'),
+            width: 1,
+            hit: false,
+        },
+        {
+            id: `atr-down-${band.mult}`,
+            price: band.lower,
+            color: '#f04438',
+            title: 'possible target',
+            label: atrLabel(band.mult, band.lower, price.value ?? 0, 'down'),
+            width: 1,
+            hit: false,
+        },
+    ])
+}
 const linkLabel = computed(() => (stream.link.value === 'live' ? 'live' : stream.link.value === 'reconnecting' ? 'reconnecting' : 'connecting'))
 
 function rememberWidth(value: PanelWidth) {
@@ -322,6 +366,12 @@ function onMenu(action: { id: string; qty?: number }) {
         if (lot) void order({ symbol: product.value, side: 'Sell', type: 'Market', qty: lot.qty, costing: 'Lot', lotId: lot.tradeId })
         return
     }
+    if ((id === 'atr-take' || id === 'atr-stop') && (hit.kind === 'price' || hit.kind === 'level') && price.value != null) {
+        const target = bandTarget(hit.price, price.value, liveBands.value)
+        if (target && target.id === id) prefill('Sell', id === 'atr-take' ? 'TakeProfit' : 'StopLoss', target.price)
+        else menu.value = null
+        return
+    }
     if (hit.kind === 'level') {
         if (id === 'limit-sell') prefill('Sell', 'Limit', hit.price)
         if (id === 'take') prefill('Sell', 'TakeProfit', hit.price)
@@ -525,6 +575,7 @@ function onDeltaMode(value: DeltaMode) {
 }
 
 const swingKey = computed(() => `${product.value}|${prefs.value.interval}|${candles.value[candles.value.length - 1]?.time ?? 0}|${prefs.value.showSwing ? 1 : 0}`)
+const atrKey = computed(() => `${product.value}|${prefs.value.interval}|${candles.value[candles.value.length - 1]?.time ?? 0}|${prefs.value.showAtr ? 1 : 0}|${prefs.value.atrHorizon}`)
 
 async function loadSwing() {
     if (!prefs.value.showSwing) return
@@ -561,9 +612,29 @@ function onHistory() {
         })
 }
 
-watch(swingKey, () => {
+async function loadAtr() {
+    if (!prefs.value.showAtr) return
+    const token = atrKey.value
+    try {
+        const next = await live.atr(product.value, prefs.value.interval, 14, horizonCount.value)
+        if (token === atrKey.value) atr.value = next
+    } catch (err) {
+        fail(err)
+    }
+}
+
+function onHorizon(value: AtrHorizon) {
+    savePrefs({ ...prefs.value, atrHorizon: value })
+}
+
+watch([swingKey, ready], () => {
     if (!ready.value) return
     void loadSwing()
+})
+
+watch([atrKey, ready], () => {
+    if (!ready.value) return
+    void loadAtr()
 })
 
 watch(stream.link, (value) => {
@@ -665,6 +736,11 @@ onUnmounted(() => {
                 :show-baseline="showBaseline"
                 :show-swing="prefs.showSwing"
                 :swing-notice="swing.notice"
+                :show-atr="prefs.showAtr"
+                :atr-horizon="prefs.atrHorizon"
+                :atr-text="atrText"
+                :atr-notice="atr.notice"
+                :cost-text="costText"
                 @type="onType"
                 @interval="onInterval"
                 @add-interval="onAddInterval"
@@ -678,6 +754,8 @@ onUnmounted(() => {
                 @baseline-price="onBaselinePrice"
                 @delta-mode="onDeltaMode"
                 @swing="savePrefs({ ...prefs, showSwing: !prefs.showSwing })"
+                @atr="savePrefs({ ...prefs, showAtr: !prefs.showAtr })"
+                @horizon="onHorizon"
             />
             <div class="relative min-h-0 flex-1" @click.stop>
                 <LiveChart
@@ -697,6 +775,7 @@ onUnmounted(() => {
                     :time-zone="prefs.timeZone"
                     :interval-seconds="bucket"
                     :guides="guides"
+                    :zones="zones"
                     @menu="menu = $event"
                     @history="onHistory"
                     @baseline="onBaselinePrice"
@@ -707,6 +786,7 @@ onUnmounted(() => {
                     :x="menu.x"
                     :y="menu.y"
                     :pending-move-id="pendingMoveId ?? undefined"
+                    :extra="menuExtra"
                     :cash="shownBook?.cash ?? 0"
                     :held-qty="shownBook?.average.openQty ?? 0"
                     :market-price="price"
