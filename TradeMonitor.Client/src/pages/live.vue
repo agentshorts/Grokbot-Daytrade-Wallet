@@ -20,6 +20,7 @@ import { baselineValue, mergeCandles, type BaselineSource, type CandleBar, type 
 import { atrLabel, atrReadout, atrZones, bandMenu, bandTarget, costAtrText, horizonBars, scaleBands, type AtrHorizon, type AtrSnapshot } from '@/lib/atrBands'
 import { forecastHorizonBars, type ForecastHorizon, type ForecastSnapshot } from '@/lib/forecast'
 import { nearestSwing, swingLabel, type ChartGuide, type SwingSnapshot } from '@/lib/swingLevels'
+import type { StepLadderInputs, StepLadderSnapshot } from '@/lib/stepLadder'
 import { chartZone, formatChartCrosshair, unixFromWall, wallInput, zoneAbbrev, type ChartZoneMode } from '@/lib/chartTime'
 import { applyCandleTick, bucketSeconds, toCandleBars } from '@/lib/liveSeries'
 import { quoteLots } from '@/lib/lotQuote'
@@ -69,6 +70,7 @@ const historyDone = ref(false)
 const swing = ref<SwingSnapshot>({ notice: '', levels: [], above: [], below: [] })
 const atr = ref<AtrSnapshot>({ atr: null, price: 0, period: 14, notice: '' })
 const forecast = ref<ForecastSnapshot>({ model: 'TimesFM 2.5', notice: '', coverage: '', generatedAt: 0, steps: [] })
+const stepLadder = ref<StepLadderSnapshot>({ bars: [] })
 const draft = ref<{ side: LiveSide; type: LiveOrderType; trigger: number; token: number } | null>(null)
 let timer = 0
 let stopStream: (() => void) | null = null
@@ -583,6 +585,16 @@ function onDeltaMode(value: DeltaMode) {
 const swingKey = computed(() => `${product.value}|${prefs.value.interval}|${candles.value[candles.value.length - 1]?.time ?? 0}|${prefs.value.showSwing ? 1 : 0}`)
 const atrKey = computed(() => `${product.value}|${prefs.value.interval}|${candles.value[candles.value.length - 1]?.time ?? 0}|${prefs.value.showAtr ? 1 : 0}|${prefs.value.atrHorizon}`)
 const forecastKey = computed(() => `${product.value}|${prefs.value.interval}|${candles.value[candles.value.length - 1]?.time ?? 0}|${prefs.value.showForecast ? 1 : 0}|${prefs.value.forecastHorizon}`)
+const studyBars = computed(() => {
+    if (!prefs.value.showStepLadder) return []
+    const times = new Set(candles.value.map((bar) => bar.time))
+    return stepLadder.value.bars.filter((bar) => times.has(bar.time))
+})
+const stepKey = computed(() => {
+    const range = prefs.value.range === 'custom' ? `${fromSec.value ?? ''}:${toSec.value ?? ''}` : prefs.value.range
+    const last = candles.value[candles.value.length - 1]?.time ?? 0
+    return [product.value, prefs.value.interval, last, prefs.value.showStepLadder ? 1 : 0, prefs.value.stepIncrease, prefs.value.dormantThreshold, prefs.value.dormantPeriod, range].join('|')
+})
 
 async function loadSwing() {
     if (!prefs.value.showSwing) return
@@ -649,6 +661,35 @@ function onForecastHorizon(value: ForecastHorizon) {
     savePrefs({ ...prefs.value, forecastHorizon: value })
 }
 
+async function loadStepLadder() {
+    if (!prefs.value.showStepLadder) return
+    const token = stepKey.value
+    try {
+        const next = await live.stepLadder(
+            product.value,
+            prefs.value.interval,
+            {
+                stepIncrease: prefs.value.stepIncrease,
+                dormantThreshold: prefs.value.dormantThreshold,
+                dormantPeriod: prefs.value.dormantPeriod,
+            },
+            bounds(),
+        )
+        if (token === stepKey.value) stepLadder.value = next
+    } catch (err) {
+        fail(err)
+    }
+}
+
+function onStepLadderInputs(value: StepLadderInputs) {
+    savePrefs({
+        ...prefs.value,
+        stepIncrease: value.stepIncrease,
+        dormantThreshold: value.dormantThreshold,
+        dormantPeriod: value.dormantPeriod,
+    })
+}
+
 watch([swingKey, ready], () => {
     if (!ready.value) return
     void loadSwing()
@@ -662,6 +703,11 @@ watch([atrKey, ready], () => {
 watch([forecastKey, ready], () => {
     if (!ready.value) return
     void loadForecast()
+})
+
+watch([stepKey, ready], () => {
+    if (!ready.value) return
+    void loadStepLadder()
 })
 
 watch(stream.link, (value) => {
@@ -773,6 +819,10 @@ onUnmounted(() => {
                 :forecast-text="forecastText"
                 :forecast-notice="forecast.notice"
                 :coverage-text="forecast.coverage"
+                :show-step-ladder="prefs.showStepLadder"
+                :step-increase="prefs.stepIncrease"
+                :dormant-threshold="prefs.dormantThreshold"
+                :dormant-period="prefs.dormantPeriod"
                 @type="onType"
                 @interval="onInterval"
                 @add-interval="onAddInterval"
@@ -790,6 +840,8 @@ onUnmounted(() => {
                 @horizon="onHorizon"
                 @forecast="savePrefs({ ...prefs, showForecast: !prefs.showForecast })"
                 @forecast-horizon="onForecastHorizon"
+                @step-ladder="savePrefs({ ...prefs, showStepLadder: !prefs.showStepLadder })"
+                @step-ladder-inputs="onStepLadderInputs"
             />
             <div class="relative min-h-0 flex-1" @click.stop>
                 <LiveChart
@@ -811,6 +863,8 @@ onUnmounted(() => {
                     :guides="guides"
                     :zones="zones"
                     :forecast="prefs.showForecast ? forecast.steps : []"
+                    :show-study="prefs.showStepLadder"
+                    :study="studyBars"
                     @menu="menu = $event"
                     @history="onHistory"
                     @baseline="onBaselinePrice"

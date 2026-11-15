@@ -16,7 +16,7 @@ import {
     type Time,
     type UTCTimestamp,
 } from 'lightweight-charts'
-import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { LiveOrder } from '@/api/live'
 import { hitTest, type ChartHit, type ChartLine } from '@/lib/chartMenu'
 import { wantsOlderHistory } from '@/lib/chartRange'
@@ -27,6 +27,7 @@ import type { PriceZone } from '@/lib/atrBands'
 import { forecastLabel, type ForecastStep } from '@/lib/forecast'
 import { stackLabelYs, type ChartGuide } from '@/lib/swingLevels'
 import type { ChartTradeMark } from '@/lib/tradeMarkers'
+import type { StepLadderBar } from '@/lib/stepLadder'
 
 interface Plot {
     setData: (data: readonly object[]) => void
@@ -58,6 +59,8 @@ const props = withDefaults(
         guides?: ChartGuide[]
         zones?: PriceZone[]
         forecast?: ForecastStep[]
+        showStudy?: boolean
+        study?: StepLadderBar[]
     }>(),
     {
         chartType: 'candle',
@@ -70,6 +73,8 @@ const props = withDefaults(
         guides: () => [],
         zones: () => [],
         forecast: () => [],
+        showStudy: false,
+        study: () => [],
     },
 )
 
@@ -85,11 +90,14 @@ let chart: IChartApi | null = null
 let main: Plot | null = null
 let delta: Plot | null = null
 let volume: Plot | null = null
+let studyVolume: Plot | null = null
+let studyAvg: Plot | null = null
 let forecastLine: Plot | null = null
 let plots: object[] = []
 let lines: IPriceLine[] = []
 let marks: { kind: 'lot' | 'order' | 'level'; id: number; price: number }[] = []
 let stepMarkers: { setMarkers: (markers: object[]) => void } | null = null
+let studyMarkers: { setMarkers: (markers: object[]) => void } | null = null
 let observer: ResizeObserver | null = null
 let fitted = ''
 let built = ''
@@ -102,6 +110,15 @@ const guideLabels = ref<{ id: string; y: number; text: string; color: string; ti
 const zoneRects = ref<{ id: string; top: number; height: number; color: string }[]>([])
 const forecastCones = ref({ outer: '', inner: '' })
 const forecastLabels = ref<{ id: string; x: number; y: number; text: string; title: string }[]>([])
+const studyMarks = computed(() => {
+    if (!props.showStudy) return []
+    return props.study.flatMap((bar) => {
+        const rows: { time: number; kind: 'step' | 'dormant' }[] = []
+        if (bar.step) rows.push({ time: bar.time, kind: 'step' })
+        if (bar.dormant) rows.push({ time: bar.time, kind: 'dormant' })
+        return rows
+    })
+})
 
 function zone(): string {
     return chartZone(props.timeZone, props.zoneName || undefined)
@@ -200,15 +217,41 @@ function clearSeries() {
     main = null
     delta = null
     volume = null
+    studyVolume = null
+    studyAvg = null
     forecastLine = null
     stepMarkers = null
+    studyMarkers = null
     lines = []
     marks = []
     drawnCount = 0
 }
 
 function seriesShape(): string {
-    return `${props.chartType}|${props.showVolume ? 1 : 0}|${props.deltaMode}`
+    return `${props.chartType}|${props.showVolume ? 1 : 0}|${props.deltaMode}|${props.showStudy ? 1 : 0}`
+}
+
+function studyPane(): number {
+    let pane = 1
+    if (showsDeltaPane(props.chartType)) pane += 1
+    if (props.showVolume) pane += 1
+    return pane
+}
+
+function studyMarkerRows() {
+    const rows: object[] = []
+    for (const bar of props.study) {
+        if (bar.step) rows.push({ time: bar.time as UTCTimestamp, position: 'aboveBar', color: '#12b76a', shape: 'arrowUp', size: 2 })
+        if (bar.dormant) rows.push({ time: bar.time as UTCTimestamp, position: 'belowBar', color: '#f04438', shape: 'arrowDown', size: 2 })
+    }
+    return rows
+}
+
+function paintStudy() {
+    if (!studyVolume || !studyAvg) return
+    studyVolume.setData(props.study.map((bar) => ({ time: bar.time as UTCTimestamp, value: bar.volume })))
+    studyAvg.setData(props.study.flatMap((bar) => (bar.vol24 == null ? [] : [{ time: bar.time as UTCTimestamp, value: bar.vol24 }])))
+    studyMarkers?.setMarkers(studyMarkerRows())
 }
 
 function buildSeries(data: CandleBar[]) {
@@ -260,6 +303,16 @@ function buildSeries(data: CandleBar[]) {
         volume = add(HistogramSeries, { priceFormat: { type: 'volume' } }, showsDeltaPane(props.chartType) ? 2 : 1)
         volume.setData(data.map(volumePoint))
     }
+    if (props.showStudy && main) {
+        const pane = studyPane()
+        const line = { lineWidth: 2, priceLineVisible: false, lastValueVisible: true, priceFormat: { type: 'volume' } }
+        studyVolume = add(LineSeries, { ...line, color: '#2e90fa' }, pane)
+        studyAvg = add(LineSeries, { ...line, color: '#f79009' }, pane)
+        studyMarkers = createSeriesMarkers(main as never, []) as { setMarkers: (markers: object[]) => void }
+        paintStudy()
+        const panes = (chart as { panes?: () => { setStretchFactor?: (value: number) => void }[] } | null)?.panes?.()
+        panes?.[pane]?.setStretchFactor?.(0.3)
+    }
     drawnCount = data.length
     drawnFirst = data[0]?.time ?? 0
 }
@@ -275,6 +328,7 @@ function paint(data: CandleBar[]) {
             if (point) delta.update({ ...point, time: point.time as UTCTimestamp })
         }
         if (volume) volume.update(volumePoint(data[data.length - 1]!))
+        paintStudy()
     } else {
         main?.setData(usesOhlc(props.chartType) ? price.map(ohlcPoint) : price.map(linePoint))
         delta?.setData(deltaPoints(data, props.deltaMode).map((point) => ({ ...point, time: point.time as UTCTimestamp })))
@@ -282,6 +336,7 @@ function paint(data: CandleBar[]) {
         if (stepMarkers) {
             stepMarkers.setMarkers(price.map((bar) => ({ time: bar.time as UTCTimestamp, position: 'inBar', color: '#465fff', shape: 'circle' })))
         }
+        paintStudy()
     }
     if (props.chartType === 'baseline' || props.chartType === 'vertex-baseline') main?.applyOptions(baselineOptions())
     drawnCount = data.length
@@ -598,7 +653,7 @@ onMounted(() => {
 })
 
 watch(
-    () => [props.points, props.candles, props.price, props.lots, props.orders, props.markers, props.guides, props.zones, props.forecast, props.dark, props.fitKey, props.chartType, props.showVolume, props.baselinePrice, props.deltaMode, props.timeZone, props.zoneName, props.intervalSeconds],
+    () => [props.points, props.candles, props.price, props.lots, props.orders, props.markers, props.guides, props.zones, props.forecast, props.study, props.showStudy, props.dark, props.fitKey, props.chartType, props.showVolume, props.baselinePrice, props.deltaMode, props.timeZone, props.zoneName, props.intervalSeconds],
     () => {
         void render()
     },
@@ -676,6 +731,9 @@ onUnmounted(() => {
                 {{ label.text }}
             </p>
         </div>
+        <ul class="sr-only" data-testid="step-ladder-markers">
+            <li v-for="mark in studyMarks" :key="`${mark.kind}-${mark.time}`" :data-kind="mark.kind" :data-time="mark.time">{{ mark.kind }} {{ mark.time }}</li>
+        </ul>
         <ul class="sr-only" data-testid="trade-markers">
             <li v-for="mark in markers" :key="mark.id" :data-side="mark.side" :data-simulated="String(mark.simulated)">{{ mark.text }}</li>
         </ul>

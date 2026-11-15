@@ -4,6 +4,7 @@ import { intervalPresets, parseInterval } from '@/lib/chartInterval'
 import { quickRanges, type ChartRange } from '@/lib/chartRange'
 import { chartTypes, isChartType, type BaselineSource, type ChartType, type DeltaMode } from '@/lib/chartSeries'
 import type { ChartZoneMode } from '@/lib/chartTime'
+import { keepDormantPeriod, keepDormantThreshold, keepStepIncrease, stepLadderDefaults } from '@/lib/stepLadder'
 
 export const CHART_PREFS_KEY = 'trademonitor.chart'
 
@@ -24,6 +25,10 @@ export interface ChartPrefs {
     atrHorizon: AtrHorizon
     showForecast: boolean
     forecastHorizon: ForecastHorizon
+    showStepLadder: boolean
+    stepIncrease: number
+    dormantThreshold: number
+    dormantPeriod: number
 }
 
 export interface PrefsStorage {
@@ -49,6 +54,10 @@ export function defaultChartPrefs(): ChartPrefs {
         atrHorizon: '1bar',
         showForecast: false,
         forecastHorizon: '1h',
+        showStepLadder: false,
+        stepIncrease: stepLadderDefaults.stepIncrease,
+        dormantThreshold: stepLadderDefaults.dormantThreshold,
+        dormantPeriod: stepLadderDefaults.dormantPeriod,
     }
 }
 
@@ -115,6 +124,10 @@ function sanitize(value: Partial<ChartPrefs>, fallback: ChartPrefs): ChartPrefs 
         atrHorizon: typeof value.atrHorizon === 'string' && isAtrHorizon(value.atrHorizon) ? value.atrHorizon : '1bar',
         showForecast: value.showForecast === true,
         forecastHorizon: typeof value.forecastHorizon === 'string' && isForecastHorizon(value.forecastHorizon) ? value.forecastHorizon : '1h',
+        showStepLadder: value.showStepLadder === true,
+        stepIncrease: keepStepIncrease(value.stepIncrease),
+        dormantThreshold: keepDormantThreshold(value.dormantThreshold),
+        dormantPeriod: keepDormantPeriod(value.dormantPeriod),
     }
 }
 

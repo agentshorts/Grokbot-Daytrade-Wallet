@@ -9,6 +9,8 @@ import { intervalPresets } from '@/lib/chartInterval'
 import { readChartPrefs, rememberInterval, removeCustomInterval, writeChartPrefs, type ChartPrefs } from '@/lib/chartPrefs'
 import { quickRanges } from '@/lib/chartRange'
 import { chartTypes, type ChartType } from '@/lib/chartSeries'
+import type { StepLadderInputs } from '@/lib/stepLadder'
+import StepLadderFields from '@/components/live/StepLadderFields.vue'
 
 const live = useLive()
 const chart = ref<ChartPrefs>(readChartPrefs(localStorage))
@@ -100,6 +102,10 @@ function onHorizon(value: string) {
 function onForecastHorizon(value: string) {
     if (!isForecastHorizon(value)) return
     saveChart({ ...chart.value, forecastHorizon: value })
+}
+
+function onStepLadderInputs(value: StepLadderInputs) {
+    saveChart({ ...chart.value, stepIncrease: value.stepIncrease, dormantThreshold: value.dormantThreshold, dormantPeriod: value.dormantPeriod })
 }
 
 function addCustom() {
@@ -236,12 +242,19 @@ onMounted(() => {
                     <input data-testid="chart-forecast" type="checkbox" :checked="chart.showForecast" @change="saveChart({ ...chart, showForecast: !chart.showForecast })" />
                     Targets: Forecast
                 </label>
+                <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+                    <input data-testid="chart-step-ladder" type="checkbox" :checked="chart.showStepLadder" @change="saveChart({ ...chart, showStepLadder: !chart.showStepLadder })" />
+                    Step ladder
+                </label>
                 <label class="text-xs font-medium text-gray-500">
                     Forecast horizon
                     <select data-testid="chart-forecast-horizon" class="ms-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" :value="chart.forecastHorizon" @change="onForecastHorizon(($event.target as HTMLSelectElement).value)">
                         <option v-for="item in forecastHorizons" :key="item.id" :value="item.id">{{ item.label }}</option>
                     </select>
                 </label>
+            </div>
+            <div class="max-w-xs">
+                <StepLadderFields :step-increase="chart.stepIncrease" :dormant-threshold="chart.dormantThreshold" :dormant-period="chart.dormantPeriod" @change="onStepLadderInputs" />
             </div>
             <form class="flex flex-wrap items-center gap-2" @submit.prevent="addCustom">
                 <input v-model="customInterval" data-testid="settings-custom-interval" class="w-28 rounded-lg border border-gray-200 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" placeholder="7m" />
