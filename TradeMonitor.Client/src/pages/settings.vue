@@ -11,9 +11,12 @@ import { quickRanges } from '@/lib/chartRange'
 import { chartTypes, type ChartType } from '@/lib/chartSeries'
 import type { StepLadderInputs } from '@/lib/stepLadder'
 import StepLadderFields from '@/components/live/StepLadderFields.vue'
+import OscillationFields from '@/components/OscillationFields.vue'
+import { readOscillationPrefs, writeOscillationPrefs, type OscillationPrefs } from '@/lib/oscillationPrefs'
 
 const live = useLive()
 const chart = ref<ChartPrefs>(readChartPrefs(localStorage))
+const oscillation = ref<OscillationPrefs>(readOscillationPrefs(localStorage))
 const customInterval = ref('')
 const intervalError = ref('')
 const rows = ref<TrackedSymbol[]>([])
@@ -80,6 +83,11 @@ async function move(index: number, delta: number) {
 function saveChart(next: ChartPrefs) {
     chart.value = next
     writeChartPrefs(localStorage, next)
+}
+
+function saveOscillation(next: OscillationPrefs) {
+    oscillation.value = next
+    writeOscillationPrefs(localStorage, next)
 }
 
 function toggleType(id: ChartType) {
@@ -262,6 +270,13 @@ onMounted(() => {
                 <button v-for="item in chart.customIntervals" :key="item" type="button" class="text-sm text-error-500" @click="saveChart(removeCustomInterval(chart, item))">Remove {{ item }}</button>
             </form>
             <p v-if="intervalError" class="text-sm text-error-500">{{ intervalError }}</p>
+        </section>
+        <section data-testid="oscillation-settings" class="space-y-3">
+            <div>
+                <h2 class="text-sm font-semibold text-gray-900 dark:text-white">Prediction oscillation</h2>
+                <p class="mt-1 text-sm text-gray-500">Lookback and reversal size for the Oscillation view on this browser.</p>
+            </div>
+            <OscillationFields :lookback-hours="oscillation.lookbackHours" :threshold-cents="oscillation.thresholdCents" @change="saveOscillation" />
         </section>
     </div>
 </template>

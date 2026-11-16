@@ -9,6 +9,7 @@ import {
     parseSummary,
     parseSymbols,
     parseTradeDetail,
+    parseOscillation,
     parsePredictionPnl,
     parseTrades,
     parseWallet,
@@ -22,6 +23,8 @@ import type {
     LedgerQuery,
     PnlDailyResponse,
     PositionsResponse,
+    OscillationQuery,
+    OscillationResponse,
     PredictionPnlResponse,
     PriceMarksResponse,
     SummaryResponse,
@@ -53,6 +56,7 @@ export interface LedgerClient {
     walletHistory(key: string, query?: LedgerQuery): Promise<WalletHistoryResponse>
     priceMarks(query?: LedgerQuery): Promise<PriceMarksResponse>
     predictions(): Promise<PredictionPnlResponse>
+    oscillation(query?: OscillationQuery): Promise<OscillationResponse>
 }
 
 export function withQuery(path: string, query: LedgerQuery = {}): string {
@@ -148,6 +152,14 @@ export function createLedgerClient(transport: LedgerTransport = fetchTransport()
         walletHistory: (key, query) => request(transport, walletPath(key, '/history'), query, parseWalletHistory),
         priceMarks: (query) => request(transport, readPath('/price-marks'), query, parsePriceMarks),
         predictions: () => request(transport, readPath('/predictions'), {}, parsePredictionPnl),
+        oscillation: (query = {}) => {
+            const params = new URLSearchParams()
+            if (query.lookbackHours != null) params.set('lookbackHours', String(query.lookbackHours))
+            if (query.thresholdCents != null) params.set('thresholdCents', String(query.thresholdCents))
+            if (query.ticker) params.set('ticker', query.ticker)
+            const qs = params.toString()
+            return request(transport, readPath('/predictions/oscillation') + (qs ? `?${qs}` : ''), {}, parseOscillation)
+        },
     }
 }
 

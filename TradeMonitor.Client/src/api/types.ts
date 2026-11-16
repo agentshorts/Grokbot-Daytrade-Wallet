@@ -398,3 +398,38 @@ export interface PredictionPnlResponse {
     wallets: PredictionPnlRow[]
     total: PredictionPnlTotal
 }
+
+export interface OscillationQuery {
+    lookbackHours?: number
+    thresholdCents?: number
+    ticker?: string
+}
+
+export interface OscillationRow {
+    ticker: string
+    productId: string
+    series: string
+    wallet: string | null
+    name: string
+    qty: number
+    priceCents: number | null
+    highCents: number | null
+    lowCents: number | null
+    rangeCents: number
+    rangePercent: number | null
+    reversals: number
+    oscillating: boolean
+    sparkline: number[]
+    closeAt: string | null
+    closeCentral: string | null
+    source: string
+    error: string | null
+}
+
+export interface OscillationResponse {
+    lookbackHours: number
+    thresholdCents: number
+    results: OscillationRow[]
+    lookup: OscillationRow | null
+    lookupError: string | null
+}
