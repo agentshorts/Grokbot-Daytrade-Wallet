@@ -14,10 +14,19 @@ public class ConfigurePredictions : IHostingStartup
             {
                 client.Timeout = TimeSpan.FromSeconds(4);
             });
+            services.AddHttpClient(PublicPredictionQuotes.HttpName, client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(8);
+            });
             services.AddSingleton<IContractCloses>(sp =>
             {
                 var factory = sp.GetRequiredService<IHttpClientFactory>();
                 return new PublicContractCloses(() => factory.CreateClient(PublicContractCloses.HttpName));
+            });
+            services.AddSingleton<IPredictionQuotes>(sp =>
+            {
+                var factory = sp.GetRequiredService<IHttpClientFactory>();
+                return new PublicPredictionQuotes(() => factory.CreateClient(PublicPredictionQuotes.HttpName));
             });
         });
 }

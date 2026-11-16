@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import type { PredictionPnlResponse, PredictionPnlRow } from '@/api'
 import HideClosedContracts from '@/components/HideClosedContracts.vue'
+import OscillationView from '@/components/OscillationView.vue'
 import MoneyCell from '@/components/MoneyCell.vue'
 import StatePanel from '@/components/shell/StatePanel.vue'
 import { explainLedgerError, useLedger } from '@/composables/useLedger'
@@ -12,6 +14,8 @@ import { settlementLabel } from '@/lib/predictionView'
 import { REFRESH_MS, startPolling } from '@/lib/refresh'
 
 const client = useLedger()
+const route = useRoute()
+const oscillation = computed(() => route.query.view === 'oscillation')
 const status = ref<'loading' | 'ready' | 'error'>('loading')
 const error = ref<string | null>(null)
 const model = ref<PredictionPnlResponse | null>(null)
@@ -75,14 +79,33 @@ onUnmounted(() => stop())
 
 <template>
     <div data-testid="predictions" class="space-y-6">
-        <div>
-            <h1 class="text-xl font-semibold text-gray-900 dark:text-white/90">Prediction markets</h1>
-            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                Realized P&L for each contract wallet, and the total across them. Fees are included in the P&L.
-            </p>
+        <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-semibold text-gray-900 dark:text-white/90">{{ oscillation ? 'Oscillation' : 'Prediction markets' }}</h1>
+                <p v-if="!oscillation" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Realized P&L for each contract wallet, and the total across them. Fees are included in the P&L.
+                </p>
+            </div>
+            <RouterLink
+                v-if="!oscillation"
+                data-testid="open-oscillation"
+                class="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-white/5"
+                :to="{ path: '/predictions', query: { view: 'oscillation' } }"
+            >
+                Oscillation
+            </RouterLink>
+            <RouterLink
+                v-else
+                data-testid="close-oscillation"
+                class="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-white/5"
+                to="/predictions"
+            >
+                P&L
+            </RouterLink>
         </div>
 
-        <StatePanel v-if="status === 'loading' && !model" tone="loading" title="Loading prediction P&L" />
+        <OscillationView v-if="oscillation" />
+        <StatePanel v-else-if="status === 'loading' && !model" tone="loading" title="Loading prediction P&L" />
         <StatePanel v-else-if="status === 'error' && !model" tone="error" title="Could not load prediction P&L" :body="error || 'Try again in a moment.'">
             <button type="button" class="rounded-lg bg-brand-500 px-3 py-1.5 text-sm font-medium text-white" @click="refresh()">Try again</button>
         </StatePanel>

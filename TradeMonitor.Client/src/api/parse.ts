@@ -12,6 +12,8 @@ import type {
     PositionRow,
     PositionsResponse,
     PriceMarkRow,
+    OscillationResponse,
+    OscillationRow,
     PredictionPnlResponse,
     PredictionPnlRow,
     PredictionPnlTotal,
@@ -624,6 +626,53 @@ export function parsePredictionPnl(body: unknown): PredictionPnlResponse {
     return {
         wallets: list(pick(row, 'wallets'), parsePredictionRow),
         total: parsePredictionTotal(pick(row, 'total')),
+    }
+}
+
+function numbers(value: unknown): number[] {
+    if (!Array.isArray(value)) return []
+    const points: number[] = []
+    for (const item of value) {
+        const parsed = readMoney(item)
+        if (parsed != null) points.push(parsed)
+    }
+    return points
+}
+
+function parseOscillationRow(value: unknown): OscillationRow | null {
+    const row = asRecord(value)
+    if (!row) return null
+    const ticker = text(row, 'ticker') ?? ''
+    return {
+        ticker,
+        productId: text(row, 'productId') ?? '',
+        series: text(row, 'series') ?? '',
+        wallet: text(row, 'wallet'),
+        name: text(row, 'name') ?? ticker,
+        qty: amount(row, 'qty'),
+        priceCents: maybe(row, 'priceCents'),
+        highCents: maybe(row, 'highCents'),
+        lowCents: maybe(row, 'lowCents'),
+        rangeCents: amount(row, 'rangeCents'),
+        rangePercent: maybe(row, 'rangePercent'),
+        reversals: count(row, 'reversals'),
+        oscillating: flag(row, 'oscillating'),
+        sparkline: numbers(pick(row, 'sparkline')),
+        closeAt: readTime(pick(row, 'closeAt')),
+        closeCentral: text(row, 'closeCentral'),
+        source: text(row, 'source') ?? 'none',
+        error: text(row, 'error'),
+    }
+}
+
+export function parseOscillation(body: unknown): OscillationResponse {
+    const row = asRecord(body) ?? {}
+    return {
+        lookbackHours: amount(row, 'lookbackHours') || 6,
+        thresholdCents: amount(row, 'thresholdCents') || 5,
+        results: list(pick(row, 'results'), parseOscillationRow),
+        lookup: parseOscillationRow(pick(row, 'lookup')),
+        lookupError: text(row, 'lookupError'),
     }
 }
 
