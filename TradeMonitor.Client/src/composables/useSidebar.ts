@@ -1,10 +1,16 @@
 // Sidebar open state, adapted from TailAdmin Vue (MIT).
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { readNavCollapsed, writeNavCollapsed } from '@/lib/uiState'
+import { browserStorage } from '@/lib/predictionContract'
 
-const open = ref(true)
+const open = ref(!readNavCollapsed(browserStorage()))
 const openMobile = ref(false)
 const isMobile = ref(false)
+
+watch(open, (value) => {
+    writeNavCollapsed(browserStorage(), !value)
+})
 
 export function useSidebar() {
     function toggleSidebar() {

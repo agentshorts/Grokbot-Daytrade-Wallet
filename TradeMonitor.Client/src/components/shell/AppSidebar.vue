@@ -32,8 +32,10 @@ function active(path: string) {
 <template>
     <div v-if="openMobile" class="fixed inset-0 z-40 bg-gray-900/50 xl:hidden" @click="closeMobile" />
     <aside
+        data-testid="sidebar"
         class="fixed inset-y-0 start-0 z-50 flex h-screen flex-col border-r border-gray-200 bg-white transition-all duration-300 ease-in-out dark:border-gray-800 dark:bg-gray-900"
         :class="[wide ? 'w-[290px]' : 'w-[90px]', openMobile ? 'translate-x-0' : '-translate-x-full xl:translate-x-0']"
+        :data-collapsed="isMobile || open ? 'false' : 'true'"
         aria-label="Primary"
     >
         <div class="flex items-center px-5 py-6">

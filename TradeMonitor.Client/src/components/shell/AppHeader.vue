@@ -13,11 +13,13 @@ import { walletLabelFor, walletRecordedAt } from '@/lib/walletNames'
 import { useDashboard } from '@/composables/useDashboard'
 import { useFilterQuery } from '@/composables/useFilterQuery'
 import { useSidebar } from '@/composables/useSidebar'
+import { useSectionCollapsed } from '@/composables/useUiState'
 
 const router = useRouter()
 const route = useRoute()
 const { user } = useAuth()
 const { open, openMobile, isMobile, toggleSidebar } = useSidebar()
+const filtersHidden = useSectionCollapsed('shell-filters')
 const { filters, setMode, setRange, setWallet } = useFilterQuery()
 const { view } = useDashboard()
 
@@ -61,7 +63,9 @@ function onSignOut() {
             <button
                 type="button"
                 class="inline-flex size-10 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 dark:border-gray-800 dark:text-gray-400 dark:hover:bg-white/5"
+                data-testid="sidebar-toggle"
                 aria-label="Toggle sidebar"
+                :title="expanded ? 'Collapse menu (Ctrl or Command + B)' : 'Expand menu (Ctrl or Command + B)'"
                 :aria-expanded="expanded"
                 @click="toggleSidebar"
             >
@@ -91,8 +95,19 @@ function onSignOut() {
             </div>
         </div>
         <div v-if="route.path !== '/live'" class="flex flex-col gap-3 px-3 pb-3 sm:flex-row sm:flex-wrap sm:items-center lg:px-6">
-            <SegmentedControl label="Ledger mode" test-id="mode-switch" :value="filters.mode" :options="modes" @select="onMode" />
-            <SegmentedControl label="Date range" test-id="range-switch" :value="filters.range" :options="ranges" @select="onRange" />
+            <button
+                type="button"
+                data-testid="collapse-shell-filters"
+                class="rounded-md px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-white/5"
+                :aria-expanded="!filtersHidden"
+                @click="filtersHidden = !filtersHidden"
+            >
+                {{ filtersHidden ? 'Show filters' : 'Hide filters' }}
+            </button>
+            <template v-if="!filtersHidden">
+                <SegmentedControl label="Ledger mode" test-id="mode-switch" :value="filters.mode" :options="modes" @select="onMode" />
+                <SegmentedControl label="Date range" test-id="range-switch" :value="filters.range" :options="ranges" @select="onRange" />
+            </template>
             <button
                 v-if="filters.wallet"
                 type="button"

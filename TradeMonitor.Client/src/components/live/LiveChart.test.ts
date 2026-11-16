@@ -7,6 +7,8 @@ const chart = vi.hoisted(() => {
     const update = vi.fn()
     const fitContent = vi.fn()
     const setMarkers = vi.fn()
+    const setVisibleLogicalRange = vi.fn()
+    const setVisibleRange = vi.fn()
     const addSeries = vi.fn((_definition: unknown, _options: unknown, _pane?: number) => ({
         setData,
         update,
@@ -16,21 +18,25 @@ const chart = vi.hoisted(() => {
         coordinateToPrice: () => 10,
         priceToCoordinate: () => 40,
     }))
+    const timeScale = {
+        fitContent,
+        timeToCoordinate: () => 30,
+        getVisibleLogicalRange: () => ({ from: 3, to: 9 }),
+        setVisibleLogicalRange,
+        getVisibleRange: () => ({ from: 100, to: 400 }),
+        setVisibleRange,
+    }
     return {
         setData,
         update,
         fitContent,
         setMarkers,
+        setVisibleLogicalRange,
         addSeries,
         api: {
             addSeries,
             applyOptions: vi.fn(),
-            timeScale: () => ({
-                fitContent,
-                timeToCoordinate: () => 30,
-                getVisibleLogicalRange: () => ({ from: 0, to: 10 }),
-                setVisibleLogicalRange: vi.fn(),
-            }),
+            timeScale: () => timeScale,
             remove: vi.fn(),
             removeSeries: vi.fn(),
             panes: () => [{}, { setStretchFactor: vi.fn() }],
@@ -139,5 +145,44 @@ describe('live chart', () => {
         expect(listed.text()).toContain('step 160')
         expect(listed.text()).toContain('dormant 220')
         expect(listed.text()).not.toContain('step 100')
+    })
+
+    it('keeps the visible range when the graph type changes and refits for a new window', async () => {
+        chart.fitContent.mockClear()
+        chart.setVisibleLogicalRange.mockClear()
+        const wrapper = mount(LiveChart, {
+            props: {
+                points: [
+                    { time: 1_780_000_200, value: 100 },
+                    { time: 1_780_000_500, value: 101 },
+                ],
+                markers: [],
+                price: 101,
+                lots: [],
+                orders: [],
+                fitKey: 'BTC-USD:5m:1D::',
+                chartType: 'candle',
+            },
+        })
+        await flushPromises()
+        expect(chart.fitContent).toHaveBeenCalledTimes(1)
+        expect(chart.setVisibleLogicalRange).not.toHaveBeenCalled()
+
+        chart.fitContent.mockClear()
+        await wrapper.setProps({ chartType: 'line' } as never)
+        await flushPromises()
+        expect(chart.fitContent).not.toHaveBeenCalled()
+        expect(chart.setVisibleLogicalRange).toHaveBeenCalledWith({ from: 3, to: 9 })
+
+        await wrapper.setProps({ chartType: 'candle' } as never)
+        await flushPromises()
+        expect(chart.fitContent).not.toHaveBeenCalled()
+        expect(chart.setVisibleLogicalRange).toHaveBeenLastCalledWith({ from: 3, to: 9 })
+
+        chart.setVisibleLogicalRange.mockClear()
+        await wrapper.setProps({ fitKey: 'ETH-USD:5m:1D::' } as never)
+        await flushPromises()
+        expect(chart.fitContent).toHaveBeenCalledTimes(1)
+        expect(chart.setVisibleLogicalRange).not.toHaveBeenCalled()
     })
 })
