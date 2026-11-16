@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import type {
     LiveBarPage,
     LiveBook,
@@ -36,6 +36,7 @@ import { forecastHorizonBars, type ForecastHorizon, type ForecastSnapshot } from
 import { nearestSwing, swingLabel, type ChartGuide, type SwingSnapshot } from '@/lib/swingLevels'
 import type { StepLadderInputs, StepLadderSnapshot } from '@/lib/stepLadder'
 import { chartZone, formatChartCrosshair, unixFromWall, wallInput, zoneAbbrev, type ChartZoneMode } from '@/lib/chartTime'
+import { createAbortGate, isAbortError } from '@/lib/abort'
 import { applyCandleTick, bucketSeconds, toCandleBars } from '@/lib/liveSeries'
 import { quoteLots } from '@/lib/lotQuote'
 import { readPanelTab, readPanelWidth, readShowTrades, writePanelTab, writePanelWidth, writeShowTrades, type PanelTab, type PanelWidth } from '@/lib/livePanel'
@@ -50,22 +51,23 @@ const route = useRoute()
 const router = useRouter()
 const { isDark } = useTheme()
 
-const products = ref<LiveProduct[]>([])
+const products = shallowRef<LiveProduct[]>([])
 const product = ref('BTC-USD')
 const prefs = ref<ChartPrefs>(readChartPrefs(localStorage))
 const fromSec = ref<number | null>(null)
 const toSec = ref<number | null>(null)
-const candles = ref<CandleBar[]>([])
+const candles = shallowRef<CandleBar[]>([])
+const candleRevision = ref(0)
 const bucket = ref(bucketSeconds(prefs.value.interval))
 const hint = ref('')
 const price = ref<number | null>(null)
-const wallets = ref<WalletInfo[]>([])
+const wallets = shallowRef<WalletInfo[]>([])
 const showArchived = useShowArchived()
 const walletKey = ref('')
 const unknownWallet = ref('')
 const walletNotice = ref('')
-const book = ref<LiveBook | null>(null)
-const marks = ref<LiveTradeMark[]>([])
+const book = shallowRef<LiveBook | null>(null)
+const marks = shallowRef<LiveTradeMark[]>([])
 const showTrades = ref(true)
 const simulationId = ref<string | null>(null)
 const width = ref<PanelWidth>('normal')
@@ -92,6 +94,12 @@ let timer = 0
 let stopStream: (() => void) | null = null
 let sawLive = false
 let booting = true
+const barReads = createAbortGate()
+const sideReads = createAbortGate()
+const swingReads = createAbortGate()
+const atrReads = createAbortGate()
+const forecastReads = createAbortGate()
+const stepReads = createAbortGate()
 
 const points = computed(() => candles.value.map((bar) => ({ time: bar.time, value: bar.close })))
 const toolbarHidden = useSectionCollapsed('live-toolbar')
@@ -270,16 +278,25 @@ function readPayload(payload: LiveBarPage | LiveCandle[]) {
 }
 
 async function loadBars(append = false) {
+    const signal = barReads.next()
     const previous = candles.value
-    const payload = (await live.bars(product.value, prefs.value.interval, bounds())) as LiveBarPage | LiveCandle[]
-    const page = readPayload(payload)
-    const next = toCandleBars(page.rows)
-    candles.value = append ? mergeCandles(previous, next) : next
-    if (append && candles.value.length === previous.length) historyDone.value = true
-    hint.value = page.hint
-    bucket.value = page.seconds
-    const last = candles.value[candles.value.length - 1]
-    if (price.value == null && last) price.value = last.close
+    const symbol = product.value
+    try {
+        const payload = (await live.bars(symbol, prefs.value.interval, bounds(), signal)) as LiveBarPage | LiveCandle[]
+        if (signal.aborted || symbol !== product.value) return
+        const page = readPayload(payload)
+        const next = toCandleBars(page.rows)
+        candles.value = append ? mergeCandles(previous, next) : next
+        candleRevision.value += 1
+        if (append && candles.value.length === previous.length) historyDone.value = true
+        hint.value = page.hint
+        bucket.value = page.seconds
+        const last = candles.value[candles.value.length - 1]
+        if (price.value == null && last) price.value = last.close
+    } catch (err) {
+        if (signal.aborted || isAbortError(err)) return
+        throw err
+    }
 }
 
 function follow(next: string) {
@@ -296,39 +313,45 @@ async function loadWallets() {
     wallets.value = visibleWallets(listed.results, showArchived.value)
 }
 
-async function refreshBook() {
+async function refreshBook(signal?: AbortSignal) {
     if (!walletKey.value) return
+    const wallet = walletKey.value
+    const symbol = product.value
     const sellQty = averageEdited.value ? averageQty.value : undefined
     const next = realWallet.value
         ? simulationId.value
-            ? await live.simulation(simulationId.value, product.value, sellQty)
-            : await live.openSimulation(walletKey.value, product.value)
-        : await live.book(walletKey.value, product.value, sellQty)
+            ? await live.simulation(simulationId.value, symbol, sellQty, signal)
+            : await live.openSimulation(wallet, symbol)
+        : await live.book(wallet, symbol, sellQty, signal)
+    if (signal?.aborted || wallet !== walletKey.value || symbol !== product.value) return
     book.value = next
     if (next.simulationId) simulationId.value = next.simulationId
     if (price.value == null && next.price != null) price.value = next.price
     if (!averageEdited.value) averageQty.value = next.average.openQty
 }
 
-async function refreshTrades() {
+async function refreshTrades(signal?: AbortSignal) {
     if (!walletKey.value) {
         marks.value = []
         return
     }
-    marks.value = await live.trades(walletKey.value, product.value, realWallet.value ? simulationId.value : null)
+    const wallet = walletKey.value
+    const symbol = product.value
+    const next = await live.trades(wallet, symbol, realWallet.value ? simulationId.value : null, signal)
+    if (signal?.aborted || wallet !== walletKey.value || symbol !== product.value) return
+    marks.value = next
 }
 
 async function refreshSide() {
+    const signal = sideReads.next()
     try {
-        if (walletKey.value) {
-            await refreshBook()
-            await refreshTrades()
-        } else {
-            marks.value = []
-        }
+        if (walletKey.value) await Promise.all([refreshBook(signal), refreshTrades(signal)])
+        else marks.value = []
+        if (signal.aborted) return
         error.value = ''
         auth.value = false
     } catch (err) {
+        if (signal.aborted || isAbortError(err)) return
         fail(err)
     }
 }
@@ -657,10 +680,12 @@ const stepKey = computed(() => {
 async function loadSwing() {
     if (!prefs.value.showSwing) return
     const token = swingKey.value
+    const signal = swingReads.next()
     try {
-        const next = await live.swing(product.value, prefs.value.interval)
-        if (token === swingKey.value) swing.value = next
+        const next = await live.swing(product.value, prefs.value.interval, signal)
+        if (!signal.aborted && token === swingKey.value) swing.value = next
     } catch (err) {
+        if (signal.aborted || isAbortError(err)) return
         fail(err)
     }
 }
@@ -692,10 +717,12 @@ function onHistory() {
 async function loadAtr() {
     if (!prefs.value.showAtr) return
     const token = atrKey.value
+    const signal = atrReads.next()
     try {
-        const next = await live.atr(product.value, prefs.value.interval, 14, horizonCount.value)
-        if (token === atrKey.value) atr.value = next
+        const next = await live.atr(product.value, prefs.value.interval, 14, horizonCount.value, signal)
+        if (!signal.aborted && token === atrKey.value) atr.value = next
     } catch (err) {
+        if (signal.aborted || isAbortError(err)) return
         fail(err)
     }
 }
@@ -707,10 +734,12 @@ function onHorizon(value: AtrHorizon) {
 async function loadForecast() {
     if (!prefs.value.showForecast) return
     const token = forecastKey.value
+    const signal = forecastReads.next()
     try {
-        const next = await live.forecast(product.value, prefs.value.interval, forecastHorizonBars(prefs.value.forecastHorizon, bucket.value))
-        if (token === forecastKey.value) forecast.value = next
+        const next = await live.forecast(product.value, prefs.value.interval, forecastHorizonBars(prefs.value.forecastHorizon, bucket.value), signal)
+        if (!signal.aborted && token === forecastKey.value) forecast.value = next
     } catch (err) {
+        if (signal.aborted || isAbortError(err)) return
         fail(err)
     }
 }
@@ -722,6 +751,7 @@ function onForecastHorizon(value: ForecastHorizon) {
 async function loadStepLadder() {
     if (!prefs.value.showStepLadder) return
     const token = stepKey.value
+    const signal = stepReads.next()
     try {
         const next = await live.stepLadder(
             product.value,
@@ -732,9 +762,11 @@ async function loadStepLadder() {
                 dormantPeriod: prefs.value.dormantPeriod,
             },
             bounds(),
+            signal,
         )
-        if (token === stepKey.value) stepLadder.value = next
+        if (!signal.aborted && token === stepKey.value) stepLadder.value = next
     } catch (err) {
+        if (signal.aborted || isAbortError(err)) return
         fail(err)
     }
 }
@@ -795,11 +827,9 @@ onMounted(async () => {
     if (located.to != null) toSec.value = located.to
     bucket.value = bucketSeconds(prefs.value.interval)
     try {
-        await loadSymbols()
-        await loadWallets()
+        await Promise.all([loadSymbols(), loadWallets()])
         applyQuery()
-        await loadBars()
-        await refreshSide()
+        await Promise.all([loadBars(), refreshSide()])
         follow(product.value)
         error.value = ''
         auth.value = false
@@ -816,6 +846,12 @@ onMounted(async () => {
 onUnmounted(() => {
     window.clearInterval(timer)
     stopStream?.()
+    barReads.abort()
+    sideReads.abort()
+    swingReads.abort()
+    atrReads.abort()
+    forecastReads.abort()
+    stepReads.abort()
 })
 </script>
 
@@ -935,6 +971,7 @@ onUnmounted(() => {
                     :delta-mode="prefs.deltaMode"
                     :time-zone="prefs.timeZone"
                     :interval-seconds="bucket"
+                    :revision="candleRevision"
                     :guides="guides"
                     :zones="zones"
                     :forecast="prefs.showForecast ? forecast.steps : []"

@@ -156,25 +156,25 @@ export interface PlaceOrderInput {
 
 export interface LiveClient {
     products(): Promise<LiveProduct[]>
-    candles(product: string, granularity: string): Promise<LiveCandle[]>
-    bars(product: string, granularity: string, range?: { from?: number | null; to?: number | null }): Promise<LiveBarPage>
-    swing(symbol: string, interval: string): Promise<SwingSnapshot>
-    atr(symbol: string, interval: string, period: number, horizonBars: number): Promise<AtrSnapshot>
-    forecast(symbol: string, interval: string, horizon: number): Promise<ForecastSnapshot>
-    stepLadder(symbol: string, interval: string, inputs: StepLadderInputs, range?: { from?: number | null; to?: number | null }): Promise<StepLadderSnapshot>
-    ticker(product: string): Promise<LiveTick | null>
+    candles(product: string, granularity: string, signal?: AbortSignal): Promise<LiveCandle[]>
+    bars(product: string, granularity: string, range?: { from?: number | null; to?: number | null }, signal?: AbortSignal): Promise<LiveBarPage>
+    swing(symbol: string, interval: string, signal?: AbortSignal): Promise<SwingSnapshot>
+    atr(symbol: string, interval: string, period: number, horizonBars: number, signal?: AbortSignal): Promise<AtrSnapshot>
+    forecast(symbol: string, interval: string, horizon: number, signal?: AbortSignal): Promise<ForecastSnapshot>
+    stepLadder(symbol: string, interval: string, inputs: StepLadderInputs, range?: { from?: number | null; to?: number | null }, signal?: AbortSignal): Promise<StepLadderSnapshot>
+    ticker(product: string, signal?: AbortSignal): Promise<LiveTick | null>
     tracked(): Promise<TrackedSymbols>
     addSymbol(product: string): Promise<TrackedSymbols>
     removeSymbol(product: string): Promise<TrackedSymbols>
     reorderSymbols(products: string[]): Promise<TrackedSymbols>
-    trades(wallet: string, symbol: string, simulationId?: string | null): Promise<LiveTradeMark[]>
+    trades(wallet: string, symbol: string, simulationId?: string | null, signal?: AbortSignal): Promise<LiveTradeMark[]>
     createPaperWallet(name: string, startingCash: number): Promise<PaperWalletResult>
-    book(wallet: string, symbol: string, sellQty?: number): Promise<LiveBook>
+    book(wallet: string, symbol: string, sellQty?: number, signal?: AbortSignal): Promise<LiveBook>
     placePaper(wallet: string, order: PlaceOrderInput): Promise<LiveBook>
     cancelPaper(id: number): Promise<LiveBook>
     movePaper(id: number, triggerPrice: number): Promise<LiveBook>
     openSimulation(wallet: string, symbol: string): Promise<LiveBook>
-    simulation(id: string, symbol: string, sellQty?: number): Promise<LiveBook>
+    simulation(id: string, symbol: string, sellQty?: number, signal?: AbortSignal): Promise<LiveBook>
     placeSimulation(id: string, order: PlaceOrderInput): Promise<LiveBook>
     cancelSimulation(id: string, orderId: number): Promise<LiveBook>
     moveSimulation(id: string, orderId: number, triggerPrice: number): Promise<LiveBook>
@@ -400,13 +400,14 @@ function parseTrades(body: unknown): LiveTradeMark[] {
     })
 }
 
-async function send(path: string, method: 'GET' | 'POST' | 'DELETE', body?: unknown): Promise<unknown> {
+async function send(path: string, method: 'GET' | 'POST' | 'DELETE', body?: unknown, signal?: AbortSignal): Promise<unknown> {
     const response = await fetch(path, {
         method,
         credentials: 'same-origin',
         redirect: 'manual',
         headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
         ...(body ? { body: JSON.stringify(body) } : {}),
+        ...(signal ? { signal } : {}),
     })
     if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
         throw new LedgerReadError(401, 'Unauthorized', 'Sign in as an admin to use Live.')
@@ -434,29 +435,29 @@ export function createLiveClient(): LiveClient {
         async products() {
             return parseProducts(await send('/api/live/products', 'GET'))
         },
-        async candles(product, granularity) {
+        async candles(product, granularity, signal) {
             const params = new URLSearchParams({ product, granularity })
-            return parseCandles(await send(`/api/live/candles?${params}`, 'GET'))
+            return parseCandles(await send(`/api/live/candles?${params}`, 'GET', undefined, signal))
         },
-        async bars(product, granularity, range) {
+        async bars(product, granularity, range, signal) {
             const params = new URLSearchParams({ product, granularity })
             if (range?.from != null) params.set('from', String(range.from))
             if (range?.to != null) params.set('to', String(range.to))
-            return parseBarPage(await send(`/api/live/bars?${params}`, 'GET'))
+            return parseBarPage(await send(`/api/live/bars?${params}`, 'GET', undefined, signal))
         },
-        async swing(symbol, interval) {
+        async swing(symbol, interval, signal) {
             const params = new URLSearchParams({ symbol, interval })
-            return parseSwing(await send(`/api/targets/swing?${params}`, 'GET'))
+            return parseSwing(await send(`/api/targets/swing?${params}`, 'GET', undefined, signal))
         },
-        async atr(symbol, interval, period, horizonBars) {
+        async atr(symbol, interval, period, horizonBars, signal) {
             const params = new URLSearchParams({ symbol, interval, period: String(period), horizonBars: String(horizonBars) })
-            return parseAtr(await send(`/api/targets/atr?${params}`, 'GET'))
+            return parseAtr(await send(`/api/targets/atr?${params}`, 'GET', undefined, signal))
         },
-        async forecast(symbol, interval, horizon) {
+        async forecast(symbol, interval, horizon, signal) {
             const params = new URLSearchParams({ symbol, interval, horizon: String(horizon) })
-            return parseForecast(await send(`/api/forecast?${params}`, 'GET'))
+            return parseForecast(await send(`/api/forecast?${params}`, 'GET', undefined, signal))
         },
-        async stepLadder(symbol, interval, inputs, range) {
+        async stepLadder(symbol, interval, inputs, range, signal) {
             const params = new URLSearchParams({
                 symbol,
                 interval,
@@ -466,10 +467,10 @@ export function createLiveClient(): LiveClient {
             })
             if (range?.from != null) params.set('from', String(range.from))
             if (range?.to != null) params.set('to', String(range.to))
-            return parseStepLadder(await send(`/api/studies/step-ladder?${params}`, 'GET'))
+            return parseStepLadder(await send(`/api/studies/step-ladder?${params}`, 'GET', undefined, signal))
         },
-        async ticker(product) {
-            const body = asRecord(await send(`/api/live/ticker?product=${encodeURIComponent(product)}`, 'GET'))
+        async ticker(product, signal) {
+            const body = asRecord(await send(`/api/live/ticker?product=${encodeURIComponent(product)}`, 'GET', undefined, signal))
             const result = body ? asRecord(pick(body, 'result')) : null
             if (!result) return null
             const price = readMoney(pick(result, 'price'))
@@ -488,20 +489,20 @@ export function createLiveClient(): LiveClient {
         async reorderSymbols(products) {
             return parseTracked(await send('/api/live/tracked/reorder', 'POST', { products }))
         },
-        async trades(wallet, symbol, simulationId) {
+        async trades(wallet, symbol, simulationId, signal) {
             const params = new URLSearchParams({ wallet, symbol })
             if (simulationId) params.set('simulationId', simulationId)
-            return parseTrades(await send(`/api/live/trades?${params}`, 'GET'))
+            return parseTrades(await send(`/api/live/trades?${params}`, 'GET', undefined, signal))
         },
         async createPaperWallet(name, startingCash) {
             const body = asRecord(await send('/api/live/paper-wallets', 'POST', { name, startingCash })) ?? {}
             const result = asRecord(pick(body, 'result')) ?? {}
             return { key: text(result, 'key'), name: text(result, 'name') || name, cash: num(body, 'cash') }
         },
-        async book(wallet, symbol, sellQty) {
+        async book(wallet, symbol, sellQty, signal) {
             const params = new URLSearchParams({ wallet, symbol })
             if (sellQty != null) params.set('sellQty', String(sellQty))
-            return parseBook(await send(`/api/live/book?${params}`, 'GET'))
+            return parseBook(await send(`/api/live/book?${params}`, 'GET', undefined, signal))
         },
         async placePaper(wallet, order) {
             return parseBook(await send('/api/live/paper-orders', 'POST', { wallet, ...orderBody(order) }))
@@ -515,10 +516,10 @@ export function createLiveClient(): LiveClient {
         async openSimulation(wallet, symbol) {
             return parseBook(await send('/api/live/simulations', 'POST', { wallet, symbol }))
         },
-        async simulation(id, symbol, sellQty) {
+        async simulation(id, symbol, sellQty, signal) {
             const params = new URLSearchParams({ symbol })
             if (sellQty != null) params.set('sellQty', String(sellQty))
-            return parseBook(await send(`/api/live/simulations/${encodeURIComponent(id)}?${params}`, 'GET'))
+            return parseBook(await send(`/api/live/simulations/${encodeURIComponent(id)}?${params}`, 'GET', undefined, signal))
         },
         async placeSimulation(id, order) {
             return parseBook(await send(`/api/live/simulations/${encodeURIComponent(id)}/orders`, 'POST', orderBody(order)))

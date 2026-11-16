@@ -1,5 +1,6 @@
 using System.Data;
 using ServiceStack;
+using ServiceStack.Data;
 using ServiceStack.OrmLite;
 using TradeMonitor.ServiceModel;
 using TradeMonitor.ServiceModel.Types;
@@ -18,18 +19,35 @@ public sealed class WalletBook
 
 public static class LedgerData
 {
+    /// <summary>
+    /// One in-flight read per factory. Overlapping dashboard calls share it, and the next call reads again.
+    /// </summary>
+    public static List<WalletBook> Load(IDbConnectionFactory dbFactory, DateTime updatedAt) =>
+        ReadShare.Share(dbFactory, () =>
+        {
+            using var db = dbFactory.Open();
+            return Load(db, updatedAt);
+        });
+
     public static List<WalletBook> Load(IDbConnection db, DateTime updatedAt)
     {
         var wallets = db.Select<Wallet>();
         var trades = db.Select<Trade>();
         var transfers = db.Select<Transfer>();
         var marks = db.Select<PriceMark>();
+        var tradesByWallet = GroupByWallet(trades, trade => trade.WalletId);
+        var flowByWallet = GroupByWallet(transfers, transfer => transfer.WalletId);
         var books = new List<WalletBook>(wallets.Count);
         foreach (var wallet in wallets)
         {
-            var mine = trades.Where(x => x.WalletId == wallet.Id).ToList();
-            var flow = transfers.Where(x => x.WalletId == wallet.Id).ToList();
-            var applicable = marks.Where(x => x.WalletId == null || x.WalletId == wallet.Id).ToList();
+            var mine = Take(tradesByWallet, wallet.Id);
+            var flow = Take(flowByWallet, wallet.Id);
+            var applicable = new List<PriceMark>();
+            foreach (var mark in marks)
+            {
+                if (mark.WalletId == null || mark.WalletId == wallet.Id)
+                    applicable.Add(mark);
+            }
             var replay = LedgerBook.Replay(wallet.Id, mine, flow, applicable, updatedAt);
             if (replay.Oversold)
                 throw new HttpError(500, "LedgerCorrupt",
@@ -47,6 +65,27 @@ public static class LedgerData
 
         return books;
     }
+
+    public static Dictionary<int, List<T>> GroupByWallet<T>(IReadOnlyList<T> rows, Func<T, int> walletId)
+    {
+        var map = new Dictionary<int, List<T>>();
+        foreach (var row in rows)
+        {
+            var id = walletId(row);
+            if (!map.TryGetValue(id, out var list))
+            {
+                list = [];
+                map[id] = list;
+            }
+
+            list.Add(row);
+        }
+
+        return map;
+    }
+
+    static List<T> Take<T>(Dictionary<int, List<T>> map, int walletId) =>
+        map.TryGetValue(walletId, out var rows) ? rows : [];
 
     static DateTime? LastActivity(List<Trade> trades, List<Transfer> transfers, List<PriceMark> marks)
     {

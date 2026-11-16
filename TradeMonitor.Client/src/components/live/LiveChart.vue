@@ -13,15 +13,17 @@ import {
     createSeriesMarkers,
     type IChartApi,
     type IPriceLine,
+    type MouseEventParams,
     type Time,
     type UTCTimestamp,
 } from 'lightweight-charts'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { LiveOrder } from '@/api/live'
+import { buildTimeIndex, createFrameScheduler, edgePaint, formatHover, hoverHit, indexMarkerText, type HoverBar } from '@/lib/chartHover'
 import { hitTest, type ChartHit, type ChartLine } from '@/lib/chartMenu'
 import { captureChartView, logicalRangeToApply, timeRangeToApply, viewToRestore, type ChartView } from '@/lib/chartView'
 import { wantsOlderHistory } from '@/lib/chartRange'
-import { deltaPoints, priceBars, showsDeltaPane, usesOhlc, type CandleBar, type ChartType, type DeltaMode } from '@/lib/chartSeries'
+import { deltaPoints, heikinAshi, heikinStep, lastDelta, priceBars, showsDeltaPane, usesOhlc, type CandleBar, type ChartType, type DeltaMode } from '@/lib/chartSeries'
 import { chartZone, formatChartCrosshair, formatChartTick, type ChartZoneMode } from '@/lib/chartTime'
 import type { SeriesPoint } from '@/lib/liveSeries'
 import type { PriceZone } from '@/lib/atrBands'
@@ -57,6 +59,7 @@ const props = withDefaults(
         timeZone?: ChartZoneMode
         zoneName?: string
         intervalSeconds?: number
+        revision?: number
         guides?: ChartGuide[]
         zones?: PriceZone[]
         forecast?: ForecastStep[]
@@ -71,6 +74,7 @@ const props = withDefaults(
         timeZone: 'local',
         zoneName: '',
         intervalSeconds: 300,
+        revision: 0,
         guides: () => [],
         zones: () => [],
         forecast: () => [],
@@ -104,7 +108,22 @@ let fitted = ''
 let built = ''
 let drawnCount = 0
 let drawnFirst = 0
+let drawnLast = 0
+let seenRevision = 0
+let haPrev: { open: number; close: number } | null = null
+let haTail: { open: number; close: number } | null = null
+let lineKey = ''
+let studyKey = ''
+let barIndex = new Map<number, number>()
+let indexedCount = -1
+let indexedFirst = 0
+let indexedLast = 0
+let markerIndex = new Map<number, string[]>()
+let markerSource: ChartTradeMark[] | null = null
 let historyHooked = false
+let crosshairHooked = false
+let pendingHover: MouseEventParams<Time> | null = null
+const hoverFrames = createFrameScheduler()
 let lastView: ChartView | null = null
 let restoring = false
 let suspendView = false
@@ -115,6 +134,7 @@ const guideLabels = ref<{ id: string; y: number; text: string; color: string; ti
 const zoneRects = ref<{ id: string; top: number; height: number; color: string }[]>([])
 const forecastCones = ref({ outer: '', inner: '' })
 const forecastLabels = ref<{ id: string; x: number; y: number; text: string; title: string }[]>([])
+const hover = ref<{ x: number; y: number; text: string } | null>(null)
 const studyMarks = computed(() => {
     if (!props.showStudy) return []
     return props.study.flatMap((bar) => {
@@ -232,6 +252,12 @@ function clearSeries() {
     lines = []
     marks = []
     drawnCount = 0
+    drawnLast = 0
+    haPrev = null
+    haTail = null
+    lineKey = ''
+    studyKey = ''
+    indexedCount = -1
 }
 
 function seriesShape(): string {
@@ -254,8 +280,12 @@ function studyMarkerRows() {
     return rows
 }
 
-function paintStudy() {
+function paintStudy(force = false) {
     if (!studyVolume || !studyAvg) return
+    const last = props.study[props.study.length - 1]
+    const key = `${props.study.length}:${props.study[0]?.time ?? 0}:${last?.time ?? 0}:${last?.volume ?? ''}:${last?.vol24 ?? ''}:${last?.step ? 1 : 0}:${last?.dormant ? 1 : 0}`
+    if (!force && key === studyKey) return
+    studyKey = key
     studyVolume.setData(props.study.map((bar) => ({ time: bar.time as UTCTimestamp, value: bar.volume })))
     studyAvg.setData(props.study.flatMap((bar) => (bar.vol24 == null ? [] : [{ time: bar.time as UTCTimestamp, value: bar.vol24 }])))
     studyMarkers?.setMarkers(studyMarkerRows())
@@ -322,32 +352,73 @@ function buildSeries(data: CandleBar[]) {
     }
     drawnCount = data.length
     drawnFirst = data[0]?.time ?? 0
+    drawnLast = data[data.length - 1]?.time ?? 0
+    rememberHeikin(price)
+}
+
+function rememberHeikin(price: CandleBar[]) {
+    if (props.chartType !== 'heikin') {
+        haPrev = null
+        haTail = null
+        return
+    }
+    const last = price[price.length - 1]
+    const prev = price[price.length - 2]
+    haTail = last ? { open: last.open, close: last.close } : null
+    haPrev = prev ? { open: prev.open, close: prev.close } : null
+}
+
+function paintedBar(data: CandleBar[], kind: 'append' | 'last'): CandleBar | null {
+    const source = data[data.length - 1]
+    if (!source) return null
+    if (props.chartType !== 'heikin') return source
+    const prev = kind === 'append' ? haTail : haPrev
+    return heikinStep(prev, source)
 }
 
 function paint(data: CandleBar[]) {
-    const price = priceBars(props.chartType, data)
-    const append = drawnCount > 0 && data[0]?.time === drawnFirst && data.length === drawnCount + 1 && props.chartType !== 'heikin'
-    const last = price[price.length - 1]
-    if (append && last && main) {
-        main.update(usesOhlc(props.chartType) ? ohlcPoint(last) : linePoint(last))
-        if (delta) {
-            const point = deltaPoints(data, props.deltaMode).at(-1)
-            if (point) delta.update({ ...point, time: point.time as UTCTimestamp })
+    const force = props.revision !== seenRevision
+    const kind = force ? 'replace' : edgePaint(drawnCount, drawnFirst, drawnLast, data)
+    const move = kind === 'append' || kind === 'last'
+    if (move && main && props.chartType !== 'heikin') {
+        const last = data[data.length - 1]
+        if (last) {
+            main.update(usesOhlc(props.chartType) ? ohlcPoint(last) : linePoint(last))
+            if (delta) {
+                const point = lastDelta(data, props.deltaMode)
+                if (point) delta.update({ ...point, time: point.time as UTCTimestamp })
+            }
+            if (volume) volume.update(volumePoint(last))
         }
-        if (volume) volume.update(volumePoint(data[data.length - 1]!))
+        paintStudy()
+    } else if (move && main && props.chartType === 'heikin') {
+        const last = paintedBar(data, kind)
+        if (last) {
+            if (kind === 'append') haPrev = haTail
+            haTail = { open: last.open, close: last.close }
+            main.update(ohlcPoint(last))
+            if (delta) {
+                const point = lastDelta(heikinAshi(data), props.deltaMode)
+                if (point) delta.update({ ...point, time: point.time as UTCTimestamp })
+            }
+            if (volume) volume.update(volumePoint(data[data.length - 1]!))
+        }
         paintStudy()
     } else {
+        const price = priceBars(props.chartType, data)
         main?.setData(usesOhlc(props.chartType) ? price.map(ohlcPoint) : price.map(linePoint))
         delta?.setData(deltaPoints(data, props.deltaMode).map((point) => ({ ...point, time: point.time as UTCTimestamp })))
         volume?.setData(data.map(volumePoint))
         if (stepMarkers) {
             stepMarkers.setMarkers(price.map((bar) => ({ time: bar.time as UTCTimestamp, position: 'inBar', color: '#465fff', shape: 'circle' })))
         }
-        paintStudy()
+        rememberHeikin(price)
+        paintStudy(true)
     }
     if (props.chartType === 'baseline' || props.chartType === 'vertex-baseline') main?.applyOptions(baselineOptions())
     drawnCount = data.length
     drawnFirst = data[0]?.time ?? 0
+    drawnLast = data[data.length - 1]?.time ?? 0
 }
 
 function numericTime(range: { from: Time; to: Time } | null | undefined): { from: number; to: number } | null {
@@ -548,8 +619,18 @@ function clearLines() {
     marks = []
 }
 
+function linesSignature(): string {
+    const lots = props.lots.map((lot) => `${lot.tradeId}@${lot.buyPrice}:${(lot.unrealizedPnl ?? 0) < 0 ? 1 : 0}`).join(';')
+    const orders = props.orders.map((order) => `${order.id}@${order.triggerPrice ?? ''}:${order.type}:${order.side}`).join(';')
+    const guides = props.guides.map((guide) => `${guide.id}@${guide.price}:${guide.width}:${guide.color}`).join(';')
+    return `${lots}|${orders}|${guides}`
+}
+
 function drawLines() {
     if (!main) return
+    const nextKey = linesSignature()
+    if (nextKey === lineKey && lines.length > 0) return
+    lineKey = nextKey
     clearLines()
     for (const lot of props.lots) {
         if (lot.buyPrice <= 0) continue
@@ -629,6 +710,7 @@ async function render() {
     if (!chart) {
         chart = createChart(host.value, options(!!props.dark))
         hookHistory()
+        hookCrosshair()
         if (typeof ResizeObserver !== 'undefined') {
             observer = new ResizeObserver(() => chart?.applyOptions({ autoSize: true }))
             observer.observe(host.value)
@@ -654,6 +736,57 @@ async function render() {
     } else if (kept) {
         applyView(kept)
     }
+    seenRevision = props.revision
+}
+
+function barsForHover(): HoverBar[] {
+    return sourceBars()
+}
+
+function timeIndex(data: HoverBar[]): Map<number, number> {
+    const last = data[data.length - 1]?.time ?? 0
+    const first = data[0]?.time ?? 0
+    if (data.length === indexedCount && first === indexedFirst && last === indexedLast) return barIndex
+    barIndex = buildTimeIndex(data)
+    indexedCount = data.length
+    indexedFirst = first
+    indexedLast = last
+    return barIndex
+}
+
+function markerTexts(): Map<number, string[]> {
+    if (markerSource === props.markers) return markerIndex
+    markerSource = props.markers
+    markerIndex = indexMarkerText(props.markers)
+    return markerIndex
+}
+
+function onCrosshair(param: MouseEventParams<Time>) {
+    pendingHover = param
+    hoverFrames.schedule(paintHover)
+}
+
+function paintHover() {
+    const param = pendingHover
+    const point = param?.point
+    const time = param && typeof param.time === 'number' ? param.time : null
+    if (!point || time == null) {
+        hover.value = null
+        return
+    }
+    const data = barsForHover()
+    const hit = hoverHit(timeIndex(data), data, markerTexts(), time)
+    if (!hit) {
+        hover.value = null
+        return
+    }
+    hover.value = { x: point.x, y: point.y, text: formatHover(hit) }
+}
+
+function hookCrosshair() {
+    if (!chart || crosshairHooked) return
+    crosshairHooked = true
+    chart.subscribeCrosshairMove(onCrosshair)
 }
 
 function onMenu(event: MouseEvent) {
@@ -716,8 +849,26 @@ function timeToX(time: number): number | null {
 
 defineExpose({ zoom, fit, priceToY, timeToX })
 
+let rendering = false
+let renderAgain = false
+
+function requestRender() {
+    if (rendering) {
+        renderAgain = true
+        return
+    }
+    rendering = true
+    void (async () => {
+        do {
+            renderAgain = false
+            await render()
+        } while (renderAgain)
+        rendering = false
+    })()
+}
+
 onMounted(() => {
-    void render()
+    requestRender()
 })
 
 watch(
@@ -742,15 +893,17 @@ watch(
         props.timeZone,
         props.zoneName,
         props.intervalSeconds,
+        props.revision,
     ],
     () => {
-        void render()
+        requestRender()
     },
-    { deep: true },
 )
 
 onUnmounted(() => {
     if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(restoreFrame)
+    hoverFrames.cancel()
+    if (chart && crosshairHooked) chart.unsubscribeCrosshairMove(onCrosshair)
     observer?.disconnect()
     chart?.remove()
     chart = null
@@ -761,6 +914,14 @@ onUnmounted(() => {
 <template>
     <div class="relative h-full w-full" :data-chart-type="chartType">
         <div ref="host" data-testid="live-chart" class="h-full w-full" @contextmenu="onMenu" @wheel="nudgeOverlay" @pointerup="nudgeOverlay" />
+        <p
+            v-if="hover"
+            data-testid="chart-hover"
+            class="pointer-events-none absolute z-20 max-w-64 whitespace-pre rounded bg-white/95 px-2 py-1 text-[11px] font-medium text-gray-800 shadow dark:bg-gray-950/95 dark:text-gray-100"
+            :style="{ left: `${hover.x + 12}px`, top: `${hover.y + 12}px` }"
+        >
+            {{ hover.text }}
+        </p>
         <div class="pointer-events-none absolute inset-0 overflow-hidden">
             <div
                 v-for="zone in zoneRects"

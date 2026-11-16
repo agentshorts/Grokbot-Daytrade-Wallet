@@ -182,7 +182,7 @@ public class LedgerServices(IDbConnectionFactory dbFactory, ILedgerClock clock) 
         using var db = dbFactory.Open();
         var wallet = TryWallet(db, request.Wallet);
         var views = new List<TradeView>();
-        foreach (var book in LedgerData.Load(db, Now()))
+        foreach (var book in LedgerData.Load(dbFactory, Now()))
         {
             if (wallet != null && book.Wallet.Id != wallet.Id)
                 continue;

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { PredictionBookingResponse, PredictionPnlResponse, PredictionPnlRow } from '@/api'
 import HideClosedContracts from '@/components/HideClosedContracts.vue'
@@ -16,6 +16,8 @@ import { contractName, filterClosedContracts, isContractClosed, readContractTick
 import { settlementLabel } from '@/lib/predictionView'
 import { filterRows } from '@/lib/textFilter'
 import { REFRESH_MS, startPolling } from '@/lib/refresh'
+import { createAbortGate, isAbortError } from '@/lib/abort'
+import { sameRows } from '@/lib/pollGuard'
 import { includeArchivedQuery } from '@/lib/visibleWallets'
 
 const client = useLedger()
@@ -23,13 +25,18 @@ const route = useRoute()
 const oscillation = computed(() => route.query.view === 'oscillation')
 const status = ref<'loading' | 'ready' | 'error'>('loading')
 const error = ref<string | null>(null)
-const model = ref<PredictionPnlResponse | null>(null)
-const bookings = ref<PredictionBookingResponse | null>(null)
+const model = shallowRef<PredictionPnlResponse | null>(null)
+const bookings = shallowRef<PredictionBookingResponse | null>(null)
 const bookingError = ref<string | null>(null)
 const hideClosed = useHideClosedContracts()
 const filterText = useViewFilter('predictions')
 const showArchived = useShowArchived()
 let stop = () => {}
+const reads = createAbortGate()
+
+function predictionSig(row: PredictionPnlRow): string {
+    return `${row.wallet}:${row.bought}:${row.sold}:${row.fees}:${row.realizedPnl}:${row.settlement}:${row.closeAt ?? ''}`
+}
 
 function rowClosed(row: PredictionPnlRow): boolean {
     return isContractClosed({ settlement: row.settlement, closeAt: row.closeAt, now: new Date() })
@@ -89,21 +96,35 @@ function bookingModeLabel(mode: string): string {
 }
 
 async function refresh() {
-    try {
-        model.value = await client.predictions(includeArchivedQuery(showArchived.value))
-        status.value = 'ready'
-        error.value = null
-    } catch (err) {
-        error.value = explainLedgerError(err).message
-        if (!model.value) status.value = 'error'
-    }
-    if (!client.predictionBookings) return
-    try {
-        bookings.value = await client.predictionBookings()
-        bookingError.value = null
-    } catch (err) {
-        bookingError.value = explainLedgerError(err).message
-    }
+    const signal = reads.next()
+    const predictions = client
+        .predictions(includeArchivedQuery(showArchived.value), signal)
+        .then((next) => {
+            if (signal.aborted) return
+            if (!model.value || !sameRows(model.value.wallets, next.wallets, predictionSig) || model.value.total.realizedPnl !== next.total.realizedPnl)
+                model.value = next
+            status.value = 'ready'
+            error.value = null
+        })
+        .catch((err: unknown) => {
+            if (signal.aborted || isAbortError(err)) return
+            error.value = explainLedgerError(err).message
+            if (!model.value) status.value = 'error'
+        })
+    const booking = client.predictionBookings
+        ? client
+              .predictionBookings(signal)
+              .then((next) => {
+                  if (signal.aborted) return
+                  bookings.value = next
+                  bookingError.value = null
+              })
+              .catch((err: unknown) => {
+                  if (signal.aborted || isAbortError(err)) return
+                  bookingError.value = explainLedgerError(err).message
+              })
+        : Promise.resolve()
+    await Promise.all([predictions, booking])
 }
 
 watch(showArchived, () => {
@@ -116,7 +137,10 @@ onMounted(() => {
         void refresh()
     }, REFRESH_MS)
 })
-onUnmounted(() => stop())
+onUnmounted(() => {
+    stop()
+    reads.abort()
+})
 </script>
 
 <template>

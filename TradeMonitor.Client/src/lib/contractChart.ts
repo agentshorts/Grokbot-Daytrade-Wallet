@@ -1,4 +1,5 @@
 import type { ContractDetail, ContractMark, OscillationRow } from '@/api'
+import { nearestTime } from '@/lib/chartHover'
 import type { ChartMarker, MarkerSide, PricePoint } from '@/lib/priceSeries'
 
 export interface SideQuote {
@@ -92,7 +93,7 @@ export function toContractMarkers(marks: ContractMark[], points: PricePoint[]): 
         .map((mark) => {
             const raw = Math.floor(new Date(mark.at).getTime() / 1000)
             if (Number.isNaN(raw)) return null
-            return { time: points.length === 0 ? raw : nearest(raw, points), side: markerSide(mark.kind), text: mark.text }
+            return { time: points.length === 0 ? raw : (nearestTime(raw, points) ?? raw), side: markerSide(mark.kind), text: mark.text }
         })
         .filter((mark): mark is ChartMarker => mark != null)
         .sort((a, b) => a.time - b.time || a.text.localeCompare(b.text))
@@ -101,19 +102,6 @@ export function toContractMarkers(marks: ContractMark[], points: PricePoint[]): 
 function markerSide(kind: string): MarkerSide {
     if (kind === 'buy' || kind === 'sell' || kind === 'low') return kind
     return 'high'
-}
-
-function nearest(time: number, points: PricePoint[]): number {
-    let best = points[0]!.time
-    let dist = Math.abs(best - time)
-    for (const point of points) {
-        const next = Math.abs(point.time - time)
-        if (next < dist) {
-            best = point.time
-            dist = next
-        }
-    }
-    return best
 }
 
 function finite(value: number | null): number | null {

@@ -1,6 +1,7 @@
-import { onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
+import { onMounted, onUnmounted, ref, shallowRef, watch, type Ref } from 'vue'
 import type { LedgerClient } from '@/api/client'
 import { LedgerReadError } from '@/api/errors'
+import { createAbortGate, isAbortError } from '@/lib/abort'
 import { useLedger } from '@/composables/useLedger'
 import type { Filters } from '@/lib/filters'
 import { REFRESH_MS, startPolling } from '@/lib/refresh'
@@ -18,31 +19,31 @@ export interface PageState<T> {
     refresh: () => Promise<void>
 }
 
-async function loadList(client: LedgerClient, filters: Filters, now: Date, showArchived: boolean): Promise<WalletListModel> {
+async function loadList(client: LedgerClient, filters: Filters, now: Date, showArchived: boolean, signal?: AbortSignal): Promise<WalletListModel> {
     const archived = includeArchivedQuery(showArchived)
     const query = summaryQuery(filters, now, showArchived)
     const [directory, summary, positions] = await Promise.all([
-        client.wallets(archived),
-        client.summary(query),
-        client.positions({ ...archived, status: 'open' }),
+        client.wallets(archived, signal),
+        client.summary(query, signal),
+        client.positions({ ...archived, status: 'open' }, signal),
     ])
     return buildWalletList(directory.results, summary.wallets, filters, positions.results, now, showArchived)
 }
 
-async function loadDetail(client: LedgerClient, key: string, filters: Filters, now: Date): Promise<WalletDetailModel> {
+async function loadDetail(client: LedgerClient, key: string, filters: Filters, now: Date, signal?: AbortSignal): Promise<WalletDetailModel> {
     const bounds = summaryQuery({ ...filters, wallet: key, mode: 'all' }, now)
     const [wallet, summary, equity, daily, fees, positions, trades, deposits, withdrawals, sweeps, balances] = await Promise.all([
-        client.wallet(key),
-        client.summary(bounds),
-        client.equity(bounds),
-        client.pnlDaily(bounds),
-        client.fees(bounds),
-        client.positions({ wallet: key, includeArchived: true }),
-        client.trades({ wallet: key, from: bounds.from, to: bounds.to, take: 50 }),
-        client.walletHistory(key, { from: bounds.from, to: bounds.to, kind: 'deposit', take: 200 }),
-        client.walletHistory(key, { from: bounds.from, to: bounds.to, kind: 'withdrawal', take: 200 }),
-        client.walletHistory(key, { from: bounds.from, to: bounds.to, kind: 'sweep', take: 200 }),
-        client.walletBalances(key),
+        client.wallet(key, signal),
+        client.summary(bounds, signal),
+        client.equity(bounds, signal),
+        client.pnlDaily(bounds, signal),
+        client.fees(bounds, signal),
+        client.positions({ wallet: key, includeArchived: true }, signal),
+        client.trades({ wallet: key, from: bounds.from, to: bounds.to, take: 50 }, signal),
+        client.walletHistory(key, { from: bounds.from, to: bounds.to, kind: 'deposit', take: 200 }, signal),
+        client.walletHistory(key, { from: bounds.from, to: bounds.to, kind: 'withdrawal', take: 200 }, signal),
+        client.walletHistory(key, { from: bounds.from, to: bounds.to, kind: 'sweep', take: 200 }, signal),
+        client.walletBalances(key, signal),
     ])
     return buildWalletDetail({
         wallet: wallet.result,
@@ -61,26 +62,28 @@ async function loadDetail(client: LedgerClient, key: string, filters: Filters, n
     })
 }
 
-function usePage<T>(load: (filters: Filters, now: Date) => Promise<T>, watchSources: (() => unknown)[]): PageState<T> {
+function usePage<T>(load: (filters: Filters, now: Date, signal?: AbortSignal) => Promise<T>, watchSources: (() => unknown)[]): PageState<T> {
     const { filters } = useFilterQuery()
     const status = ref<'loading' | 'ready' | 'error'>('loading')
     const error = ref<string | null>(null)
     const errorStatus = ref(0)
-    const model = ref<T | null>(null) as Ref<T | null>
+    const model = shallowRef<T | null>(null) as Ref<T | null>
     let ticket = 0
     let stop = () => {}
+    const reads = createAbortGate()
 
     async function refresh() {
         const mine = ++ticket
+        const signal = reads.next()
         try {
-            const next = await load(filters.current(), new Date())
-            if (mine !== ticket) return
+            const next = await load(filters.current(), new Date(), signal)
+            if (mine !== ticket || signal.aborted) return
             model.value = next
             status.value = 'ready'
             error.value = null
             errorStatus.value = 0
         } catch (err) {
-            if (mine !== ticket) return
+            if (mine !== ticket || signal.aborted || isAbortError(err)) return
             const failure = err instanceof LedgerReadError ? err : null
             error.value = failure?.message ?? 'Could not load wallets.'
             errorStatus.value = failure?.status ?? 0
@@ -98,7 +101,10 @@ function usePage<T>(load: (filters: Filters, now: Date) => Promise<T>, watchSour
             void refresh()
         }, REFRESH_MS)
     })
-    onUnmounted(() => stop())
+    onUnmounted(() => {
+        stop()
+        reads.abort()
+    })
 
     return { status, error, errorStatus, model, refresh }
 }
@@ -107,7 +113,7 @@ export function useWalletList(): PageState<WalletListModel> {
     const client = useLedger()
     const { filters } = useFilterQuery()
     const showArchived = useShowArchived()
-    const page = usePage((current, now) => loadList(client, current, now, showArchived.value), [
+    const page = usePage((current, now, signal) => loadList(client, current, now, showArchived.value, signal), [
         () => filters.mode,
         () => filters.range,
         () => filters.wallet,
@@ -124,7 +130,7 @@ export function useWalletList(): PageState<WalletListModel> {
 export function useWalletDetail(key: () => string): PageState<WalletDetailModel> {
     const client = useLedger()
     const { filters } = useFilterQuery()
-    const page = usePage((current, now) => loadDetail(client, key(), { ...current, wallet: key() }, now), [() => filters.range, key])
+    const page = usePage((current, now, signal) => loadDetail(client, key(), { ...current, wallet: key() }, now, signal), [() => filters.range, key])
     watch(page.model, (model) => {
         if (!model) return
         rememberWalletNames([{ key: model.key, name: model.name }])

@@ -30,31 +30,46 @@ export function isChartType(value: string): value is ChartType {
     return chartTypes.some((item) => item.id === value)
 }
 
+export function heikinStep(prev: { open: number; close: number } | null, bar: CandleBar): CandleBar {
+    const close = (bar.open + bar.high + bar.low + bar.close) / 4
+    const open = prev ? (prev.open + prev.close) / 2 : (bar.open + bar.close) / 2
+    return {
+        time: bar.time,
+        open,
+        close,
+        high: Math.max(bar.high, open, close),
+        low: Math.min(bar.low, open, close),
+        volume: bar.volume,
+    }
+}
+
 export function heikinAshi(bars: CandleBar[]): CandleBar[] {
     const next: CandleBar[] = []
-    for (const bar of bars) {
-        const close = (bar.open + bar.high + bar.low + bar.close) / 4
-        const prev = next[next.length - 1]
-        const open = prev ? (prev.open + prev.close) / 2 : (bar.open + bar.close) / 2
-        next.push({
-            time: bar.time,
-            open,
-            close,
-            high: Math.max(bar.high, open, close),
-            low: Math.min(bar.low, open, close),
-            volume: bar.volume,
-        })
-    }
+    for (const bar of bars) next.push(heikinStep(next[next.length - 1] ?? null, bar))
     return next
 }
 
-export function deltaPoints(bars: CandleBar[], mode: DeltaMode): { time: number; value: number; color: string }[] {
+export function deltaValue(bars: CandleBar[], index: number, mode: DeltaMode): { time: number; value: number; color: string } | null {
+    const bar = bars[index]
+    if (!bar) return null
     const first = bars[0]?.close ?? 0
-    return bars.map((bar, index) => {
-        const prev = index === 0 ? bar.open : bars[index - 1]!.close
-        const value = mode === 'percent' ? (first === 0 ? 0 : (bar.close / first - 1) * 100) : bar.close - prev
-        return { time: bar.time, value, color: value >= 0 ? up : down }
-    })
+    const prev = index === 0 ? bar.open : bars[index - 1]!.close
+    const value = mode === 'percent' ? (first === 0 ? 0 : (bar.close / first - 1) * 100) : bar.close - prev
+    return { time: bar.time, value, color: value >= 0 ? up : down }
+}
+
+export function deltaPoints(bars: CandleBar[], mode: DeltaMode): { time: number; value: number; color: string }[] {
+    const points: { time: number; value: number; color: string }[] = []
+    for (let index = 0; index < bars.length; index++) {
+        const point = deltaValue(bars, index, mode)
+        if (point) points.push(point)
+    }
+    return points
+}
+
+export function lastDelta(bars: CandleBar[], mode: DeltaMode): { time: number; value: number; color: string } | null {
+    if (bars.length === 0) return null
+    return deltaValue(bars, bars.length - 1, mode)
 }
 
 export function baselineValue(bars: CandleBar[], source: BaselineSource, average: number | null, typed: number | null): number | null {

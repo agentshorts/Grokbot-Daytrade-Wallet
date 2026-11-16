@@ -33,12 +33,19 @@ const chart = vi.hoisted(() => {
         setMarkers,
         setVisibleLogicalRange,
         addSeries,
+        crosshair: null as ((param: unknown) => void) | null,
         api: {
             addSeries,
             applyOptions: vi.fn(),
             timeScale: () => timeScale,
             remove: vi.fn(),
             removeSeries: vi.fn(),
+            subscribeCrosshairMove: (cb: (param: unknown) => void) => {
+                chart.crosshair = cb
+            },
+            unsubscribeCrosshairMove: () => {
+                chart.crosshair = null
+            },
             panes: () => [{}, { setStretchFactor: vi.fn() }],
         },
     }
@@ -99,6 +106,46 @@ describe('live chart', () => {
         } as never)
         await flushPromises()
         expect(chart.update).toHaveBeenCalledWith({ time: 1_780_000_800, open: 102, high: 102, low: 102, close: 102 })
+    })
+
+    it('updates the open candle in place and does not fetch while the crosshair moves', async () => {
+        chart.setData.mockClear()
+        chart.update.mockClear()
+        const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
+        const wrapper = mount(LiveChart, {
+            props: {
+                points: [
+                    { time: 1_780_000_200, value: 100 },
+                    { time: 1_780_000_500, value: 101 },
+                ],
+                markers: [{ ...mark, time: 1_780_000_500 }],
+                price: 101,
+                lots: [],
+                orders: [],
+                fitKey: 'BTC-USD:hover',
+            },
+        })
+        await flushPromises()
+        chart.setData.mockClear()
+        await wrapper.setProps({
+            points: [
+                { time: 1_780_000_200, value: 100 },
+                { time: 1_780_000_500, value: 104 },
+            ],
+            price: 104,
+        } as never)
+        await flushPromises()
+        expect(chart.update).toHaveBeenCalledWith({ time: 1_780_000_500, open: 104, high: 104, low: 104, close: 104 })
+        expect(chart.setData).not.toHaveBeenCalled()
+        console.info(`last bar paint update=${chart.update.mock.calls.length} setData=${chart.setData.mock.calls.length}`)
+
+        chart.crosshair?.({ time: 1_780_000_500, point: { x: 20, y: 30 } })
+        chart.crosshair?.({ time: 1_780_000_500, point: { x: 22, y: 32 } })
+        await new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
+        expect(wrapper.get('[data-testid=chart-hover]').text()).toContain('C 104')
+        expect(wrapper.get('[data-testid=chart-hover]').text()).toContain('Buy 2 @ $10')
+        expect(fetchSpy).not.toHaveBeenCalled()
+        fetchSpy.mockRestore()
     })
 
     it('draws step ladder triangles and a blue volume line with an orange average', async () => {

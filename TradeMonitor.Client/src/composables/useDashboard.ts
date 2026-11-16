@@ -1,8 +1,10 @@
-import { computed, inject, onMounted, onUnmounted, provide, ref, watch, type ComputedRef, type InjectionKey, type Ref } from 'vue'
+import { computed, inject, onMounted, onUnmounted, provide, ref, shallowRef, watch, type ComputedRef, type InjectionKey, type Ref } from 'vue'
 import { ledger } from '@/api'
 import type { DashboardView } from '@/lib/book'
+import { createAbortGate, isAbortError } from '@/lib/abort'
 import { useShowArchived } from '@/composables/useUiState'
 import { loadDashboard } from '@/lib/loadDashboard'
+import { dashboardChanged } from '@/lib/pollGuard'
 import { REFRESH_MS, startPolling } from '@/lib/refresh'
 import { useFiltersStore } from '@/stores/filters'
 
@@ -22,12 +24,13 @@ function filterKey(mode: string, range: string, wallet: string | null, showArchi
 export function provideDashboard(): DashboardContext {
     const filters = useFiltersStore()
     const showArchived = useShowArchived()
-    const viewState = ref<DashboardView | null>(null)
+    const viewState = shallowRef<DashboardView | null>(null)
     const status = ref<'loading' | 'ready' | 'error'>('loading')
     const error = ref<string | null>(null)
     const view = computed(() => viewState.value)
     let generation = 0
     let appliedKey = ''
+    const reads = createAbortGate()
 
     async function refresh() {
         const current = filters.current()
@@ -39,15 +42,16 @@ export function provideDashboard(): DashboardContext {
             error.value = null
         }
         const ticket = ++generation
+        const signal = reads.next()
         try {
-            const next = await loadDashboard(current, new Date(), ledger, archived)
-            if (ticket !== generation) return
-            viewState.value = next
+            const next = await loadDashboard(current, new Date(), ledger, archived, signal)
+            if (ticket !== generation || signal.aborted) return
+            if (dashboardChanged(viewState.value, next)) viewState.value = next
             appliedKey = key
             status.value = 'ready'
             error.value = null
         } catch (err) {
-            if (ticket !== generation) return
+            if (ticket !== generation || signal.aborted || isAbortError(err)) return
             error.value = err instanceof Error ? err.message : 'Could not load the book'
             if (!viewState.value) status.value = 'error'
         }
@@ -66,7 +70,10 @@ export function provideDashboard(): DashboardContext {
             void refresh()
         }, REFRESH_MS)
     })
-    onUnmounted(() => stop())
+    onUnmounted(() => {
+        stop()
+        reads.abort()
+    })
 
     const api: DashboardContext = { status, error, view, refresh }
     provide(dashboardKey, api)
