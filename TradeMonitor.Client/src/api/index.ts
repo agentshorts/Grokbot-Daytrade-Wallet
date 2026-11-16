@@ -24,6 +24,8 @@ export type {
     OscillationQuery,
     OscillationResponse,
     OscillationRow,
+    PredictionBookingResponse,
+    PredictionBookingRow,
     PredictionPnlResponse,
     PredictionPnlRow,
     PredictionPnlTotal,

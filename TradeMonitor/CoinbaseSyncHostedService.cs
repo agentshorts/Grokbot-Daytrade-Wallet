@@ -11,11 +11,14 @@ public sealed class CoinbaseSyncHostedService(
     IDbConnectionFactory dbFactory,
     ILedgerClock clock,
     CoinbaseSyncStatus status,
+    IPredictionBookings bookings,
     ILogger<CoinbaseSyncHostedService> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var settings = options.Value;
+        var mode = PredictionBooking.ParseMode(settings.PredictionBooking.Mode);
+        bookings.Mode = mode;
         status.Enabled = false;
         if (!CoinbaseSyncGate.ShouldRun(settings.Enabled, environment.IsEnvironment("Testing"), credentials))
         {
@@ -74,7 +77,7 @@ public sealed class CoinbaseSyncHostedService(
             ErrorSink = message => log.LogError("{Message}", message),
         };
         using var client = new CoinbaseBrokerageClient(signer);
-        var syncer = new CoinbaseSyncer(client, new CoinbaseLedgerGateway(dbFactory, clock), clock, syncLog, statePath);
+        var syncer = new CoinbaseSyncer(client, new CoinbaseLedgerGateway(dbFactory, clock), clock, syncLog, statePath, bookings, mode);
         try
         {
             await CoinbaseSyncLoop.RunAsync(

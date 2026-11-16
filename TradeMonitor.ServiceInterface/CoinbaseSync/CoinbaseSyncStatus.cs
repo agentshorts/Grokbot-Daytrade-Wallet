@@ -9,6 +9,13 @@ public sealed class CoinbaseSyncOptions
     public int IntervalSeconds { get; set; } = 60;
 
     public string? StatePath { get; set; }
+
+    public PredictionBookingOptions PredictionBooking { get; set; } = new();
+}
+
+public sealed class PredictionBookingOptions
+{
+    public string Mode { get; set; } = "DryRun";
 }
 
 /// <summary>

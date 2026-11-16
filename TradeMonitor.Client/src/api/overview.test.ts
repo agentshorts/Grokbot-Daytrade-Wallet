@@ -148,6 +148,30 @@ describe('overview mapping', () => {
         expect(view.noMatches).toBe(false)
     })
 
+    it('hides archived wallets and their totals until show archived is on', () => {
+        const archived = card({ id: 2, key: 'old', name: 'Old book', isArchived: true, totalValue: 5, sortOrder: 2 })
+        const hidden = toDashboardView(
+            input({
+                catalog: [wallet(), wallet({ id: 2, key: 'old', name: 'Old book', isArchived: true, sortOrder: 2 })],
+                summary: { totals: totals({ totalValue: 1000, wallets: 1 }), modes: [], wallets: [card(), archived] },
+            }),
+            { range: '30d', now },
+        )
+        expect(hidden.wallets.map((row) => row.key)).toEqual(['paper'])
+        expect(hidden.kpis.find((kpi) => kpi.id === 'value')?.value).toBe(1000)
+
+        const shown = toDashboardView(
+            input({
+                catalog: [wallet(), wallet({ id: 2, key: 'old', name: 'Old book', isArchived: true, sortOrder: 2 })],
+                summary: { totals: totals({ totalValue: 1005, wallets: 2 }), modes: [], wallets: [card(), archived] },
+            }),
+            { range: '30d', now, showArchived: true },
+        )
+        expect(shown.wallets.map((row) => row.key)).toEqual(['paper', 'old'])
+        expect(shown.wallets[1]?.isArchived).toBe(true)
+        expect(shown.kpis.find((kpi) => kpi.id === 'value')?.value).toBe(1005)
+    })
+
     it('keeps a null unrealized P&L null and a real zero at zero', () => {
         const unmarked = toDashboardView(
             input({

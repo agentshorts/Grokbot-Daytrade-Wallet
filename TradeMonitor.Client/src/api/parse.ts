@@ -20,6 +20,8 @@ import type {
     ContractResponse,
     OscillationResponse,
     OscillationRow,
+    PredictionBookingResponse,
+    PredictionBookingRow,
     PredictionPnlResponse,
     PredictionPnlRow,
     PredictionPnlTotal,
@@ -632,6 +634,27 @@ export function parsePredictionPnl(body: unknown): PredictionPnlResponse {
     return {
         wallets: list(pick(row, 'wallets'), parsePredictionRow),
         total: parsePredictionTotal(pick(row, 'total')),
+    }
+}
+
+function parseBookingRow(row: Record<string, unknown>): PredictionBookingRow | null {
+    const productId = text(row, 'productId')
+    if (!productId) return null
+    return {
+        productId,
+        firstSeen: readTime(pick(row, 'firstSeen')),
+        lastSeen: readTime(pick(row, 'lastSeen')),
+        status: (text(row, 'status') ?? 'seen').toLowerCase(),
+        wallet: text(row, 'wallet'),
+        detail: text(row, 'detail'),
+    }
+}
+
+export function parsePredictionBookings(body: unknown): PredictionBookingResponse {
+    const row = asRecord(body) ?? {}
+    return {
+        mode: (text(row, 'mode') ?? 'dryrun').toLowerCase(),
+        results: list(pick(row, 'results'), parseBookingRow),
     }
 }
 

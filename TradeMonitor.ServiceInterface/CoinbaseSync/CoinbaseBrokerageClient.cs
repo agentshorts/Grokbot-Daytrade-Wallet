@@ -26,7 +26,8 @@ public static class CoinbaseReadPaths
             return true;
         return OneSegment(path, "/api/v3/brokerage/portfolios/")
             || OneSegment(path, "/api/v3/brokerage/products/")
-            || OneSegment(path, "/api/v3/brokerage/market/products/");
+            || OneSegment(path, "/api/v3/brokerage/market/products/")
+            || OneSegment(path, "/api/v3/brokerage/orders/historical/");
     }
 
     static bool OneSegment(string path, string prefix)
@@ -63,6 +64,7 @@ public interface ICoinbaseReadApi
     Task<CbBreakdown> BreakdownAsync(string portfolioId, CancellationToken cancellationToken);
     Task<IReadOnlyList<CbFill>> FillsAsync(string? startIso, CancellationToken cancellationToken);
     Task<CbProduct?> ProductAsync(string productId, CancellationToken cancellationToken);
+    Task<CbOrder?> OrderAsync(string orderId, CancellationToken cancellationToken);
     Task<decimal?> PublicPriceAsync(string productId, CancellationToken cancellationToken);
     Task<CbPermissions> PermissionsAsync(CancellationToken cancellationToken);
 }
@@ -95,7 +97,19 @@ public sealed record CbFill(
     string Side,
     string? ProductType,
     string? EquityTicker,
-    string? EquityCbrn);
+    string? EquityCbrn,
+    decimal? TotalValueAfterFees = null,
+    string? PredictionSide = null);
+
+public sealed record CbOrder(
+    string OrderId,
+    string? ProductId,
+    string? Side,
+    string? PredictionSide,
+    decimal? TotalValueAfterFees,
+    decimal? TotalFees,
+    decimal? FilledSize,
+    string? Status);
 
 public sealed record CbSpot(string Asset, bool IsCash, string? AccountType, decimal Qty, decimal Fiat);
 
@@ -239,6 +253,19 @@ public sealed partial class CoinbaseBrokerageClient : ICoinbaseReadApi, IDisposa
         }
     }
 
+    public async Task<CbOrder?> OrderAsync(string orderId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var doc = await GetAsync("/api/v3/brokerage/orders/historical/" + Segment(orderId), null, true, cancellationToken);
+            return ParseOrder(doc.RootElement);
+        }
+        catch (CoinbaseRejectedException)
+        {
+            return null;
+        }
+    }
+
     public async Task<decimal?> PublicPriceAsync(string productId, CancellationToken cancellationToken)
     {
         try
@@ -365,6 +392,49 @@ public sealed partial class CoinbaseBrokerageClient : ICoinbaseReadApi, IDisposa
         return false;
     }
 
+    static CbOrder? ParseOrder(JsonElement root)
+    {
+        var body = root;
+        if (root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("order", out var nested)
+            && nested.ValueKind == JsonValueKind.Object)
+            body = nested;
+        if (body.ValueKind != JsonValueKind.Object)
+            return null;
+        return new CbOrder(
+            CoinbaseJson.Text(body, "order_id") ?? "",
+            CoinbaseJson.Text(body, "product_id"),
+            CoinbaseJson.Text(body, "side"),
+            ReadPredictionSide(body),
+            CoinbaseJson.OptionalNum(body, "total_value_after_fees"),
+            CoinbaseJson.OptionalNum(body, "total_fees"),
+            CoinbaseJson.OptionalNum(body, "filled_size") ?? CoinbaseJson.OptionalNum(body, "filled_base_size"),
+            CoinbaseJson.Text(body, "status"));
+    }
+
+    static string? ReadPredictionSide(JsonElement item)
+    {
+        if (item.ValueKind != JsonValueKind.Object)
+            return null;
+        var direct = CoinbaseJson.Text(item, "prediction_side") ?? CoinbaseJson.Text(item, "contract_side");
+        if (!string.IsNullOrEmpty(direct))
+            return direct;
+        if (!item.TryGetProperty("product_details", out var details) || details.ValueKind != JsonValueKind.Object)
+            return null;
+        foreach (var name in new[] { "prediction_market_details", "prediction_details", "prediction_market_product_details" })
+        {
+            if (!details.TryGetProperty(name, out var child) || child.ValueKind != JsonValueKind.Object)
+                continue;
+            var side = CoinbaseJson.Text(child, "prediction_side")
+                ?? CoinbaseJson.Text(child, "contract_side")
+                ?? CoinbaseJson.Text(child, "side");
+            if (!string.IsNullOrEmpty(side))
+                return side;
+        }
+
+        return null;
+    }
+
     static string Segment(string productId)
     {
         if (string.IsNullOrWhiteSpace(productId) || productId.Contains('/') || productId.Contains("..", StringComparison.Ordinal))
@@ -412,7 +482,9 @@ public sealed partial class CoinbaseBrokerageClient : ICoinbaseReadApi, IDisposa
                 CoinbaseJson.Text(item, "side") ?? "",
                 CoinbaseJson.Text(item, "product_type"),
                 ticker,
-                cbrn));
+                cbrn,
+                CoinbaseJson.OptionalNum(item, "total_value_after_fees"),
+                ReadPredictionSide(item)));
         }
         return list;
     }
@@ -490,6 +562,15 @@ static class CoinbaseJson
 
     public static decimal Num(JsonElement item, string name) =>
         item.TryGetProperty(name, out var value) ? ReadDecimal(value) : 0;
+
+    public static decimal? OptionalNum(JsonElement item, string name)
+    {
+        if (!item.TryGetProperty(name, out var value) || value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            return null;
+        if (value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(value.GetString()))
+            return null;
+        return ReadDecimal(value);
+    }
 
     public static decimal FirstNum(JsonElement item, params string[] names)
     {

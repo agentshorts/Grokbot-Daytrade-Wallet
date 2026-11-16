@@ -399,6 +399,20 @@ export interface PredictionPnlResponse {
     total: PredictionPnlTotal
 }
 
+export interface PredictionBookingRow {
+    productId: string
+    firstSeen: string | null
+    lastSeen: string | null
+    status: string
+    wallet: string | null
+    detail: string | null
+}
+
+export interface PredictionBookingResponse {
+    mode?: string
+    results: PredictionBookingRow[]
+}
+
 export interface OscillationQuery {
     lookbackHours?: number
     thresholdCents?: number

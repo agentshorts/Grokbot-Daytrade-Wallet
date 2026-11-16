@@ -11,6 +11,7 @@ import {
     parseTradeDetail,
     parseContract,
     parseOscillation,
+    parsePredictionBookings,
     parsePredictionPnl,
     parseTrades,
     parseWallet,
@@ -28,6 +29,7 @@ import type {
     ContractResponse,
     OscillationQuery,
     OscillationResponse,
+    PredictionBookingResponse,
     PredictionPnlResponse,
     PriceMarksResponse,
     SummaryResponse,
@@ -58,7 +60,8 @@ export interface LedgerClient {
     walletBalances(key: string): Promise<WalletBalancesResponse>
     walletHistory(key: string, query?: LedgerQuery): Promise<WalletHistoryResponse>
     priceMarks(query?: LedgerQuery): Promise<PriceMarksResponse>
-    predictions(): Promise<PredictionPnlResponse>
+    predictions(query?: LedgerQuery): Promise<PredictionPnlResponse>
+    predictionBookings(): Promise<PredictionBookingResponse>
     oscillation(query?: OscillationQuery): Promise<OscillationResponse>
     contract(query: ContractQuery): Promise<ContractResponse>
 }
@@ -155,7 +158,8 @@ export function createLedgerClient(transport: LedgerTransport = fetchTransport()
         walletBalances: (key) => request(transport, walletPath(key, '/balances'), {}, parseWalletBalances),
         walletHistory: (key, query) => request(transport, walletPath(key, '/history'), query, parseWalletHistory),
         priceMarks: (query) => request(transport, readPath('/price-marks'), query, parsePriceMarks),
-        predictions: () => request(transport, readPath('/predictions'), {}, parsePredictionPnl),
+        predictions: (query) => request(transport, readPath('/predictions'), query, parsePredictionPnl),
+        predictionBookings: () => request(transport, readPath('/predictions/booking'), {}, parsePredictionBookings),
         oscillation: (query = {}) => {
             const params = new URLSearchParams()
             if (query.lookbackHours != null) params.set('lookbackHours', String(query.lookbackHours))

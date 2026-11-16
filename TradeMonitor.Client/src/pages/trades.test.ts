@@ -418,7 +418,7 @@ describe('trades page', () => {
         const { client, calls, walletQueries } = clientWith()
         const { router, wrapper: page } = await mountTrades('/trades?wallet=paper&symbol=sol-usd', client)
 
-        expect(walletQueries[0]).toMatchObject({ includeArchived: true })
+        expect(walletQueries[0]?.includeArchived).toBeUndefined()
         const wallet = page.get('[data-testid="filter-wallet"]')
         const symbol = page.get('[data-testid="filter-symbol"]')
         expect(wallet.element.tagName).toBe('SELECT')
@@ -426,12 +426,7 @@ describe('trades page', () => {
         expect(page.find('[data-testid="wallet-form"]').exists()).toBe(false)
         expect(page.find('[data-testid="symbol-form"]').exists()).toBe(false)
         expect(page.findAll('button').some((button) => button.text() === 'Apply')).toBe(false)
-        expect(wallet.findAll('option').map((option) => option.text())).toEqual([
-            'All wallets',
-            'Paper · Paper',
-            'Coinbase · Real',
-            'Old book · Paper · Archived',
-        ])
+        expect(wallet.findAll('option').map((option) => option.text())).toEqual(['All wallets', 'Paper · Paper', 'Coinbase · Real'])
         expect((wallet.element as HTMLSelectElement).value).toBe('paper')
         expect(symbol.findAll('option').map((option) => option.text())).toEqual(['All symbols', 'BTC-USD', 'SOL-USD'])
         expect((symbol.element as HTMLSelectElement).value).toBe('SOL-USD')
@@ -465,7 +460,7 @@ describe('trades page', () => {
                 .get('[data-testid="filter-wallet"]')
                 .findAll('option')
                 .map((option) => option.text()),
-        ).toEqual(['All wallets', 'Paper · Paper', 'Old book · Paper · Archived'])
+        ).toEqual(['All wallets', 'Paper · Paper'])
 
         await router.push('/trades?mode=real&wallet=paper')
         await flushPromises()

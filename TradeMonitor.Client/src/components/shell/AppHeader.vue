@@ -3,6 +3,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '@servicestack/vue'
+import ShowArchived from '@/components/ShowArchived.vue'
 import SegmentedControl from '@/components/shell/SegmentedControl.vue'
 import ThemeToggle from '@/components/shell/ThemeToggle.vue'
 import NavIcon from '@/components/shell/NavIcon.vue'
@@ -13,13 +14,14 @@ import { walletLabelFor, walletRecordedAt } from '@/lib/walletNames'
 import { useDashboard } from '@/composables/useDashboard'
 import { useFilterQuery } from '@/composables/useFilterQuery'
 import { useSidebar } from '@/composables/useSidebar'
-import { useSectionCollapsed } from '@/composables/useUiState'
+import { useSectionCollapsed, useShowArchived } from '@/composables/useUiState'
 
 const router = useRouter()
 const route = useRoute()
 const { user } = useAuth()
 const { open, openMobile, isMobile, toggleSidebar } = useSidebar()
 const filtersHidden = useSectionCollapsed('shell-filters')
+const showArchived = useShowArchived()
 const { filters, setMode, setRange, setWallet } = useFilterQuery()
 const { view } = useDashboard()
 
@@ -104,6 +106,7 @@ function onSignOut() {
             >
                 {{ filtersHidden ? 'Show filters' : 'Hide filters' }}
             </button>
+            <ShowArchived v-model="showArchived" />
             <template v-if="!filtersHidden">
                 <SegmentedControl label="Ledger mode" test-id="mode-switch" :value="filters.mode" :options="modes" @select="onMode" />
                 <SegmentedControl label="Date range" test-id="range-switch" :value="filters.range" :options="ranges" @select="onRange" />

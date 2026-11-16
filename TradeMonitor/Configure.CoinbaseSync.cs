@@ -10,6 +10,7 @@ public class ConfigureCoinbaseSync : IHostingStartup
         .ConfigureServices((context, services) =>
         {
             services.Configure<CoinbaseSyncOptions>(context.Configuration.GetSection(CoinbaseSyncOptions.Section));
+            services.AddSingleton<IPredictionBookings, PredictionBookingStore>();
             services.AddSingleton<CoinbaseSyncStatus>();
             services.AddSingleton<IWindowsCredentialStore, WindowsCredentialManagerStore>();
             services.AddSingleton<ICoinbaseCredentialSource, WinVaultCoinbaseCredentialSource>();
