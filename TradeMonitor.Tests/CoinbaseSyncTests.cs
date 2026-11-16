@@ -390,7 +390,7 @@ public class CoinbaseSyncTests
         Assert.That(db.Single<Wallet>(wallet => wallet.Key == "coinbase-nub").Venue, Is.EqualTo("Coinbase"));
     }
 
-    SyncRig Open(int retries = 4)
+    SyncRig Open(int retries = 4, IPredictionBookings? bookings = null)
     {
         var handler = new FakeCoinbaseHandler();
         handler.Fills.Add(Eq("t1", "2026-11-12T14:11:05.293Z", "BUY", "39.8", "1", false, "SBIT"));
@@ -398,7 +398,7 @@ public class CoinbaseSyncTests
         var client = new CoinbaseBrokerageClient(signer, handler, retries, (_, _) => Task.CompletedTask);
         var log = new ListLog();
         var gateway = new CoinbaseLedgerGateway(factory, clock);
-        var syncer = new CoinbaseSyncer(client, gateway, clock, log.Sink, statePath);
+        var syncer = new CoinbaseSyncer(client, gateway, clock, log.Sink, statePath, bookings);
         return new SyncRig(handler, client, gateway, syncer, log);
     }
 
@@ -484,6 +484,236 @@ public class CoinbaseSyncTests
         Assert.That(trades.Any(trade => trade.ClientId == "cb-fill-spot1"), Is.True);
         Assert.That(db.Single<Wallet>(wallet => wallet.Key == hand).Kind, Is.EqualTo(WalletKind.PredictionMarket));
         Assert.That(rig.Handler.Calls.All(call => call.Method == "GET"));
+    }
+
+    [Test]
+    public async Task Prediction_no_buy_and_sell_are_priced_from_the_cash_total()
+    {
+        const string product = "KXBTCD-26NOV1617-T63749.99-KALSHI";
+        const string hand = "pm-KXBTCD-26NOV1210-T71199.99-KALSHI";
+        svc.Any(new CreateWallet
+        {
+            Key = hand,
+            Name = "BTC 71199.99",
+            Mode = WalletMode.Real,
+            Venue = "Coinbase",
+            BaseCurrency = "USD",
+        });
+        svc.Any(new RecordTrade
+        {
+            Wallet = hand,
+            ClientId = "pm-buy",
+            Symbol = "KXBTCD-26NOV1210-T71199.99-KALSHI",
+            Side = TradeSide.Buy,
+            Qty = 2m,
+            Price = 0.40m,
+            Fee = 0.05m,
+            ExecutedAt = T1,
+        });
+
+        var store = new PredictionBookingStore();
+        using var rig = Open(bookings: store);
+        rig.Handler.Contracts.Add(new ContractFill(
+            "no1", "2026-11-12T15:10:00.000Z", "BUY", "0.60", "10", product, "", "4.50", "NO", "0.50"));
+        rig.Handler.Contracts.Add(new ContractFill(
+            "no2", "2026-11-12T15:20:00.000Z", "SELL", "0.30", "10", product, "", "6.80", "NO", "0.20"));
+
+        await rig.Syncer.CycleAsync(CancellationToken.None);
+        await rig.Syncer.CycleAsync(CancellationToken.None);
+        var restarted = new CoinbaseSyncer(rig.Client, rig.Gateway, clock, rig.Log.Sink, statePath, store);
+        await restarted.CycleAsync(CancellationToken.None);
+
+        using var db = factory.Open();
+        var wallet = db.Single<Wallet>(row => row.Key == "pm-" + product);
+        Assert.That(wallet.Kind, Is.EqualTo(WalletKind.PredictionMarket));
+        Assert.That(wallet.Mode, Is.EqualTo(WalletMode.Real));
+        Assert.That(wallet.Venue, Is.EqualTo("Coinbase"));
+        Assert.That(wallet.BaseCurrency, Is.EqualTo("USD"));
+        Assert.That(wallet.Name, Is.EqualTo("KXBTCD-26NOV1617-T63749.99"));
+        Assert.That(wallet.Note, Is.EqualTo(PredictionBooking.WalletNote));
+        Assert.That(wallet.IsArchived, Is.False);
+
+        var buy = db.Single<Trade>(trade => trade.ClientId == "cbpm-fill-no1");
+        Assert.That(buy.WalletId, Is.EqualTo(wallet.Id));
+        Assert.That(buy.Side, Is.EqualTo(TradeSide.Buy));
+        Assert.That(buy.Qty, Is.EqualTo(10m));
+        Assert.That(buy.Price, Is.EqualTo(0.40m));
+        Assert.That(buy.Price, Is.Not.EqualTo(0.60m));
+        Assert.That(buy.Fee, Is.EqualTo(0.50m));
+        Assert.That(buy.Symbol, Is.EqualTo(product));
+        Assert.That(buy.Kind, Is.EqualTo(TradeKind.Fill));
+        Assert.That(buy.Note, Does.Contain("NO"));
+        Assert.That(buy.Title, Does.StartWith("NO buy"));
+
+        var sell = db.Single<Trade>(trade => trade.ClientId == "cbpm-fill-no2");
+        Assert.That(sell.Side, Is.EqualTo(TradeSide.Sell));
+        Assert.That(sell.Price, Is.EqualTo(0.70m));
+        Assert.That(sell.Price, Is.Not.EqualTo(0.30m));
+        Assert.That(sell.Fee, Is.EqualTo(0.20m));
+        Assert.That(sell.Note, Does.Contain("NO"));
+        Assert.That(db.Select<Trade>(trade => trade.ClientId == "cbpm-fill-no1"), Has.Count.EqualTo(1));
+        Assert.That(db.Select<Trade>(trade => trade.ClientId == "cbpm-fill-no2"), Has.Count.EqualTo(1));
+        Assert.That(db.Select<Trade>(trade => trade.WalletId == db.Single<Wallet>(row => row.Key == hand).Id), Has.Count.EqualTo(1));
+        Assert.That(db.Single<Wallet>(row => row.Key == hand).Name, Is.EqualTo("BTC 71199.99"));
+        Assert.That(db.Exists<Transfer>(transfer => transfer.ClientId.Contains("no1") || transfer.ClientId.Contains("no2")), Is.False);
+        Assert.That(rig.Handler.Calls.All(call => call.Method == "GET"));
+        Assert.That(store.Snapshot().Single(row => row.ProductId == product).Status, Is.EqualTo("booked"));
+    }
+
+    [Test]
+    public async Task Prediction_fill_already_on_an_archived_copy_is_not_booked_again()
+    {
+        const string product = "KXBTCD-26NOV1617-T63749.99-KALSHI";
+        const string copy = "pm-" + product + "-2";
+        svc.Any(new CreateWallet
+        {
+            Key = copy,
+            Name = "hand copy",
+            Mode = WalletMode.Real,
+            Venue = "Coinbase",
+            BaseCurrency = "USD",
+            Note = "logged by hand",
+        });
+        svc.Any(new UpdateWallet { Key = copy, IsArchived = true });
+        svc.Any(new RecordTrade
+        {
+            Wallet = copy,
+            ClientId = "cbpm-fill-hand1",
+            Symbol = product,
+            Side = TradeSide.Buy,
+            Qty = 4m,
+            Price = 0.25m,
+            Fee = 0.10m,
+            ExecutedAt = T1,
+            Note = "hand",
+        });
+
+        using var rig = Open();
+        rig.Handler.Contracts.Add(new ContractFill(
+            "hand1", "2026-11-12T15:10:00.000Z", "BUY", "0.60", "4", product, "", "4.50", "NO", "0.50"));
+        rig.Handler.Contracts.Add(new ContractFill(
+            "new1", "2026-11-12T15:12:00.000Z", "BUY", "0.60", "10", product, "", "4.50", "YES", "0.50"));
+        await rig.Syncer.CycleAsync(CancellationToken.None);
+
+        using var db = factory.Open();
+        var handTrades = db.Select<Trade>(trade => trade.ClientId == "cbpm-fill-hand1");
+        Assert.That(handTrades, Has.Count.EqualTo(1));
+        Assert.That(handTrades[0].Price, Is.EqualTo(0.25m));
+        Assert.That(handTrades[0].Note, Is.EqualTo("hand"));
+        var copyWallet = db.Single<Wallet>(wallet => wallet.Key == copy);
+        Assert.That(copyWallet.IsArchived, Is.True);
+        Assert.That(copyWallet.Name, Is.EqualTo("hand copy"));
+        Assert.That(copyWallet.Note, Is.EqualTo("logged by hand"));
+        Assert.That(db.Select<Trade>(trade => trade.WalletId == copyWallet.Id), Has.Count.EqualTo(1));
+
+        var booked = db.Single<Trade>(trade => trade.ClientId == "cbpm-fill-new1");
+        var canonical = db.Single<Wallet>(wallet => wallet.Key == "pm-" + product);
+        Assert.That(booked.WalletId, Is.EqualTo(canonical.Id));
+        Assert.That(booked.Price, Is.EqualTo(0.40m));
+        Assert.That(booked.Note, Does.Contain("YES"));
+        Assert.That(canonical.IsArchived, Is.False);
+    }
+
+    [Test]
+    public async Task Prediction_price_can_come_from_the_order_when_the_fill_has_no_total()
+    {
+        const string product = "KXBTCD-26NOV1617-T64999.99-KALSHI";
+        var store = new PredictionBookingStore();
+        using var rig = Open(bookings: store);
+        rig.Handler.Contracts.Add(new ContractFill(
+            "ord1", "2026-11-12T15:10:00.000Z", "BUY", "0.55", "5", product, "", null, null, "0.10"));
+        rig.Handler.Orders["o-ord1"] = new
+        {
+            order = new
+            {
+                order_id = "o-ord1",
+                product_id = product,
+                side = "BUY",
+                prediction_side = "PREDICTION_SIDE_YES",
+                total_value_after_fees = "2.60",
+                total_fees = "0.10",
+                filled_size = "5",
+            },
+        };
+
+        await rig.Syncer.CycleAsync(CancellationToken.None);
+
+        using var db = factory.Open();
+        var trade = db.Single<Trade>(row => row.ClientId == "cbpm-fill-ord1");
+        Assert.That(trade.Price, Is.EqualTo(0.50m));
+        Assert.That(trade.Fee, Is.EqualTo(0.10m));
+        Assert.That(trade.Qty, Is.EqualTo(5m));
+        Assert.That(trade.Note, Does.Contain("YES"));
+        Assert.That(rig.Handler.Calls.Any(call => call.Path == "/api/v3/brokerage/orders/historical/o-ord1"));
+        Assert.That(store.Snapshot().Single(row => row.ProductId == product).Status, Is.EqualTo("booked"));
+    }
+
+    [Test]
+    public async Task Prediction_fill_without_a_cash_total_stays_unbooked()
+    {
+        const string product = "KXBTCD-26NOV1617-T65000-KALSHI";
+        var store = new PredictionBookingStore();
+        using var rig = Open(bookings: store);
+        rig.Handler.Contracts.Add(new ContractFill(
+            "bare", "2026-11-12T15:10:00.000Z", "BUY", "0.60", "10", product, ""));
+        await rig.Syncer.CycleAsync(CancellationToken.None);
+
+        using var db = factory.Open();
+        Assert.That(db.Exists<Wallet>(wallet => wallet.Key == "pm-" + product), Is.False);
+        Assert.That(db.Exists<Trade>(trade => trade.ClientId == "cbpm-fill-bare"), Is.False);
+        var sighting = store.Snapshot().Single(row => row.ProductId == product);
+        Assert.That(sighting.Status, Is.EqualTo("problem"));
+        Assert.That(sighting.Detail, Does.Contain("missing cash total"));
+        Assert.That(SkipLines(rig, product), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task Prediction_settlement_is_booked_on_the_existing_wallet()
+    {
+        const string product = "KXBTCD-26NOV1617-T66000-KALSHI";
+        const string key = "pm-" + product;
+        svc.Any(new CreateWallet
+        {
+            Key = key,
+            Name = "already open",
+            Mode = WalletMode.Real,
+            Venue = "Coinbase",
+            BaseCurrency = "USD",
+            Note = "left alone",
+        });
+        svc.Any(new RecordTrade
+        {
+            Wallet = key,
+            ClientId = "hand-open",
+            Symbol = product,
+            Side = TradeSide.Buy,
+            Qty = 10m,
+            Price = 0.40m,
+            Fee = 0.10m,
+            ExecutedAt = T1,
+            Note = "open",
+        });
+
+        using var rig = Open();
+        rig.Handler.Contracts.Add(new ContractFill(
+            "set1", "2026-11-12T15:10:00.000Z", "SELL", "1", "10", product, "", "9.80", "YES", "0.20", "SETTLEMENT"));
+        await rig.Syncer.CycleAsync(CancellationToken.None);
+        await rig.Syncer.CycleAsync(CancellationToken.None);
+
+        using var db = factory.Open();
+        var wallet = db.Single<Wallet>(row => row.Key == key);
+        Assert.That(wallet.Name, Is.EqualTo("already open"));
+        Assert.That(wallet.Note, Is.EqualTo("left alone"));
+        var open = db.Single<Trade>(trade => trade.ClientId == "hand-open");
+        Assert.That(open.Price, Is.EqualTo(0.40m));
+        Assert.That(open.Note, Is.EqualTo("open"));
+        var settled = db.Select<Trade>(trade => trade.ClientId == "cbpm-fill-set1");
+        Assert.That(settled, Has.Count.EqualTo(1));
+        Assert.That(settled[0].WalletId, Is.EqualTo(wallet.Id));
+        Assert.That(settled[0].Kind, Is.EqualTo(TradeKind.Settlement));
+        Assert.That(settled[0].Price, Is.EqualTo(1.00m));
+        Assert.That(settled[0].Fee, Is.EqualTo(0.20m));
+        Assert.That(settled[0].Note, Does.Contain("YES"));
     }
 
     static int SkipLines(SyncRig rig, string product) =>
@@ -628,7 +858,18 @@ public class CoinbaseSyncTests
 
     sealed record FakeFill(string Id, string At, string Side, string Price, string Size, bool InQuote, string Ticker);
 
-    public sealed record ContractFill(string Id, string At, string Side, string Price, string Size, string ProductId, string ProductType);
+    public sealed record ContractFill(
+        string Id,
+        string At,
+        string Side,
+        string Price,
+        string Size,
+        string ProductId,
+        string ProductType,
+        string? TotalAfterFees = null,
+        string? ContractSide = null,
+        string Commission = "0.20",
+        string TradeType = "FILL");
 
     public sealed record PredictionHolding(string ProductId, string Qty, string Fiat);
 
@@ -709,6 +950,7 @@ public class CoinbaseSyncTests
         public List<(string Method, string Path)> Calls { get; } = [];
         public List<FakeFill> Fills { get; } = [];
         public List<ContractFill> Contracts { get; } = [];
+        public Dictionary<string, object> Orders { get; } = new(StringComparer.Ordinal);
         public List<PredictionHolding> Predictions { get; } = [];
         public Dictionary<string, ProductMeta> Products { get; } = new(StringComparer.Ordinal);
         public List<SpotHolding> Spots { get; } = [];
@@ -739,6 +981,16 @@ public class CoinbaseSyncTests
                 var rows = Fills.Where(fill => start == null || string.CompareOrdinal(fill.At, start) >= 0).Select(Dto).Cast<object>().ToList();
                 rows.AddRange(Contracts.Where(fill => start == null || string.CompareOrdinal(fill.At, start) >= 0).Select(ContractDto));
                 return Task.FromResult(Json(new { fills = rows, cursor = (string?)null }));
+            }
+            if (path.StartsWith("/api/v3/brokerage/orders/historical/", StringComparison.Ordinal))
+            {
+                var id = Uri.UnescapeDataString(path["/api/v3/brokerage/orders/historical/".Length..]);
+                if (Orders.TryGetValue(id, out var order))
+                    return Task.FromResult(Json(order));
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+                {
+                    Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+                });
             }
             if (path.StartsWith("/api/v3/brokerage/products/", StringComparison.Ordinal))
             {
@@ -815,11 +1067,13 @@ public class CoinbaseSyncTests
             trade_id = fill.Id,
             order_id = "o-" + fill.Id,
             trade_time = fill.At,
-            trade_type = "FILL",
+            trade_type = fill.TradeType,
             price = fill.Price,
             size = fill.Size,
-            commission = "0.20",
+            commission = fill.Commission,
             product_id = fill.ProductId,
+            total_value_after_fees = fill.TotalAfterFees,
+            prediction_side = fill.ContractSide,
             size_in_quote = false,
             side = fill.Side,
             product_type = fill.ProductType,

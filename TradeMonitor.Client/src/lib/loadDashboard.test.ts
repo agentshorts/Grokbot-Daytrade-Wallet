@@ -93,6 +93,9 @@ function recording(partial: Partial<LedgerClient> = {}) {
                 total: { wallets: 0, bought: 0, sold: 0, fees: 0, realizedPnl: 0 },
             }
         },
+        async predictionBookings() {
+            return { results: [] }
+        },
         async oscillation() {
             return { lookbackHours: 6, thresholdCents: 5, results: [], lookup: null, lookupError: null }
         },

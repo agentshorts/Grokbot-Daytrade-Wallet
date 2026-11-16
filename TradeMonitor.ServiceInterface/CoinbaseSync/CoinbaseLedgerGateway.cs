@@ -17,6 +17,8 @@ public sealed class CoinbaseLedgerSnapshot
     public HashSet<string> KnownFillIds { get; init; } = new(StringComparer.Ordinal);
 
     public DateTime? Cursor { get; init; }
+
+    public Dictionary<int, HashSet<string>> PredictionFills { get; init; } = new();
 }
 
 public interface ILedgerGateway
@@ -65,12 +67,37 @@ public sealed class CoinbaseLedgerGateway(IDbConnectionFactory dbFactory, ILedge
                 Wallets = wallets,
                 KnownFillIds = ids,
                 Cursor = latest,
+                PredictionFills = LoadPredictionFills(db, wallets.Values),
             };
         }
         catch (Exception ex) when (IsUnavailable(ex))
         {
             throw new LedgerUnavailableException(ex.GetType().Name);
         }
+    }
+
+    static Dictionary<int, HashSet<string>> LoadPredictionFills(System.Data.IDbConnection db, IEnumerable<Wallet> wallets)
+    {
+        var fills = new Dictionary<int, HashSet<string>>();
+        var handIds = new HashSet<int>(wallets
+            .Where(wallet => PredictionMarkets.IsHandWallet(wallet.Key))
+            .Select(wallet => wallet.Id));
+        if (handIds.Count == 0)
+            return fills;
+        foreach (var trade in db.Select<Trade>(trade => trade.ClientId.StartsWith(PredictionBooking.FillPrefix)))
+        {
+            if (!handIds.Contains(trade.WalletId))
+                continue;
+            if (!fills.TryGetValue(trade.WalletId, out var ids))
+            {
+                ids = new HashSet<string>(StringComparer.Ordinal);
+                fills[trade.WalletId] = ids;
+            }
+
+            ids.Add(trade.ClientId);
+        }
+
+        return fills;
     }
 
     public WalletBalances Balances(string wallet)

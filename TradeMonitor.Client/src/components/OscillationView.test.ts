@@ -58,6 +58,9 @@ async function mountPage(oscillation: (query?: OscillationQuery) => Promise<Osci
         async predictions() {
             return { wallets: [], total: { wallets: 0, bought: 0, sold: 0, fees: 0, realizedPnl: 0 } }
         },
+        async predictionBookings() {
+            return { results: [] }
+        },
         oscillation,
     } as unknown as LedgerClient
     const router = createRouter({

@@ -101,7 +101,7 @@ Coinbase prediction contracts are one wallet per contract. Create the wallet by 
 }
 ```
 
-A settlement is a sell at `1` or `0` with `kind` `settlement`. Coinbase sync does not create or write these wallets, and it does not post marks for them. Open contracts have no live mark.
+A settlement is a sell at `1` or `0` with `kind` `settlement`. Coinbase sync books each prediction fill into `pm-<product id>` with client id `cbpm-fill-<fill id>`. It prices the contract from the cash total, because a NO order is reported at the YES price. A fill already stored on that wallet, an archived copy, or a `-2` key is not written again. Sync does not post marks for these wallets. Open contracts have no live mark.
 
 ### wallet_update
 
