@@ -1,6 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import type { LiveBarPage, LiveBook, LiveCandle, LiveCosting, LiveOrderType, LiveProduct, LiveSide, LiveTradeMark, PlaceOrderInput, TrackedSymbol } from '@/api/live'
+import type {
+    LiveBarPage,
+    LiveBook,
+    LiveCandle,
+    LiveCosting,
+    LiveOrderType,
+    LiveProduct,
+    LiveSide,
+    LiveTradeMark,
+    PlaceOrderInput,
+    TrackedSymbol,
+} from '@/api/live'
 import type { WalletInfo } from '@/api/types'
 import { useRoute, useRouter } from 'vue-router'
 import ChartMenu from '@/components/live/ChartMenu.vue'
@@ -12,9 +23,11 @@ import { explainLedgerError, useLedger } from '@/composables/useLedger'
 import { useLive } from '@/composables/useLive'
 import { useLiveStream } from '@/composables/useLiveStream'
 import { useTheme } from '@/composables/useTheme'
+import { useSectionCollapsed } from '@/composables/useUiState'
 import { formatMenuPrice } from '@/lib/chartMenu'
 import type { ChartHit } from '@/lib/chartMenu'
 import { readChartPrefs, rememberInterval, removeCustomInterval, writeChartPrefs, type ChartPrefs } from '@/lib/chartPrefs'
+import { chartViewKey } from '@/lib/chartView'
 import { chartQuery, rangeBounds, readChartQuery, type ChartRange } from '@/lib/chartRange'
 import { baselineValue, mergeCandles, type BaselineSource, type CandleBar, type ChartType, type DeltaMode } from '@/lib/chartSeries'
 import { atrLabel, atrReadout, atrZones, bandMenu, bandTarget, costAtrText, horizonBars, scaleBands, type AtrHorizon, type AtrSnapshot } from '@/lib/atrBands'
@@ -78,7 +91,17 @@ let sawLive = false
 let booting = true
 
 const points = computed(() => candles.value.map((bar) => ({ time: bar.time, value: bar.close })))
-const fitKey = computed(() => `${product.value}:${prefs.value.interval}:${prefs.value.type}:${prefs.value.range}:${fromSec.value ?? ''}:${toSec.value ?? ''}`)
+const toolbarHidden = useSectionCollapsed('live-toolbar')
+// Chart type is left out so switching candles, line, or area does not refit the window.
+const fitKey = computed(() =>
+    chartViewKey({
+        symbol: product.value,
+        interval: prefs.value.interval,
+        range: prefs.value.range,
+        from: fromSec.value,
+        to: toSec.value,
+    }),
+)
 const zoneName = computed(() => chartZone(prefs.value.timeZone))
 const zoneLabel = computed(() => zoneAbbrev(Math.floor(Date.now() / 1000), zoneName.value))
 const averageCost = computed(() => (book.value && book.value.average.avgCost > 0 ? book.value.average.avgCost : null))
@@ -102,7 +125,9 @@ const liveBands = computed(() => {
     return scaleBands(price.value, atr.value.atr, horizonCount.value)
 })
 const zones = computed(() => (price.value == null ? [] : atrZones(price.value, liveBands.value)))
-const atrText = computed(() => (atr.value.atr == null ? '' : atrReadout(atr.value.period, prefs.value.interval, prefs.value.atrHorizon, atr.value.atr, horizonCount.value)))
+const atrText = computed(() =>
+    atr.value.atr == null ? '' : atrReadout(atr.value.period, prefs.value.interval, prefs.value.atrHorizon, atr.value.atr, horizonCount.value),
+)
 const costText = computed(() => {
     if (!prefs.value.showAtr || atr.value.atr == null || price.value == null || averageCost.value == null) return ''
     return costAtrText(averageCost.value, price.value, atr.value.atr) ?? ''
@@ -324,10 +349,20 @@ function order(input: PlaceOrderInput) {
             status.value = 'Choose a wallet first.'
             return
         }
-        const next = realWallet.value && simulationId.value ? await live.placeSimulation(simulationId.value, input) : await live.placePaper(walletKey.value, input)
+        const next =
+            realWallet.value && simulationId.value ? await live.placeSimulation(simulationId.value, input) : await live.placePaper(walletKey.value, input)
         book.value = next
         await refreshTrades()
-        const kind = input.type === 'Market' ? 'Market' : input.type === 'StopBuy' ? 'Stop buy' : input.type === 'StopLoss' ? 'Stop-loss' : input.type === 'TakeProfit' ? 'Take-profit' : 'Limit'
+        const kind =
+            input.type === 'Market'
+                ? 'Market'
+                : input.type === 'StopBuy'
+                  ? 'Stop buy'
+                  : input.type === 'StopLoss'
+                    ? 'Stop-loss'
+                    : input.type === 'TakeProfit'
+                      ? 'Take-profit'
+                      : 'Limit'
         status.value = `${kind} ${input.side.toLowerCase()} placed`
         menu.value = null
     })
@@ -357,7 +392,10 @@ function onMenu(action: { id: string; qty?: number }) {
         const idToMove = pendingMoveId.value
         pendingMoveId.value = null
         void run(async () => {
-            book.value = realWallet.value && simulationId.value ? await live.moveSimulation(simulationId.value, idToMove, hit.price) : await live.movePaper(idToMove, hit.price)
+            book.value =
+                realWallet.value && simulationId.value
+                    ? await live.moveSimulation(simulationId.value, idToMove, hit.price)
+                    : await live.movePaper(idToMove, hit.price)
             await refreshTrades()
             status.value = `Order moved to ${formatMenuPrice(hit.price)}`
         })
@@ -582,9 +620,17 @@ function onDeltaMode(value: DeltaMode) {
     savePrefs({ ...prefs.value, deltaMode: value })
 }
 
-const swingKey = computed(() => `${product.value}|${prefs.value.interval}|${candles.value[candles.value.length - 1]?.time ?? 0}|${prefs.value.showSwing ? 1 : 0}`)
-const atrKey = computed(() => `${product.value}|${prefs.value.interval}|${candles.value[candles.value.length - 1]?.time ?? 0}|${prefs.value.showAtr ? 1 : 0}|${prefs.value.atrHorizon}`)
-const forecastKey = computed(() => `${product.value}|${prefs.value.interval}|${candles.value[candles.value.length - 1]?.time ?? 0}|${prefs.value.showForecast ? 1 : 0}|${prefs.value.forecastHorizon}`)
+const swingKey = computed(
+    () => `${product.value}|${prefs.value.interval}|${candles.value[candles.value.length - 1]?.time ?? 0}|${prefs.value.showSwing ? 1 : 0}`,
+)
+const atrKey = computed(
+    () =>
+        `${product.value}|${prefs.value.interval}|${candles.value[candles.value.length - 1]?.time ?? 0}|${prefs.value.showAtr ? 1 : 0}|${prefs.value.atrHorizon}`,
+)
+const forecastKey = computed(
+    () =>
+        `${product.value}|${prefs.value.interval}|${candles.value[candles.value.length - 1]?.time ?? 0}|${prefs.value.showForecast ? 1 : 0}|${prefs.value.forecastHorizon}`,
+)
 const studyBars = computed(() => {
     if (!prefs.value.showStepLadder) return []
     const times = new Set(candles.value.map((bar) => bar.time))
@@ -593,7 +639,16 @@ const studyBars = computed(() => {
 const stepKey = computed(() => {
     const range = prefs.value.range === 'custom' ? `${fromSec.value ?? ''}:${toSec.value ?? ''}` : prefs.value.range
     const last = candles.value[candles.value.length - 1]?.time ?? 0
-    return [product.value, prefs.value.interval, last, prefs.value.showStepLadder ? 1 : 0, prefs.value.stepIncrease, prefs.value.dormantThreshold, prefs.value.dormantPeriod, range].join('|')
+    return [
+        product.value,
+        prefs.value.interval,
+        last,
+        prefs.value.showStepLadder ? 1 : 0,
+        prefs.value.stepIncrease,
+        prefs.value.dormantThreshold,
+        prefs.value.dormantPeriod,
+        range,
+    ].join('|')
 })
 
 async function loadSwing() {
@@ -780,6 +835,15 @@ onUnmounted(() => {
                 <p class="text-xs text-gray-500" data-testid="live-link">{{ linkLabel }}</p>
                 <p class="text-xs text-gray-500">{{ prefs.interval }} · public Coinbase</p>
                 <p v-if="walletNotice" data-testid="wallet-notice" class="text-xs font-medium text-warning-600">{{ walletNotice }}</p>
+                <button
+                    type="button"
+                    data-testid="toggle-chart-toolbar"
+                    class="rounded-md px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-white/5"
+                    :aria-expanded="!toolbarHidden"
+                    @click.stop="toolbarHidden = !toolbarHidden"
+                >
+                    {{ toolbarHidden ? 'Show chart tools' : 'Hide chart tools' }}
+                </button>
                 <label class="ms-auto flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
                     <input
                         data-testid="show-trades"
@@ -792,6 +856,7 @@ onUnmounted(() => {
                 </label>
             </div>
             <ChartToolbar
+                v-show="!toolbarHidden"
                 :chart-type="prefs.type"
                 :favorite-types="prefs.favoriteTypes"
                 :interval="prefs.interval"

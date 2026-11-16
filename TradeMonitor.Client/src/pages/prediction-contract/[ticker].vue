@@ -3,8 +3,10 @@ import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } fr
 import { useRoute, useRouter } from 'vue-router'
 import type { ContractDetail } from '@/api'
 import ChartPending from '@/components/shell/ChartPending.vue'
+import CollapseSection from '@/components/shell/CollapseSection.vue'
 import MoneyCell from '@/components/MoneyCell.vue'
 import StatePanel from '@/components/shell/StatePanel.vue'
+import TextFilter from '@/components/shell/TextFilter.vue'
 import { explainLedgerError, useLedger } from '@/composables/useLedger'
 import { useTheme } from '@/composables/useTheme'
 import { centsText, formatAvgCost, formatSideQuote, formatStrikeLabel, noLineNote, toContractMarkers, toContractSeries } from '@/lib/contractChart'
@@ -13,6 +15,8 @@ import { loadPriceChart } from '@/lib/loadPriceChart'
 import { readOscillationPrefs } from '@/lib/oscillationPrefs'
 import { browserStorage } from '@/lib/predictionContract'
 import { REFRESH_MS, startPolling } from '@/lib/refresh'
+import { useViewFilter } from '@/composables/useUiState'
+import { filterRows } from '@/lib/textFilter'
 
 const PriceChart = defineAsyncComponent({
     loader: loadPriceChart,
@@ -61,6 +65,8 @@ const series = computed(() => toContractSeries(model.value?.points ?? []))
 const markers = computed(() => toContractMarkers(model.value?.marks ?? [], series.value.yes))
 const strike = computed(() => (model.value ? formatStrikeLabel(model.value.strike, model.value.direction) : ''))
 const note = computed(() => (model.value ? noLineNote(model.value) : ''))
+const holdingFilter = useViewFilter('contract')
+const holdings = computed(() => filterRows(model.value?.holdings ?? [], holdingFilter.value, (row) => [row.wallet, row.name, row.side]))
 
 function readRoute() {
     const prefs = readOscillationPrefs(browserStorage())
@@ -204,61 +210,71 @@ onUnmounted(() => stop())
                 ticker is Eastern.
             </p>
 
-            <div class="flex flex-wrap items-end justify-between gap-3">
-                <div class="flex flex-wrap gap-2" data-testid="contract-ranges">
-                    <button
-                        v-for="choice in choices"
-                        :key="choice.id"
-                        type="button"
-                        :data-testid="`contract-range-${choice.id}`"
-                        class="rounded-lg border px-3 py-1.5 text-sm font-medium"
-                        :class="
-                            activeRange(choice)
-                                ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-200'
-                                : 'border-gray-200 text-gray-700 dark:border-gray-700 dark:text-gray-200'
-                        "
-                        @click="selectRange(choice)"
-                    >
-                        {{ choice.label }}
-                    </button>
-                </div>
-                <label class="text-xs font-medium text-gray-500">
-                    Reversal threshold
-                    <span class="mt-1 flex items-center gap-2">
-                        <input
-                            data-testid="contract-threshold"
-                            class="w-20 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
-                            type="number"
-                            min="0.5"
-                            max="50"
-                            step="0.5"
-                            :value="cents"
-                            @change="onThreshold"
-                        />
-                        <span>c</span>
-                    </span>
-                </label>
-            </div>
-
-            <section class="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
-                <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-                    <div class="flex gap-4 text-xs text-gray-500 dark:text-gray-400">
-                        <span class="inline-flex items-center gap-2"><span class="h-0.5 w-4 bg-[#465fff]"></span> YES</span>
-                        <span class="inline-flex items-center gap-2"><span class="h-0.5 w-4 bg-[#f79009]"></span> NO</span>
+            <CollapseSection id="contract-ranges" label="range">
+                <template #heading>
+                    <h2 class="text-sm font-semibold text-gray-900 dark:text-white">Range</h2>
+                </template>
+                <div class="flex flex-wrap items-end justify-between gap-3">
+                    <div class="flex flex-wrap gap-2" data-testid="contract-ranges">
+                        <button
+                            v-for="choice in choices"
+                            :key="choice.id"
+                            type="button"
+                            :data-testid="`contract-range-${choice.id}`"
+                            class="rounded-lg border px-3 py-1.5 text-sm font-medium"
+                            :class="
+                                activeRange(choice)
+                                    ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-200'
+                                    : 'border-gray-200 text-gray-700 dark:border-gray-700 dark:text-gray-200'
+                            "
+                            @click="selectRange(choice)"
+                        >
+                            {{ choice.label }}
+                        </button>
                     </div>
-                    <p v-if="note" data-testid="contract-note" class="text-xs text-gray-500 dark:text-gray-400">{{ note }}</p>
+                    <label class="text-xs font-medium text-gray-500">
+                        Reversal threshold
+                        <span class="mt-1 flex items-center gap-2">
+                            <input
+                                data-testid="contract-threshold"
+                                class="w-20 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                                type="number"
+                                min="0.5"
+                                max="50"
+                                step="0.5"
+                                :value="cents"
+                                @change="onThreshold"
+                            />
+                            <span>c</span>
+                        </span>
+                    </label>
                 </div>
-                <PriceChart
-                    data-testid="contract-chart"
-                    :points="series.yes"
-                    :compare="series.no"
-                    :markers="markers"
-                    :dark="isDark"
-                    :empty="series.yes.length === 0"
-                    empty-label="No price history in this window."
-                />
-                <p v-if="model.error" class="mt-2 text-xs text-error-600">{{ model.error }}</p>
-            </section>
+            </CollapseSection>
+
+            <CollapseSection id="contract-chart" label="chart">
+                <template #heading>
+                    <h2 class="text-sm font-semibold text-gray-900 dark:text-white">Chart</h2>
+                </template>
+                <section class="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+                    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <div class="flex gap-4 text-xs text-gray-500 dark:text-gray-400">
+                            <span class="inline-flex items-center gap-2"><span class="h-0.5 w-4 bg-[#465fff]"></span> YES</span>
+                            <span class="inline-flex items-center gap-2"><span class="h-0.5 w-4 bg-[#f79009]"></span> NO</span>
+                        </div>
+                        <p v-if="note" data-testid="contract-note" class="text-xs text-gray-500 dark:text-gray-400">{{ note }}</p>
+                    </div>
+                    <PriceChart
+                        data-testid="contract-chart"
+                        :points="series.yes"
+                        :compare="series.no"
+                        :markers="markers"
+                        :dark="isDark"
+                        :empty="series.yes.length === 0"
+                        empty-label="No price history in this window."
+                    />
+                    <p v-if="model.error" class="mt-2 text-xs text-error-600">{{ model.error }}</p>
+                </section>
+            </CollapseSection>
 
             <dl class="grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid="contract-stats">
                 <div class="rounded-xl border border-gray-200 px-3 py-2 dark:border-gray-800">
@@ -303,8 +319,12 @@ onUnmounted(() => stop())
                 No open pm- wallet holds this contract.
             </section>
             <section v-else class="space-y-3" data-testid="contract-holdings">
+                <TextFilter v-model="holdingFilter" view="contract" placeholder="Filter by wallet or side" />
+                <p v-if="holdings.length === 0" class="text-sm text-gray-500 dark:text-gray-400" data-testid="filter-empty-contract">
+                    Nothing matches this filter.
+                </p>
                 <article
-                    v-for="holding in model.holdings"
+                    v-for="holding in holdings"
                     :key="holding.wallet"
                     data-testid="contract-holding"
                     class="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]"

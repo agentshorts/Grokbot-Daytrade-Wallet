@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import CollapseSection from '@/components/shell/CollapseSection.vue'
 import FilterSelect from '@/components/shell/FilterSelect.vue'
 import SegmentedControl from '@/components/shell/SegmentedControl.vue'
 import StatePanel from '@/components/shell/StatePanel.vue'
+import TextFilter from '@/components/shell/TextFilter.vue'
 import TradesTable from '@/components/TradesTable.vue'
 import { useFilterQuery } from '@/composables/useFilterQuery'
 import { rangeBounds, type LedgerQuery, type TradeRow, type WalletInfo } from '@/api'
 import { explainLedgerError, useLedger } from '@/composables/useLedger'
+import { useViewFilter } from '@/composables/useUiState'
 import { serializeFilters, type Filters, type LedgerMode } from '@/lib/filters'
+import { filterRows } from '@/lib/textFilter'
 import { buildTradeCsv, downloadCsv } from '@/lib/tradeCsv'
 import { modeLabel, parseTradeQuery, writeTradeQuery, type TradeQueryState, type TradeSort } from '@/lib/tradeQuery'
 import { REFRESH_MS, startPolling } from '@/lib/refresh'
@@ -22,6 +26,7 @@ const route = useRoute()
 const router = useRouter()
 const client = useLedger()
 const { filters, setRange } = useFilterQuery()
+const filterText = useViewFilter('trades')
 
 const rows = ref<TradeRow[]>([])
 const total = ref(0)
@@ -66,6 +71,10 @@ const symbolOptions = computed(() => {
     if (selected && !options.some((option) => option.value.toLowerCase() === selected.toLowerCase())) options.push({ value: selected, label: selected })
     return options
 })
+
+const visibleRows = computed(() =>
+    filterRows(rows.value, filterText.value, (row) => [row.symbol, row.wallet, row.walletName, row.side, row.title, row.note, row.orderRef]),
+)
 
 const listKey = computed(() =>
     JSON.stringify({
@@ -384,59 +393,65 @@ function distinctTradeSymbols(rows: TradeRow[]): string[] {
         </p>
         <p v-if="exportError" class="text-sm text-error-600" role="alert">{{ exportError }}</p>
 
-        <div class="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
-            <div class="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
-                <FilterSelect
-                    label="Wallet"
-                    test-id="filter-wallet"
-                    empty-label="All wallets"
-                    :value="filters.wallet ?? ''"
-                    :options="walletOptions"
-                    @change="onWallet"
-                />
-                <FilterSelect
-                    label="Symbol"
-                    test-id="filter-symbol"
-                    empty-label="All symbols"
-                    :value="symbolValue"
-                    :options="symbolOptions"
-                    @change="onSymbol"
-                />
-                <form class="flex min-w-0 flex-1 items-end gap-2" data-testid="search-form" @submit.prevent="applySearch">
-                    <label class="block min-w-0 flex-1 text-sm">
-                        <span class="mb-1 block text-xs font-medium tracking-wide text-gray-400 uppercase">Search</span>
-                        <input
-                            v-model="searchDraft"
-                            type="search"
-                            class="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-900"
-                            aria-label="Search trades"
-                            data-testid="filter-search"
-                            placeholder="Symbol, title, note, order"
-                        />
-                    </label>
-                    <button type="submit" class="rounded-lg bg-brand-500 px-3 py-1.5 text-sm font-medium text-white">Search</button>
-                </form>
+        <CollapseSection id="trades-filters" label="filters" class="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+            <template #heading>
+                <h2 class="text-sm font-semibold text-gray-900 dark:text-white">Filters</h2>
+            </template>
+            <div class="flex flex-col gap-3">
+                <TextFilter v-model="filterText" view="trades" :collapsible="false" placeholder="Filter this page by symbol, wallet, or side" />
+                <div class="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+                    <FilterSelect
+                        label="Wallet"
+                        test-id="filter-wallet"
+                        empty-label="All wallets"
+                        :value="filters.wallet ?? ''"
+                        :options="walletOptions"
+                        @change="onWallet"
+                    />
+                    <FilterSelect
+                        label="Symbol"
+                        test-id="filter-symbol"
+                        empty-label="All symbols"
+                        :value="symbolValue"
+                        :options="symbolOptions"
+                        @change="onSymbol"
+                    />
+                    <form class="flex min-w-0 flex-1 items-end gap-2" data-testid="search-form" @submit.prevent="applySearch">
+                        <label class="block min-w-0 flex-1 text-sm">
+                            <span class="mb-1 block text-xs font-medium tracking-wide text-gray-400 uppercase">Search</span>
+                            <input
+                                v-model="searchDraft"
+                                type="search"
+                                class="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-900"
+                                aria-label="Search trades"
+                                data-testid="filter-search"
+                                placeholder="Symbol, title, note, order"
+                            />
+                        </label>
+                        <button type="submit" class="rounded-lg bg-brand-500 px-3 py-1.5 text-sm font-medium text-white">Search</button>
+                    </form>
+                </div>
+                <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                    <SegmentedControl label="Side" test-id="side-filter" :value="tradeState.side ?? 'any'" :options="sideOptions" @select="onSide" />
+                    <SegmentedControl
+                        label="Won or lost"
+                        test-id="outcome-filter"
+                        :value="tradeState.outcome ?? 'any'"
+                        :options="outcomeOptions"
+                        @select="onOutcome"
+                    />
+                    <button
+                        v-if="tradeState.symbol || tradeState.side || tradeState.outcome || tradeState.q || filters.wallet"
+                        type="button"
+                        class="text-sm font-medium text-brand-600"
+                        data-testid="clear-filters"
+                        @click="clearFilters"
+                    >
+                        Clear filters
+                    </button>
+                </div>
             </div>
-            <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-                <SegmentedControl label="Side" test-id="side-filter" :value="tradeState.side ?? 'any'" :options="sideOptions" @select="onSide" />
-                <SegmentedControl
-                    label="Won or lost"
-                    test-id="outcome-filter"
-                    :value="tradeState.outcome ?? 'any'"
-                    :options="outcomeOptions"
-                    @select="onOutcome"
-                />
-                <button
-                    v-if="tradeState.symbol || tradeState.side || tradeState.outcome || tradeState.q || filters.wallet"
-                    type="button"
-                    class="text-sm font-medium text-brand-600"
-                    data-testid="clear-filters"
-                    @click="clearFilters"
-                >
-                    Clear filters
-                </button>
-            </div>
-        </div>
+        </CollapseSection>
 
         <StatePanel v-if="status === 'loading'" tone="loading" title="Loading trades" />
         <StatePanel v-else-if="status === 'error'" tone="error" title="Could not load trades" :body="error || 'Try again in a moment.'">
@@ -454,8 +469,12 @@ function distinctTradeSymbols(rows: TradeRow[]): string[] {
             </button>
         </StatePanel>
         <section v-else class="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+            <p v-if="visibleRows.length === 0" class="px-4 py-8 text-sm text-gray-500 dark:text-gray-400" data-testid="filter-empty-trades">
+                Nothing on this page matches the filter.
+            </p>
             <TradesTable
-                :trades="rows"
+                v-else
+                :trades="visibleRows"
                 :selected-id="tradeState.tradeId"
                 :order-by="tradeState.orderBy"
                 :descending="tradeState.descending"

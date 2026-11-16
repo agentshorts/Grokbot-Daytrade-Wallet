@@ -113,7 +113,9 @@ describe('oscillation view', () => {
         expect(row.text()).toContain('Swinging')
         expect(row.get('[data-testid=oscillation-yes]').text()).toBe('56c last')
         expect(row.get('[data-testid=oscillation-no]').text()).toBe('44c implied')
-        expect(row.get('[data-testid=oscillation-contract]').attributes('href')).toContain('/predictions/contract/KXBTCD-26NOV1617-T64999.99')
+        expect(row.get('[data-testid=oscillation-contract]').attributes('href')).toBe(
+            '/predictions/contract/KXBTCD-26NOV1617-T64999.99?hours=6&cents=5',
+        )
         expect(row.text()).toContain('17c')
         expect(row.text()).toContain('40%')
         expect(row.text()).toContain('4')
@@ -129,5 +131,8 @@ describe('oscillation view', () => {
         const lookup = page.get('[data-testid=oscillation-lookup]')
         expect(lookup.text()).toContain('KXBTCD-26NOV1617-T65249.99')
         expect(lookup.text()).not.toContain('Swinging')
+        expect(lookup.get('[data-testid=oscillation-contract]').attributes('href')).toBe(
+            '/predictions/contract/KXBTCD-26NOV1617-T65249.99?hours=6&cents=5',
+        )
     })
 })

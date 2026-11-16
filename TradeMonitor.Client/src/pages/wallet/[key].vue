@@ -2,9 +2,11 @@
 import { computed, defineAsyncComponent, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ChartPending from '@/components/shell/ChartPending.vue'
+import CollapseSection from '@/components/shell/CollapseSection.vue'
 import KpiCard from '@/components/KpiCard.vue'
 import MoneyCell from '@/components/MoneyCell.vue'
 import StatePanel from '@/components/shell/StatePanel.vue'
+import TextFilter from '@/components/shell/TextFilter.vue'
 import TradeList from '@/components/TradeList.vue'
 import TransferList from '@/components/TransferList.vue'
 import WalletPositions from '@/components/WalletPositions.vue'
@@ -13,7 +15,9 @@ import type { Kpi } from '@/lib/book'
 import { useFilterQuery } from '@/composables/useFilterQuery'
 import { useWalletDetail } from '@/composables/useWalletPages'
 import { useTheme } from '@/composables/useTheme'
+import { useViewFilter } from '@/composables/useUiState'
 import { DASH, type WalletDetailModel } from '@/lib/walletView'
+import { filterRows } from '@/lib/textFilter'
 
 const EChart = defineAsyncComponent({
     loader: () => import('@/components/EChart.vue'),
@@ -61,6 +65,14 @@ watch(
 
 const equity = computed(() => (model.value && model.value.equity.length > 0 ? balanceEquityOption(model.value.equity, isDark.value) : null))
 const daily = computed(() => (model.value && model.value.daily.some((day) => day.pnl != null) ? dailyPnlOption(model.value.daily, isDark.value) : null))
+const listFilter = useViewFilter('wallet')
+const openPositions = computed(() => filterRows(model.value?.openPositions ?? [], listFilter.value, (row) => [row.symbol]))
+const closedPositions = computed(() => filterRows(model.value?.closedPositions ?? [], listFilter.value, (row) => [row.symbol]))
+const walletTrades = computed(() =>
+    filterRows(model.value?.trades ?? [], listFilter.value, (row) => [row.symbol, row.side, row.walletName, row.title, row.note]),
+)
+const walletTransfers = computed(() => filterRows(model.value?.transfers ?? [], listFilter.value, (row) => [row.kind, row.note]))
+const listsEmpty = computed(() => openPositions.value.length + closedPositions.value.length + walletTrades.value.length + walletTransfers.value.length === 0)
 
 function kpis(detail: WalletDetailModel): Kpi[] {
     const currency = detail.currency
@@ -167,41 +179,49 @@ function kpis(detail: WalletDetailModel): Kpi[] {
                 <KpiCard v-for="kpi in kpis(model)" :key="kpi.id" :kpi="kpi" />
             </section>
             <p class="text-sm text-gray-500 dark:text-gray-400">Header totals follow the selected range. Positions are the current book.</p>
+            <TextFilter v-model="listFilter" view="wallet" placeholder="Filter positions, trades, and transfers" />
+            <p v-if="listFilter.trim() && listsEmpty" class="text-sm text-gray-500 dark:text-gray-400" data-testid="filter-empty-wallet">
+                Nothing matches this filter.
+            </p>
 
-            <section class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-                    <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Balance and equity</h2>
-                    <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">
-                        <template v-if="model.closed">Ends at the contract close. The line is realized P&L.</template>
-                        <template v-else>Cash is the balance. Equity is cash plus open positions.</template>
-                    </p>
-                    <EChart :option="equity" :empty="!equity" />
-                </article>
-                <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-                    <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Daily P&L</h2>
-                    <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">
-                        Green is up, red is down. Transfers are left out.
-                        <span v-if="model.dailyHasGap">A day with no price mark is left blank.</span>
-                    </p>
-                    <EChart :option="daily" :empty="!daily" empty-label="No priced P&L in this range" />
-                </article>
-            </section>
+            <CollapseSection id="wallet-charts" label="charts">
+                <template #heading>
+                    <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Charts</h2>
+                </template>
+                <section class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                    <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+                        <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Balance and equity</h2>
+                        <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">
+                            <template v-if="model.closed">Ends at the contract close. The line is realized P&L.</template>
+                            <template v-else>Cash is the balance. Equity is cash plus open positions.</template>
+                        </p>
+                        <EChart :option="equity" :empty="!equity" />
+                    </article>
+                    <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+                        <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Daily P&L</h2>
+                        <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">
+                            Green is up, red is down. Transfers are left out.
+                            <span v-if="model.dailyHasGap">A day with no price mark is left blank.</span>
+                        </p>
+                        <EChart :option="daily" :empty="!daily" empty-label="No priced P&L in this range" />
+                    </article>
+                </section>
+            </CollapseSection>
 
-            <WalletPositions
-                :open="model.openPositions"
-                :closed="model.closedPositions"
-                :currency="model.currency"
-                :stale-after-minutes="model.staleAfterMinutes"
-            />
+            <WalletPositions :open="openPositions" :closed="closedPositions" :currency="model.currency" :stale-after-minutes="model.staleAfterMinutes" />
 
-            <section
+            <CollapseSection
+                id="wallet-fees"
+                label="fees"
                 data-testid="wallet-fees"
                 class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]"
             >
-                <div class="px-4 py-4 md:px-5">
-                    <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Fees</h2>
-                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Fees in this range, from the ledger.</p>
-                </div>
+                <template #heading>
+                    <div class="px-4 pt-4 md:px-5">
+                        <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Fees</h2>
+                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Fees in this range, from the ledger.</p>
+                    </div>
+                </template>
                 <p v-if="model.feeDays.length === 0" class="px-5 py-8 text-sm text-gray-500 dark:text-gray-400">No fees in this range.</p>
                 <div v-else class="max-w-full overflow-x-auto">
                     <table class="w-full text-sm">
@@ -221,34 +241,42 @@ function kpis(detail: WalletDetailModel): Kpi[] {
                         </tbody>
                     </table>
                 </div>
-            </section>
+            </CollapseSection>
 
-            <section
+            <CollapseSection
+                id="wallet-transfers"
+                label="transfers"
                 data-testid="transfers"
                 class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]"
             >
-                <div class="px-4 py-4 md:px-5">
-                    <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Transfers</h2>
-                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Deposits, withdrawals, and sweeps in this range.</p>
-                </div>
-                <TransferList :transfers="model.transfers" />
-            </section>
+                <template #heading>
+                    <div class="px-4 pt-4 md:px-5">
+                        <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Transfers</h2>
+                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Deposits, withdrawals, and sweeps in this range.</p>
+                    </div>
+                </template>
+                <TransferList :transfers="walletTransfers" />
+            </CollapseSection>
 
-            <section
+            <CollapseSection
+                id="wallet-trades"
+                label="recent trades"
                 data-testid="wallet-trades"
                 class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]"
             >
-                <div class="flex items-center justify-between gap-3 px-4 py-4 md:px-5">
-                    <div>
-                        <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Recent trades</h2>
-                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Newest fills in this range. A dash means unrealized P&L is unknown.</p>
+                <template #heading>
+                    <div class="flex items-center justify-between gap-3 px-4 pt-4 md:px-5">
+                        <div>
+                            <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Recent trades</h2>
+                            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Newest fills in this range. A dash means unrealized P&L is unknown.</p>
+                        </div>
+                        <RouterLink :to="shellLocation('/trades')" class="text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">
+                            All trades
+                        </RouterLink>
                     </div>
-                    <RouterLink :to="shellLocation('/trades')" class="text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">
-                        All trades
-                    </RouterLink>
-                </div>
-                <TradeList :trades="model.trades" :missing-pnl="DASH" />
-            </section>
+                </template>
+                <TradeList :trades="walletTrades" :missing-pnl="DASH" />
+            </CollapseSection>
         </template>
     </div>
 </template>

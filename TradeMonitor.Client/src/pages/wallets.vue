@@ -3,20 +3,27 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import HideClosedContracts from '@/components/HideClosedContracts.vue'
 import StatePanel from '@/components/shell/StatePanel.vue'
+import TextFilter from '@/components/shell/TextFilter.vue'
 import WalletCard from '@/components/WalletCard.vue'
 import { useFilterQuery } from '@/composables/useFilterQuery'
 import { useHideClosedContracts } from '@/composables/useHideClosedContracts'
+import { useViewFilter } from '@/composables/useUiState'
 import { useWalletList } from '@/composables/useWalletPages'
 import { filterClosedContracts, groupPredictionWallets } from '@/lib/predictionContract'
+import { filterRows } from '@/lib/textFilter'
 
 const router = useRouter()
 const { filters, setWallet, shellLocation } = useFilterQuery()
 const { status, error, errorStatus, model, refresh } = useWalletList()
 const hideClosed = useHideClosedContracts()
+const filterText = useViewFilter('wallets')
 const walletRows = computed(() => model.value?.wallets ?? [])
 const closedCount = computed(() => walletRows.value.filter((wallet) => wallet.prediction && wallet.closed).length)
 const shownWallets = computed(() => filterClosedContracts(walletRows.value, hideClosed.value, (wallet) => !!(wallet.prediction && wallet.closed)))
-const sections = computed(() => groupPredictionWallets(shownWallets.value))
+const filteredWallets = computed(() =>
+    filterRows(shownWallets.value, filterText.value, (wallet) => [wallet.name, wallet.key, wallet.ticker, wallet.venue, wallet.mode, wallet.asset]),
+)
+const sections = computed(() => groupPredictionWallets(filteredWallets.value))
 
 function selectWallet(key: string) {
     void router.push(shellLocation(`/wallet/${encodeURIComponent(key)}`, { wallet: key }))
@@ -62,10 +69,18 @@ function selectWallet(key: string) {
             </button>
         </StatePanel>
         <template v-else-if="model">
-            <div v-if="closedCount > 0" class="flex justify-end">
-                <HideClosedContracts v-model="hideClosed" :count="closedCount" />
+            <div class="flex flex-wrap items-end justify-between gap-3">
+                <TextFilter v-model="filterText" view="wallets" placeholder="Filter by wallet, ticker, or venue" />
+                <HideClosedContracts v-if="closedCount > 0" v-model="hideClosed" :count="closedCount" />
             </div>
             <p v-if="shownWallets.length === 0" class="text-sm text-gray-500 dark:text-gray-400">Closed contracts are hidden.</p>
+            <p
+                v-else-if="filterText.trim() && filteredWallets.length === 0"
+                class="text-sm text-gray-500 dark:text-gray-400"
+                data-testid="filter-empty-wallets"
+            >
+                Nothing matches this filter.
+            </p>
             <template v-for="section in sections" :key="section.asset ?? 'wallets'">
                 <h2 v-if="section.asset" class="text-sm font-semibold text-gray-700 dark:text-gray-200">{{ section.asset }}</h2>
                 <section class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
