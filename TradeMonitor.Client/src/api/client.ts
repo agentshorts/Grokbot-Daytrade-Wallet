@@ -9,6 +9,7 @@ import {
     parseSummary,
     parseSymbols,
     parseTradeDetail,
+    parseContract,
     parseOscillation,
     parsePredictionPnl,
     parseTrades,
@@ -23,6 +24,8 @@ import type {
     LedgerQuery,
     PnlDailyResponse,
     PositionsResponse,
+    ContractQuery,
+    ContractResponse,
     OscillationQuery,
     OscillationResponse,
     PredictionPnlResponse,
@@ -57,6 +60,7 @@ export interface LedgerClient {
     priceMarks(query?: LedgerQuery): Promise<PriceMarksResponse>
     predictions(): Promise<PredictionPnlResponse>
     oscillation(query?: OscillationQuery): Promise<OscillationResponse>
+    contract(query: ContractQuery): Promise<ContractResponse>
 }
 
 export function withQuery(path: string, query: LedgerQuery = {}): string {
@@ -159,6 +163,14 @@ export function createLedgerClient(transport: LedgerTransport = fetchTransport()
             if (query.ticker) params.set('ticker', query.ticker)
             const qs = params.toString()
             return request(transport, readPath('/predictions/oscillation') + (qs ? `?${qs}` : ''), {}, parseOscillation)
+        },
+        contract: (query) => {
+            const params = new URLSearchParams()
+            params.set('ticker', query.ticker)
+            if (query.lookbackHours != null) params.set('lookbackHours', String(query.lookbackHours))
+            if (query.thresholdCents != null) params.set('thresholdCents', String(query.thresholdCents))
+            if (query.allAvailable) params.set('allAvailable', 'true')
+            return request(transport, readPath('/predictions/contract') + `?${params.toString()}`, {}, parseContract)
         },
     }
 }

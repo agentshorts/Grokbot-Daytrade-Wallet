@@ -413,6 +413,15 @@ export interface OscillationRow {
     name: string
     qty: number
     priceCents: number | null
+    yesCents: number | null
+    yesBidCents: number | null
+    yesAskCents: number | null
+    yesLabel: string
+    noCents: number | null
+    noBidCents: number | null
+    noAskCents: number | null
+    noLabel: string
+    noImplied: boolean
     highCents: number | null
     lowCents: number | null
     rangeCents: number
@@ -432,4 +441,86 @@ export interface OscillationResponse {
     results: OscillationRow[]
     lookup: OscillationRow | null
     lookupError: string | null
+}
+
+export interface ContractQuery {
+    ticker: string
+    lookbackHours?: number
+    thresholdCents?: number
+    allAvailable?: boolean
+}
+
+export interface ContractPoint {
+    at: string
+    yesCents: number
+    noCents: number
+}
+
+export interface ContractMark {
+    at: string
+    kind: string
+    text: string
+}
+
+export interface ContractFill {
+    tradeId: number
+    side: TradeSideName
+    qty: number
+    price: number
+    at: string
+}
+
+export interface ContractHolding {
+    wallet: string
+    name: string
+    side: string
+    qty: number
+    avgCost: number
+    unrealizedPnl: number | null
+    fills: ContractFill[]
+}
+
+export interface ContractDetail {
+    ticker: string
+    productId: string
+    series: string
+    title: string
+    subtitle: string | null
+    underlying: string | null
+    strike: number | null
+    direction: string
+    status: string | null
+    closeAt: string | null
+    closeCentral: string | null
+    closeEastern: string | null
+    yesCents: number | null
+    yesBidCents: number | null
+    yesAskCents: number | null
+    yesLabel: string
+    noCents: number | null
+    noBidCents: number | null
+    noAskCents: number | null
+    noLabel: string
+    noImplied: boolean
+    noLineImplied: boolean
+    highCents: number | null
+    lowCents: number | null
+    rangeCents: number
+    rangePercent: number | null
+    reversals: number
+    oscillating: boolean
+    volume: number | null
+    openInterest: number | null
+    lookbackHours: number
+    thresholdCents: number
+    allAvailable: boolean
+    source: string
+    error: string | null
+    points: ContractPoint[]
+    marks: ContractMark[]
+    holdings: ContractHolding[]
+}
+
+export interface ContractResponse {
+    result: ContractDetail
 }

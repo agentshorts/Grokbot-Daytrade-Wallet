@@ -80,8 +80,8 @@ onUnmounted(() => {
     <div data-testid="oscillation" class="space-y-4">
         <div class="flex flex-wrap items-end justify-between gap-3">
             <p class="max-w-2xl text-sm text-gray-500 dark:text-gray-400">
-                Open pm- contracts, most reversals first. A contract is flagged when price changes direction at least twice by the threshold. Close times are
-                Central. The hour printed on the ticker is Eastern.
+                Open pm- contracts, most reversals first. YES and NO are the live quote. A contract is flagged when price changes direction at least twice by
+                the threshold. Close times are Central. The hour printed on the ticker is Eastern.
             </p>
             <div ref="popoverRoot" class="relative">
                 <button
@@ -131,12 +131,12 @@ onUnmounted(() => {
             </p>
             <section v-if="model.lookup" data-testid="oscillation-lookup" class="space-y-2">
                 <h2 class="text-sm font-semibold text-gray-900 dark:text-white">Lookup</h2>
-                <OscillationTable :rows="[model.lookup]" />
+                <OscillationTable :rows="[model.lookup]" :lookback-hours="prefs.lookbackHours" :threshold-cents="prefs.thresholdCents" />
             </section>
             <p v-if="rows.length === 0" class="text-sm text-gray-500 dark:text-gray-400">
                 No open prediction contracts. Look up a ticker to analyze one that is not in a wallet.
             </p>
-            <OscillationTable v-else :rows="rows" />
+            <OscillationTable v-else :rows="rows" :lookback-hours="prefs.lookbackHours" :threshold-cents="prefs.thresholdCents" />
         </template>
     </div>
 </template>

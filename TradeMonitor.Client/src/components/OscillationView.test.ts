@@ -29,6 +29,15 @@ const held: OscillationResponse = {
             name: 'BTC 64999.99',
             qty: 4,
             priceCents: 56,
+            yesCents: 56,
+            yesBidCents: null,
+            yesAskCents: null,
+            yesLabel: 'last',
+            noCents: 44,
+            noBidCents: null,
+            noAskCents: null,
+            noLabel: 'implied',
+            noImplied: true,
             highCents: 60,
             lowCents: 43,
             rangeCents: 17,
@@ -56,6 +65,7 @@ async function mountPage(oscillation: (query?: OscillationQuery) => Promise<Osci
         routes: [
             { path: '/predictions', component: PredictionsPage },
             { path: '/wallet/:key', component: { template: '<div />' } },
+            { path: '/predictions/contract/:ticker', component: { template: '<div />' } },
         ],
     })
     await router.push('/predictions')
@@ -101,7 +111,9 @@ describe('oscillation view', () => {
         expect(calls[0]).toMatchObject({ lookbackHours: 6, thresholdCents: 5 })
         const row = page.get('[data-testid="oscillation-KXBTCD-26NOV1617-T64999.99"]')
         expect(row.text()).toContain('Swinging')
-        expect(row.text()).toContain('56c')
+        expect(row.get('[data-testid=oscillation-yes]').text()).toBe('56c last')
+        expect(row.get('[data-testid=oscillation-no]').text()).toBe('44c implied')
+        expect(row.get('[data-testid=oscillation-contract]').attributes('href')).toContain('/predictions/contract/KXBTCD-26NOV1617-T64999.99')
         expect(row.text()).toContain('17c')
         expect(row.text()).toContain('40%')
         expect(row.text()).toContain('4')
