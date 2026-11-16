@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { atrHorizons, type AtrHorizon } from '@/lib/atrBands'
 import { forecastHorizons, type ForecastHorizon } from '@/lib/forecast'
 import { intervalPresets, parseInterval } from '@/lib/chartInterval'
 import { quickRanges, type ChartRange } from '@/lib/chartRange'
 import { chartTypes, type BaselineSource, type ChartType, type DeltaMode } from '@/lib/chartSeries'
+import type { StepLadderInputs } from '@/lib/stepLadder'
+import StepLadderFields from '@/components/live/StepLadderFields.vue'
 
 const props = defineProps<{
     chartType: ChartType
@@ -34,6 +36,10 @@ const props = defineProps<{
     forecastText: string
     forecastNotice: string
     coverageText: string
+    showStepLadder: boolean
+    stepIncrease: number
+    dormantThreshold: number
+    dormantPeriod: number
 }>()
 
 const emit = defineEmits<{
@@ -54,13 +60,32 @@ const emit = defineEmits<{
     horizon: [value: AtrHorizon]
     forecast: []
     'forecast-horizon': [value: ForecastHorizon]
+    'step-ladder': []
+    'step-ladder-inputs': [value: StepLadderInputs]
 }>()
 
 const custom = ref('')
 const intervalError = ref('')
+const popover = ref(false)
+const popoverRoot = ref<HTMLElement | null>(null)
 const favorites = () => chartTypes.filter((item) => props.favoriteTypes.includes(item.id))
 const presetKeys: readonly string[] = intervalPresets
 const choices = () => [...intervalPresets, ...props.customIntervals.filter((item) => !presetKeys.includes(item))]
+
+function onPointerDown(event: PointerEvent) {
+    if (!popover.value || !popoverRoot.value) return
+    if (event.target instanceof Node && popoverRoot.value.contains(event.target)) return
+    popover.value = false
+}
+
+onMounted(() => document.addEventListener('pointerdown', onPointerDown))
+onUnmounted(() => document.removeEventListener('pointerdown', onPointerDown))
+watch(
+    () => props.showStepLadder,
+    (on) => {
+        if (!on) popover.value = false
+    },
+)
 
 function addCustom() {
     const parsed = parseInterval(custom.value)
@@ -150,6 +175,13 @@ function addCustom() {
             </button>
             <p v-if="atrText" data-testid="atr-readout" class="text-xs text-gray-500">{{ atrText }}</p>
             <p v-if="costText" data-testid="atr-cost" class="text-xs text-gray-500">{{ costText }}</p>
+        </div>
+        <button type="button" data-testid="step-ladder-toggle" class="rounded-md px-2 py-1 text-xs font-medium" :class="showStepLadder ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'text-gray-600'" :aria-pressed="showStepLadder" @click="emit('step-ladder')">Step ladder</button>
+        <div v-if="showStepLadder" ref="popoverRoot" class="relative">
+            <button type="button" data-testid="step-ladder-inputs" class="rounded-md px-2 py-1 text-xs font-medium text-gray-600" :aria-expanded="popover" @click="popover = !popover">Inputs</button>
+            <div v-if="popover" data-testid="step-ladder-popover" class="absolute start-0 top-full z-30 mt-1 w-56 rounded-xl border border-gray-200 bg-white p-3 shadow-lg dark:border-gray-700 dark:bg-gray-900" @click.stop>
+                <StepLadderFields :step-increase="stepIncrease" :dormant-threshold="dormantThreshold" :dormant-period="dormantPeriod" @change="emit('step-ladder-inputs', $event)" />
+            </div>
         </div>
         <button type="button" data-testid="forecast-toggle" class="rounded-md px-2 py-1 text-xs font-medium" :class="showForecast ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'text-gray-600'" :aria-pressed="showForecast" @click="emit('forecast')">Targets: Forecast</button>
         <div v-if="showForecast" class="flex flex-wrap items-center gap-1">

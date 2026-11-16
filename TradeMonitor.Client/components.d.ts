@@ -35,6 +35,7 @@ declare module 'vue' {
     SegmentedControl: typeof import('./src/components/shell/SegmentedControl.vue')['default']
     Sparkline: typeof import('./src/components/Sparkline.vue')['default']
     StatePanel: typeof import('./src/components/shell/StatePanel.vue')['default']
+    StepLadderFields: typeof import('./src/components/live/StepLadderFields.vue')['default']
     ThemeToggle: typeof import('./src/components/shell/ThemeToggle.vue')['default']
     TimeCell: typeof import('./src/components/TimeCell.vue')['default']
     TradeDrawer: typeof import('./src/components/TradeDrawer.vue')['default']
