@@ -168,10 +168,10 @@ Wallets are one per holding, looked up by key: `coinbase-sbit`, `coinbase-ethd`,
 - `cb-proceeds-<trade_id>` and `cb-proceeds-dst-<trade_id>`
 - `cb-mark-<asset>-<symbol>-<yyyyMMddTHHmm>`
 - `cb-cash-reconcile-<yyyyMMddTHHmm>`
-- `cbpm-fill-<trade_id>` for a prediction fill, on wallet `pm-<product id>`
-- `cbpm-settle-<trade_id>` for a prediction settlement, on that same wallet
+- `cbpm-fill-<trade_id>` for a prediction fill, on wallet `pm-<product id>`, with the Coinbase order id stored as the order reference. A row already stored as `cbpm-fill-<order id>` or with that order reference is not written again.
+- `cbpm-settle-<trade_id>` for a prediction settlement, on that same wallet. A settlement already stored as `cbpm-settle-<order id>`, `cbpm-settle-<product id>`, or any settlement on the wallet, is not written again.
 
-Run only one Coinbase writer at a time. Stop the Python wallet sync before enabling this job, or leave this job disabled while the Python process is running. The shared client ids stop a second copy from inserting the same fill, but the two writers will still race. Prediction fills are booked by this job. MCP stays the write path for every other wallet.
+Run only one Coinbase writer at a time. Stop the Python wallet sync before enabling this job, or leave this job disabled while the Python process is running. The shared client ids stop a second copy from inserting the same fill, but the two writers will still race. Prediction fills are booked by this job when `CoinbaseSync:PredictionBooking:Mode` is `On`. The default is `DryRun`, which lists what would be booked and writes nothing. MCP stays the write path for every other wallet.
 
 ## Checks
 

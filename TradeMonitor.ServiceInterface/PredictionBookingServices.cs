@@ -15,6 +15,7 @@ public class PredictionBookingServices(IDbConnectionFactory dbFactory, IPredicti
         var keys = db.Select<Wallet>().Select(wallet => wallet.Key);
         return new GetPredictionBookingsResponse
         {
+            Mode = bookings.Mode.ToString(),
             Results = PredictionBookingReport.List(bookings.Snapshot(), keys),
         };
     }

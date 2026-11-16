@@ -122,7 +122,9 @@ public sealed partial class CoinbaseSyncer
     readonly HashSet<string> bookedThisCycle = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<string, CbOrder?> orderCache = new(StringComparer.Ordinal);
     readonly IPredictionBookings? bookings;
-    Dictionary<int, HashSet<string>> predictionFills = new();
+    readonly PredictionBookingMode bookingMode;
+    readonly List<PendingPrediction> pendingMarks = new();
+    Dictionary<int, List<PredictionTradeMark>> predictionFills = new();
     DateTime? cursor;
 
     public CoinbaseSyncer(
@@ -131,7 +133,8 @@ public sealed partial class CoinbaseSyncer
         ILedgerClock clock,
         CoinbaseSyncLog log,
         string statePath,
-        IPredictionBookings? bookings = null)
+        IPredictionBookings? bookings = null,
+        PredictionBookingMode bookingMode = PredictionBookingMode.DryRun)
     {
         this.coinbase = coinbase;
         this.ledger = ledger;
@@ -139,6 +142,7 @@ public sealed partial class CoinbaseSyncer
         this.log = log;
         this.statePath = statePath;
         this.bookings = bookings;
+        this.bookingMode = bookingMode;
         state = CoinbaseSyncStateFile.Load(statePath, log);
     }
 
@@ -158,6 +162,7 @@ public sealed partial class CoinbaseSyncer
             LoadLedger();
         skippedThisCycle.Clear();
         bookedThisCycle.Clear();
+        pendingMarks.Clear();
         orderCache.Clear();
         _ = await coinbase.AccountsAsync(cancellationToken);
         await LearnTickers(cancellationToken);
@@ -174,7 +179,7 @@ public sealed partial class CoinbaseSyncer
         var snapshot = ledger.Load();
         wallets = snapshot.Wallets;
         knownFillIds = snapshot.KnownFillIds;
-        predictionFills = snapshot.PredictionFills ?? new Dictionary<int, HashSet<string>>();
+        predictionFills = snapshot.PredictionFills ?? new Dictionary<int, List<PredictionTradeMark>>();
         cursor = snapshot.Cursor;
         Loaded = true;
         log.Info("ledger loaded: " + wallets.Count + " wallets, " + knownFillIds.Count

@@ -50,6 +50,67 @@ public class PredictionBookingTests
     }
 
     [Test]
+    public void No_orders_flip_to_the_ledger_side_before_the_cash_price()
+    {
+        Assert.That(PredictionBooking.LedgerIsBuy("SELL", "NO"), Is.True);
+        Assert.That(PredictionBooking.LedgerIsBuy("BUY", "NO"), Is.False);
+        Assert.That(PredictionBooking.LedgerIsBuy("BUY", "YES"), Is.True);
+        Assert.That(PredictionBooking.LedgerIsBuy("SELL", "YES"), Is.False);
+        Assert.That(PredictionBooking.Price(true, 4.1844m, 0m, 12.68m), Is.EqualTo(0.33m));
+        Assert.That(PredictionBooking.Price(true, 3.9204m, 0m, 11.88m), Is.EqualTo(0.33m));
+        Assert.That(PredictionBooking.Price(false, 4.158m, 0m, 11.88m), Is.EqualTo(0.35m));
+        Assert.That(PredictionBooking.Price(true, 4.0033m, 0m, 8.17m), Is.EqualTo(0.49m));
+        Assert.That(PredictionBooking.Price(false, 4.3301m, 0m, 8.17m), Is.EqualTo(0.53m));
+    }
+
+    [Test]
+    public void Already_booked_matches_order_id_trade_id_and_product_settlement()
+    {
+        const string product = "KXBTCD-26NOV1213-T71299.99-KALSHI";
+        var fillTrade = new PredictionTradeMark("cbpm-fill-trade-1", "order-1", TradeKind.Fill);
+        var fillOrder = new PredictionTradeMark("cbpm-fill-order-9", null, TradeKind.Fill);
+        var fillRef = new PredictionTradeMark("hand-231", "order-9", TradeKind.Fill);
+        var settleProduct = new PredictionTradeMark("cbpm-settle-" + product, "", TradeKind.Settlement);
+        var settleOrder = new PredictionTradeMark("cbpm-settle-order-9", null, TradeKind.Fill);
+        var settleTrade = new PredictionTradeMark("cbpm-settle-trade-1", "order-1", TradeKind.Settlement);
+        var anySettle = new PredictionTradeMark("manual-settle", null, TradeKind.Settlement);
+
+        Assert.That(PredictionBooking.IsAlreadyBooked(fillTrade, TradeKind.Fill, "trade-1", "other", product), Is.True);
+        Assert.That(PredictionBooking.IsAlreadyBooked(fillOrder, TradeKind.Fill, "new-trade", "order-9", product), Is.True);
+        Assert.That(PredictionBooking.IsAlreadyBooked(fillRef, TradeKind.Fill, "new-trade", "order-9", product), Is.True);
+        Assert.That(PredictionBooking.IsAlreadyBooked(fillTrade, TradeKind.Settlement, "trade-1", "order-1", product), Is.False);
+        Assert.That(PredictionBooking.IsAlreadyBooked(settleProduct, TradeKind.Settlement, "other", "other", product), Is.True);
+        Assert.That(PredictionBooking.IsAlreadyBooked(settleOrder, TradeKind.Settlement, "other", "order-9", product), Is.True);
+        Assert.That(PredictionBooking.IsAlreadyBooked(settleTrade, TradeKind.Settlement, "trade-1", "different", product), Is.True);
+        Assert.That(PredictionBooking.IsAlreadyBooked(anySettle, TradeKind.Settlement, "fresh", "fresh", product), Is.True);
+        Assert.That(PredictionBooking.IsAlreadyBooked(settleProduct, TradeKind.Fill, "fresh", "fresh", product), Is.False);
+        Assert.That(PredictionBooking.IsAlreadyBooked(fillRef, TradeKind.Fill, "fresh", "fresh", product), Is.False);
+    }
+
+    [Test]
+    public void Booking_mode_defaults_to_dry_run()
+    {
+        Assert.That(PredictionBooking.ParseMode(null), Is.EqualTo(PredictionBookingMode.DryRun));
+        Assert.That(PredictionBooking.ParseMode("dryrun"), Is.EqualTo(PredictionBookingMode.DryRun));
+        Assert.That(PredictionBooking.ParseMode("On"), Is.EqualTo(PredictionBookingMode.On));
+        Assert.That(PredictionBooking.ParseMode("off"), Is.EqualTo(PredictionBookingMode.Off));
+        Assert.That(new PredictionBookingStore().Mode, Is.EqualTo(PredictionBookingMode.DryRun));
+    }
+
+    [Test]
+    public void Would_book_stays_visible_when_the_wallet_already_exists()
+    {
+        var store = new PredictionBookingStore();
+        var at = new DateTime(2026, 11, 16, 17, 0, 0, DateTimeKind.Utc);
+        store.WouldBook("PROD", at, "cbpm-fill-x NO Buy 12.68 @ 0.33 fee 0 order o");
+        store.Booked("PROD", at.AddMinutes(1), "pm-PROD");
+        var row = PredictionBookingReport.List(store.Snapshot(), ["pm-PROD"]).Single();
+        Assert.That(row.Status, Is.EqualTo("would-book"));
+        Assert.That(row.Detail, Does.Contain("cbpm-fill-x"));
+        Assert.That(row.Wallet, Is.EqualTo("pm-PROD"));
+    }
+
+    [Test]
     public void Copy_suffix_counts_as_the_same_contract()
     {
         const string product = "KXBTCD-26NOV1617-T63749.99-KALSHI";
@@ -127,6 +188,7 @@ public class PredictionBookingTests
             store.Booked("DONE", at.AddMinutes(20), "pm-DONE");
 
             var response = (GetPredictionBookingsResponse)new PredictionBookingServices(factory, store).Any(new GetPredictionBookings());
+            Assert.That(response.Mode, Is.EqualTo("DryRun"));
             Assert.That(response.Results.Select(row => row.ProductId), Is.EqualTo(new[] { "BARE", "OPEN", "DONE", "PROD" }));
 
             var bare = response.Results[0];

@@ -18,7 +18,7 @@ public sealed class CoinbaseLedgerSnapshot
 
     public DateTime? Cursor { get; init; }
 
-    public Dictionary<int, HashSet<string>> PredictionFills { get; init; } = new();
+    public Dictionary<int, List<PredictionTradeMark>> PredictionFills { get; init; } = new();
 }
 
 public interface ILedgerGateway
@@ -76,27 +76,25 @@ public sealed class CoinbaseLedgerGateway(IDbConnectionFactory dbFactory, ILedge
         }
     }
 
-    static Dictionary<int, HashSet<string>> LoadPredictionFills(System.Data.IDbConnection db, IEnumerable<Wallet> wallets)
+    static Dictionary<int, List<PredictionTradeMark>> LoadPredictionFills(System.Data.IDbConnection db, IEnumerable<Wallet> wallets)
     {
-        var fills = new Dictionary<int, HashSet<string>>();
+        var fills = new Dictionary<int, List<PredictionTradeMark>>();
         var handIds = new HashSet<int>(wallets
             .Where(wallet => PredictionMarkets.IsHandWallet(wallet.Key))
             .Select(wallet => wallet.Id));
         if (handIds.Count == 0)
             return fills;
-        foreach (var trade in db.Select<Trade>(trade =>
-            trade.ClientId.StartsWith(PredictionBooking.FillPrefix)
-            || trade.ClientId.StartsWith(PredictionBooking.SettlePrefix)))
+        foreach (var trade in db.Select<Trade>())
         {
             if (!handIds.Contains(trade.WalletId))
                 continue;
-            if (!fills.TryGetValue(trade.WalletId, out var ids))
+            if (!fills.TryGetValue(trade.WalletId, out var marks))
             {
-                ids = new HashSet<string>(StringComparer.Ordinal);
-                fills[trade.WalletId] = ids;
+                marks = new List<PredictionTradeMark>();
+                fills[trade.WalletId] = marks;
             }
 
-            ids.Add(trade.ClientId);
+            marks.Add(new PredictionTradeMark(trade.ClientId ?? "", trade.OrderRef, trade.Kind));
         }
 
         return fills;

@@ -652,7 +652,10 @@ function parseBookingRow(row: Record<string, unknown>): PredictionBookingRow | n
 
 export function parsePredictionBookings(body: unknown): PredictionBookingResponse {
     const row = asRecord(body) ?? {}
-    return { results: list(pick(row, 'results'), parseBookingRow) }
+    return {
+        mode: (text(row, 'mode') ?? 'dryrun').toLowerCase(),
+        results: list(pick(row, 'results'), parseBookingRow),
+    }
 }
 
 function numbers(value: unknown): number[] {

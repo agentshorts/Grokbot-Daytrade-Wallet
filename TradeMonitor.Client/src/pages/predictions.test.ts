@@ -96,6 +96,7 @@ describe('prediction P&L page', () => {
 
     it('shows booking status and filters it with the predictions filter', async () => {
         const booked: PredictionBookingResponse = {
+            mode: 'dryrun',
             results: [
                 {
                     productId: 'KXBTCD-26NOV1617-T63749.99-KALSHI',
@@ -113,6 +114,14 @@ describe('prediction P&L page', () => {
                     wallet: 'pm-OTHER-KALSHI',
                     detail: null,
                 },
+                {
+                    productId: 'WOULD-KALSHI',
+                    firstSeen: '2026-11-16T17:00:00.000Z',
+                    lastSeen: '2026-11-16T17:06:00.000Z',
+                    status: 'would-book',
+                    wallet: 'pm-WOULD-KALSHI',
+                    detail: 'cbpm-fill-x NO Buy 12.68 @ 0.33 fee 0 order o-x',
+                },
             ],
         }
         const page = await mountPage({
@@ -128,6 +137,8 @@ describe('prediction P&L page', () => {
         expect(problem.text()).toContain('missing cash total or YES/NO side')
         expect(problem.text()).toContain('11:05 AM')
         expect(page.get('[data-testid="booking-OTHER-KALSHI"]').text()).toContain('Booked')
+        expect(page.get('[data-testid="booking-WOULD-KALSHI"]').text()).toContain('Would book')
+        expect(page.get('[data-testid="prediction-booking-mode"]').text()).toContain('Dry run')
         await page.get('[data-testid="text-filter-input-predictions"]').setValue('OTHER-KALSHI')
         expect(page.find('[data-testid="booking-KXBTCD-26NOV1617-T63749.99-KALSHI"]').exists()).toBe(false)
         expect(page.get('[data-testid="booking-OTHER-KALSHI"]').text()).toContain('pm-OTHER-KALSHI')

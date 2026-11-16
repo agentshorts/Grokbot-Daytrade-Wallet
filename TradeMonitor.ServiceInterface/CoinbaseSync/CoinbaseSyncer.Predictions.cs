@@ -14,6 +14,12 @@ public sealed partial class CoinbaseSyncer
             return;
         }
 
+        if (bookingMode == PredictionBookingMode.Off)
+        {
+            NoteSkippedProduct(productId);
+            return;
+        }
+
         bookings?.Seen(productId, clock.UtcNow);
         var kind = PredictionBooking.KindOf(fill.TradeType);
         var clientId = PredictionBooking.ClientIdFor(fill.TradeId, kind);
@@ -41,7 +47,7 @@ public sealed partial class CoinbaseSyncer
             return;
         }
 
-        if (AlreadyBooked(productId, clientId))
+        if (AlreadyBooked(productId, kind, fill.TradeId, fill.OrderId))
         {
             bookedThisCycle.Add(productId);
             bookings?.Booked(productId, clock.UtcNow, FindBookedKey(productId));
@@ -57,6 +63,18 @@ public sealed partial class CoinbaseSyncer
             return;
         }
 
+        var side = quote.Buy ? "Buy" : "Sell";
+        if (bookingMode == PredictionBookingMode.DryRun)
+        {
+            var proposal = PredictionBooking.Proposal(
+                clientId, quote.ContractSide, side, fill.Size, quote.Price, fill.Commission, fill.OrderId);
+            bookings?.WouldBook(productId, clock.UtcNow, proposal);
+            pendingMarks.Add(new PendingPrediction(productId, new PredictionTradeMark(clientId, fill.OrderId, kind)));
+            bookedThisCycle.Add(productId);
+            log.Info("would book " + proposal);
+            return;
+        }
+
         Wallet wallet;
         try
         {
@@ -68,7 +86,6 @@ public sealed partial class CoinbaseSyncer
             return;
         }
 
-        var side = fill.Side.Equals("BUY", StringComparison.OrdinalIgnoreCase) ? "Buy" : "Sell";
         try
         {
             ledger.RecordTrade(new RecordTrade
@@ -90,7 +107,7 @@ public sealed partial class CoinbaseSyncer
         catch (LedgerToolException ex)
         {
             LoadLedger();
-            if (AlreadyBooked(productId, clientId))
+            if (AlreadyBooked(productId, kind, fill.TradeId, fill.OrderId))
             {
                 bookedThisCycle.Add(productId);
                 bookings?.Booked(productId, clock.UtcNow, FindBookedKey(productId) ?? wallet.Key);
@@ -101,7 +118,7 @@ public sealed partial class CoinbaseSyncer
             return;
         }
 
-        RememberFill(wallet.Id, clientId);
+        RememberFill(wallet.Id, new PredictionTradeMark(clientId, fill.OrderId, kind));
         bookedThisCycle.Add(productId);
         bookings?.Booked(productId, clock.UtcNow, wallet.Key);
         log.Info("recorded " + clientId + " " + quote.ContractSide + " " + side + " "
@@ -133,13 +150,13 @@ public sealed partial class CoinbaseSyncer
 
         if (contractSide == null || total == null)
             return null;
-        var buy = fill.Side.Equals("BUY", StringComparison.OrdinalIgnoreCase);
-        if (!buy && !fill.Side.Equals("SELL", StringComparison.OrdinalIgnoreCase))
+        var buy = PredictionBooking.LedgerIsBuy(fill.Side, contractSide);
+        if (buy == null)
             return null;
-        var price = PredictionBooking.Price(buy, total.Value, fees, qty);
+        var price = PredictionBooking.Price(buy.Value, total.Value, fees, qty);
         if (price == null)
             return null;
-        return new PredictionQuote(price.Value, contractSide, PredictionBooking.KindOf(fill.TradeType));
+        return new PredictionQuote(price.Value, contractSide, PredictionBooking.KindOf(fill.TradeType), buy.Value);
     }
 
     async Task<CbOrder?> CachedOrder(string? orderId, CancellationToken cancellationToken)
@@ -190,28 +207,41 @@ public sealed partial class CoinbaseSyncer
     string? FindBookedKey(string productId) =>
         PredictionMarkets.MatchingKey(productId, wallets.Values.Select(wallet => wallet.Key));
 
-    bool AlreadyBooked(string productId, string clientId)
+    bool AlreadyBooked(string productId, TradeKind kind, string tradeId, string? orderId)
     {
+        foreach (var pending in pendingMarks)
+        {
+            if (!pending.ProductId.Equals(productId, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (PredictionBooking.IsAlreadyBooked(pending.Mark, kind, tradeId, orderId, productId))
+                return true;
+        }
+
         foreach (var wallet in wallets.Values)
         {
             if (!PredictionMarkets.KeyBooks(wallet.Key, productId))
                 continue;
-            if (predictionFills.TryGetValue(wallet.Id, out var ids) && ids.Contains(clientId))
-                return true;
+            if (!predictionFills.TryGetValue(wallet.Id, out var marks))
+                continue;
+            foreach (var mark in marks)
+            {
+                if (PredictionBooking.IsAlreadyBooked(mark, kind, tradeId, orderId, productId))
+                    return true;
+            }
         }
 
         return false;
     }
 
-    void RememberFill(int walletId, string clientId)
+    void RememberFill(int walletId, PredictionTradeMark mark)
     {
-        if (!predictionFills.TryGetValue(walletId, out var ids))
+        if (!predictionFills.TryGetValue(walletId, out var marks))
         {
-            ids = new HashSet<string>(StringComparer.Ordinal);
-            predictionFills[walletId] = ids;
+            marks = new List<PredictionTradeMark>();
+            predictionFills[walletId] = marks;
         }
 
-        ids.Add(clientId);
+        marks.Add(mark);
     }
 
     void FailPrediction(string productId, string reason)
@@ -221,5 +251,7 @@ public sealed partial class CoinbaseSyncer
         NoteSkippedProduct(productId);
     }
 
-    sealed record PredictionQuote(decimal Price, string ContractSide, TradeKind Kind);
+    sealed record PredictionQuote(decimal Price, string ContractSide, TradeKind Kind, bool Buy);
+
+    sealed record PendingPrediction(string ProductId, PredictionTradeMark Mark);
 }
