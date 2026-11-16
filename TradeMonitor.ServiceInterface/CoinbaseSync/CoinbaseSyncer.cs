@@ -119,6 +119,10 @@ public sealed partial class CoinbaseSyncer
     Dictionary<string, Wallet> wallets = new(StringComparer.Ordinal);
     HashSet<string> knownFillIds = new(StringComparer.Ordinal);
     readonly HashSet<string> skippedThisCycle = new(StringComparer.OrdinalIgnoreCase);
+    readonly HashSet<string> bookedThisCycle = new(StringComparer.OrdinalIgnoreCase);
+    readonly Dictionary<string, CbOrder?> orderCache = new(StringComparer.Ordinal);
+    readonly IPredictionBookings? bookings;
+    Dictionary<int, HashSet<string>> predictionFills = new();
     DateTime? cursor;
 
     public CoinbaseSyncer(
@@ -126,13 +130,15 @@ public sealed partial class CoinbaseSyncer
         ILedgerGateway ledger,
         ILedgerClock clock,
         CoinbaseSyncLog log,
-        string statePath)
+        string statePath,
+        IPredictionBookings? bookings = null)
     {
         this.coinbase = coinbase;
         this.ledger = ledger;
         this.clock = clock;
         this.log = log;
         this.statePath = statePath;
+        this.bookings = bookings;
         state = CoinbaseSyncStateFile.Load(statePath, log);
     }
 
@@ -151,6 +157,8 @@ public sealed partial class CoinbaseSyncer
         if (!Loaded)
             LoadLedger();
         skippedThisCycle.Clear();
+        bookedThisCycle.Clear();
+        orderCache.Clear();
         _ = await coinbase.AccountsAsync(cancellationToken);
         await LearnTickers(cancellationToken);
         var breakdowns = await LoadBreakdowns(cancellationToken);
@@ -166,6 +174,7 @@ public sealed partial class CoinbaseSyncer
         var snapshot = ledger.Load();
         wallets = snapshot.Wallets;
         knownFillIds = snapshot.KnownFillIds;
+        predictionFills = snapshot.PredictionFills ?? new Dictionary<int, HashSet<string>>();
         cursor = snapshot.Cursor;
         Loaded = true;
         log.Info("ledger loaded: " + wallets.Count + " wallets, " + knownFillIds.Count
@@ -213,7 +222,7 @@ public sealed partial class CoinbaseSyncer
             {
                 if (await ShouldSkipPrediction(fill, predictionIds, cancellationToken))
                 {
-                    NoteSkippedProduct(fill.ProductId);
+                    await BookPrediction(fill, cancellationToken);
                     continue;
                 }
                 if (await RecordFill(fill, clientId, cancellationToken))
@@ -597,7 +606,11 @@ public sealed partial class CoinbaseSyncer
 
     void NoteSkippedProduct(string? productId)
     {
+        if (!string.IsNullOrWhiteSpace(productId))
+            bookings?.Seen(productId, clock.UtcNow);
         var label = string.IsNullOrEmpty(productId) ? "(unnamed)" : productId;
+        if (bookedThisCycle.Contains(label))
+            return;
         if (!skippedThisCycle.Add(label))
             return;
         log.Info("skipped prediction product " + label);

@@ -4,7 +4,8 @@ import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { ledgerClientKey } from '@/composables/useLedger'
 import type { LedgerClient } from '@/api'
-import type { PredictionPnlResponse } from '@/api/types'
+import type { PredictionBookingResponse, PredictionPnlResponse } from '@/api/types'
+import { UI_STATE_KEY } from '@/lib/uiState'
 import PredictionsPage from './predictions.vue'
 
 let wrapper: VueWrapper | undefined
@@ -12,6 +13,7 @@ let wrapper: VueWrapper | undefined
 afterEach(() => {
     wrapper?.unmount()
     wrapper = undefined
+    localStorage.removeItem(UI_STATE_KEY)
 })
 
 const sample: PredictionPnlResponse = {
@@ -89,5 +91,86 @@ describe('prediction P&L page', () => {
             },
         })
         expect(page.text()).toContain('No prediction wallets')
+        expect(page.find('[data-testid="prediction-booking"]').exists()).toBe(false)
+    })
+
+    it('shows booking status and filters it with the predictions filter', async () => {
+        const booked: PredictionBookingResponse = {
+            results: [
+                {
+                    productId: 'KXBTCD-26NOV1617-T63749.99-KALSHI',
+                    firstSeen: '2026-11-16T17:00:00.000Z',
+                    lastSeen: '2026-11-16T17:05:00.000Z',
+                    status: 'problem',
+                    wallet: null,
+                    detail: 'missing cash total or YES/NO side',
+                },
+                {
+                    productId: 'OTHER-KALSHI',
+                    firstSeen: '2026-11-16T17:00:00.000Z',
+                    lastSeen: '2026-11-16T17:02:00.000Z',
+                    status: 'booked',
+                    wallet: 'pm-OTHER-KALSHI',
+                    detail: null,
+                },
+            ],
+        }
+        const page = await mountPage({
+            async predictions() {
+                return sample
+            },
+            async predictionBookings() {
+                return booked
+            },
+        })
+        const problem = page.get('[data-testid="booking-KXBTCD-26NOV1617-T63749.99-KALSHI"]')
+        expect(problem.text()).toContain('Problem')
+        expect(problem.text()).toContain('missing cash total or YES/NO side')
+        expect(problem.text()).toContain('11:05 AM')
+        expect(page.get('[data-testid="booking-OTHER-KALSHI"]').text()).toContain('Booked')
+        await page.get('[data-testid="text-filter-input-predictions"]').setValue('OTHER-KALSHI')
+        expect(page.find('[data-testid="booking-KXBTCD-26NOV1617-T63749.99-KALSHI"]').exists()).toBe(false)
+        expect(page.get('[data-testid="booking-OTHER-KALSHI"]').text()).toContain('pm-OTHER-KALSHI')
+        await page.get('[data-testid="collapse-prediction-booking"]').trigger('click')
+        await flushPromises()
+        const stored = JSON.parse(localStorage.getItem(UI_STATE_KEY) ?? '{}') as { hidden?: string[] }
+        expect(stored.hidden).toContain('prediction-booking')
+    })
+
+    it('keeps the empty book when no contracts have been seen', async () => {
+        const page = await mountPage({
+            async predictions() {
+                return { wallets: [], total: { wallets: 0, bought: 0, sold: 0, fees: 0, realizedPnl: 0 } }
+            },
+            async predictionBookings() {
+                return { results: [] }
+            },
+        })
+        expect(page.text()).toContain('No prediction wallets')
+        expect(page.find('[data-testid="prediction-booking"]').exists()).toBe(false)
+    })
+
+    it('shows a booking problem when the book itself is empty', async () => {
+        const page = await mountPage({
+            async predictions() {
+                return { wallets: [], total: { wallets: 0, bought: 0, sold: 0, fees: 0, realizedPnl: 0 } }
+            },
+            async predictionBookings() {
+                return {
+                    results: [
+                        {
+                            productId: 'BARE-KALSHI',
+                            firstSeen: '2026-11-16T17:00:00.000Z',
+                            lastSeen: '2026-11-16T17:05:00.000Z',
+                            status: 'problem',
+                            wallet: null,
+                            detail: 'missing cash total or YES/NO side',
+                        },
+                    ],
+                }
+            },
+        })
+        expect(page.text()).toContain('No prediction wallets')
+        expect(page.get('[data-testid="booking-BARE-KALSHI"]').text()).toContain('Problem')
     })
 })

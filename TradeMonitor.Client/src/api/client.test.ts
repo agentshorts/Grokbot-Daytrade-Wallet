@@ -189,4 +189,30 @@ describe('ledger client', () => {
             '/api/price-marks?symbol=BTC-USD',
         ])
     })
+
+    it('reads prediction booking status with GET', async () => {
+        const { transport, calls } = memory({
+            '/api/predictions/booking': {
+                body: {
+                    Results: [
+                        {
+                            ProductId: 'KXBTCD-26NOV1617-T63749.99-KALSHI',
+                            FirstSeen: '2026-11-16T17:00:00.000Z',
+                            LastSeen: '2026-11-16T17:05:00.000Z',
+                            Status: 'problem',
+                            Detail: 'missing cash total or YES/NO side',
+                        },
+                        { ProductId: 'OTHER-KALSHI', Status: 'booked', Wallet: 'pm-OTHER-KALSHI-2' },
+                    ],
+                },
+            },
+        })
+        const bookings = await createLedgerClient(transport).predictionBookings()
+        expect(calls).toEqual(['/api/predictions/booking'])
+        expect(bookings.results[0]?.productId).toBe('KXBTCD-26NOV1617-T63749.99-KALSHI')
+        expect(bookings.results[0]?.status).toBe('problem')
+        expect(bookings.results[0]?.detail).toContain('missing cash total')
+        expect(bookings.results[1]?.wallet).toBe('pm-OTHER-KALSHI-2')
+        expect(bookings.results[1]?.status).toBe('booked')
+    })
 })

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import type { PredictionPnlResponse, PredictionPnlRow } from '@/api'
+import type { PredictionBookingResponse, PredictionPnlResponse, PredictionPnlRow } from '@/api'
 import HideClosedContracts from '@/components/HideClosedContracts.vue'
 import OscillationView from '@/components/OscillationView.vue'
 import MoneyCell from '@/components/MoneyCell.vue'
@@ -11,7 +11,7 @@ import TextFilter from '@/components/shell/TextFilter.vue'
 import { explainLedgerError, useLedger } from '@/composables/useLedger'
 import { useHideClosedContracts } from '@/composables/useHideClosedContracts'
 import { useShowArchived, useViewFilter } from '@/composables/useUiState'
-import { formatQty } from '@/lib/format'
+import { formatQty, formatTimeCt } from '@/lib/format'
 import { contractName, filterClosedContracts, isContractClosed, readContractTicker, viewerTimeZone } from '@/lib/predictionContract'
 import { settlementLabel } from '@/lib/predictionView'
 import { filterRows } from '@/lib/textFilter'
@@ -24,6 +24,8 @@ const oscillation = computed(() => route.query.view === 'oscillation')
 const status = ref<'loading' | 'ready' | 'error'>('loading')
 const error = ref<string | null>(null)
 const model = ref<PredictionPnlResponse | null>(null)
+const bookings = ref<PredictionBookingResponse | null>(null)
+const bookingError = ref<string | null>(null)
 const hideClosed = useHideClosedContracts()
 const filterText = useViewFilter('predictions')
 const showArchived = useShowArchived()
@@ -56,6 +58,10 @@ const groups = computed(() => {
             .sort((a, b) => (a.closeAt ?? '').localeCompare(b.closeAt ?? '') || rowName(a).localeCompare(rowName(b))),
     }))
 })
+const bookingRows = computed(() => bookings.value?.results ?? [])
+const visibleBookings = computed(() =>
+    filterRows(bookingRows.value, filterText.value, (row) => [row.productId, row.wallet, row.status, row.detail]),
+)
 const shownTotal = computed(() => {
     const rows = matchedRows.value
     return {
@@ -67,6 +73,12 @@ const shownTotal = computed(() => {
     }
 })
 
+function bookingLabel(status: string): string {
+    if (status === 'booked') return 'Booked'
+    if (status === 'problem') return 'Problem'
+    return 'Seen'
+}
+
 async function refresh() {
     try {
         model.value = await client.predictions(includeArchivedQuery(showArchived.value))
@@ -75,6 +87,13 @@ async function refresh() {
     } catch (err) {
         error.value = explainLedgerError(err).message
         if (!model.value) status.value = 'error'
+    }
+    if (!client.predictionBookings) return
+    try {
+        bookings.value = await client.predictionBookings()
+        bookingError.value = null
+    } catch (err) {
+        bookingError.value = explainLedgerError(err).message
     }
 }
 
@@ -123,7 +142,7 @@ onUnmounted(() => stop())
         <StatePanel v-else-if="status === 'error' && !model" tone="error" title="Could not load prediction P&L" :body="error || 'Try again in a moment.'">
             <button type="button" class="rounded-lg bg-brand-500 px-3 py-1.5 text-sm font-medium text-white" @click="refresh()">Try again</button>
         </StatePanel>
-        <StatePanel v-else-if="model && model.wallets.length === 0" title="No prediction wallets" body="A pm- wallet recorded through MCP will show up here." />
+        <StatePanel v-else-if="model && model.wallets.length === 0" title="No prediction wallets" body="A Coinbase prediction fill, or a pm- wallet, shows up here." />
         <div v-else-if="model" class="space-y-3">
             <div class="flex flex-wrap items-end justify-between gap-3">
                 <TextFilter v-model="filterText" view="predictions" placeholder="Filter by contract, ticker, wallet, or settlement" />
@@ -194,6 +213,54 @@ onUnmounted(() => stop())
                                 <td class="px-4 py-3"></td>
                             </tr>
                         </tfoot>
+                    </table>
+                </section>
+            </CollapseSection>
+        </div>
+        <div v-if="!oscillation && (bookingRows.length || bookingError)" class="space-y-3" data-testid="prediction-booking">
+            <TextFilter
+                v-if="!model || model.wallets.length === 0"
+                v-model="filterText"
+                view="predictions"
+                placeholder="Filter by contract, ticker, wallet, or settlement"
+            />
+            <p v-if="bookingError" class="text-sm text-error-600 dark:text-error-400" data-testid="prediction-booking-error">{{ bookingError }}</p>
+            <p
+                v-else-if="filterText.trim() && visibleBookings.length === 0"
+                class="text-sm text-gray-500 dark:text-gray-400"
+                data-testid="filter-empty-booking"
+            >
+                Nothing matches this filter.
+            </p>
+            <CollapseSection v-else id="prediction-booking" label="contract booking" data-testid="prediction-booking-section">
+                <template #heading>
+                    <h2 class="text-sm font-semibold text-gray-900 dark:text-white">Contract booking</h2>
+                </template>
+                <section class="overflow-x-auto rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+                    <table class="min-w-full text-sm" data-testid="prediction-booking-table">
+                        <thead class="text-start text-gray-500 dark:text-gray-400">
+                            <tr>
+                                <th class="px-4 py-3 font-medium">Product</th>
+                                <th class="px-4 py-3 font-medium">Status</th>
+                                <th class="px-4 py-3 font-medium">Wallet</th>
+                                <th class="px-4 py-3 font-medium">Last seen</th>
+                                <th class="px-4 py-3 font-medium">Detail</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr
+                                v-for="row in visibleBookings"
+                                :key="row.productId"
+                                class="border-t border-gray-100 dark:border-gray-800"
+                                :data-testid="`booking-${row.productId}`"
+                            >
+                                <td class="px-4 py-3 font-medium text-gray-900 dark:text-white/90">{{ row.productId }}</td>
+                                <td class="px-4 py-3">{{ bookingLabel(row.status) }}</td>
+                                <td class="px-4 py-3">{{ row.wallet || '' }}</td>
+                                <td class="px-4 py-3">{{ formatTimeCt(row.lastSeen) }}</td>
+                                <td class="px-4 py-3">{{ row.detail || '' }}</td>
+                            </tr>
+                        </tbody>
                     </table>
                 </section>
             </CollapseSection>
