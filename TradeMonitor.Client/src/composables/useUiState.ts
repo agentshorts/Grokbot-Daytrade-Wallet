@@ -1,5 +1,5 @@
-import { ref, watch } from 'vue'
-import { readSectionHidden, readViewFilter, writeSectionHidden, writeViewFilter } from '@/lib/uiState'
+import { computed, ref, watch, type WritableComputedRef } from 'vue'
+import { readSectionHidden, readShowArchived, readViewFilter, writeSectionHidden, writeShowArchived, writeViewFilter } from '@/lib/uiState'
 import { browserStorage } from '@/lib/predictionContract'
 
 export function useSectionCollapsed(id: string) {
@@ -18,4 +18,21 @@ export function useViewFilter(view: string) {
         writeViewFilter(storage, view, value)
     })
     return text
+}
+
+let showArchived: WritableComputedRef<boolean> | undefined
+
+/** One shared flag so the header and every wallet list follow the same choice. */
+export function useShowArchived() {
+    if (!showArchived) {
+        const stored = ref(readShowArchived(browserStorage()))
+        showArchived = computed({
+            get: () => stored.value,
+            set: (value: boolean) => {
+                stored.value = value
+                writeShowArchived(browserStorage(), value)
+            },
+        })
+    }
+    return showArchived
 }

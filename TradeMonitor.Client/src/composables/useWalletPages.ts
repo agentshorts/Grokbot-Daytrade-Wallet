@@ -5,7 +5,9 @@ import { useLedger } from '@/composables/useLedger'
 import type { Filters } from '@/lib/filters'
 import { REFRESH_MS, startPolling } from '@/lib/refresh'
 import { latestActivity, rememberWalletNames, setRecordedAt } from '@/lib/walletNames'
+import { useShowArchived } from '@/composables/useUiState'
 import { buildWalletDetail, buildWalletList, summaryQuery, type WalletDetailModel, type WalletListModel } from '@/lib/walletView'
+import { includeArchivedQuery } from '@/lib/visibleWallets'
 import { useFilterQuery } from '@/composables/useFilterQuery'
 
 export interface PageState<T> {
@@ -16,14 +18,15 @@ export interface PageState<T> {
     refresh: () => Promise<void>
 }
 
-async function loadList(client: LedgerClient, filters: Filters, now: Date): Promise<WalletListModel> {
-    const query = summaryQuery(filters, now)
+async function loadList(client: LedgerClient, filters: Filters, now: Date, showArchived: boolean): Promise<WalletListModel> {
+    const archived = includeArchivedQuery(showArchived)
+    const query = summaryQuery(filters, now, showArchived)
     const [directory, summary, positions] = await Promise.all([
-        client.wallets({ includeArchived: true }),
+        client.wallets(archived),
         client.summary(query),
-        client.positions({ includeArchived: true, status: 'open' }),
+        client.positions({ ...archived, status: 'open' }),
     ])
-    return buildWalletList(directory.results, summary.wallets, filters, positions.results)
+    return buildWalletList(directory.results, summary.wallets, filters, positions.results, now, showArchived)
 }
 
 async function loadDetail(client: LedgerClient, key: string, filters: Filters, now: Date): Promise<WalletDetailModel> {
@@ -103,7 +106,13 @@ function usePage<T>(load: (filters: Filters, now: Date) => Promise<T>, watchSour
 export function useWalletList(): PageState<WalletListModel> {
     const client = useLedger()
     const { filters } = useFilterQuery()
-    const page = usePage((current, now) => loadList(client, current, now), [() => filters.mode, () => filters.range, () => filters.wallet])
+    const showArchived = useShowArchived()
+    const page = usePage((current, now) => loadList(client, current, now, showArchived.value), [
+        () => filters.mode,
+        () => filters.range,
+        () => filters.wallet,
+        () => showArchived.value,
+    ])
     watch(page.model, (model) => {
         if (!model) return
         rememberWalletNames(model.wallets)
