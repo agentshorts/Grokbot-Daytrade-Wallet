@@ -96,6 +96,9 @@ function recording(partial: Partial<LedgerClient> = {}) {
         async oscillation() {
             return { lookbackHours: 6, thresholdCents: 5, results: [], lookup: null, lookupError: null }
         },
+        async contract() {
+            throw new Error('contract detail is not part of the overview load')
+        },
         ...partial,
     } satisfies LedgerClient
     return { client, calls }

@@ -3,15 +3,23 @@ export interface PricePoint {
     value: number
 }
 
+export type MarkerSide = 'buy' | 'sell' | 'high' | 'low'
+
 export interface ChartMarker {
     time: number
-    side: 'buy' | 'sell'
+    side: MarkerSide
     text: string
 }
 
-export function markerStyle(side: 'buy' | 'sell'): { position: 'belowBar' | 'aboveBar'; shape: 'arrowUp' | 'arrowDown'; color: string } {
+export function markerStyle(side: MarkerSide): {
+    position: 'belowBar' | 'aboveBar'
+    shape: 'arrowUp' | 'arrowDown' | 'circle'
+    color: string
+} {
     if (side === 'buy') return { position: 'belowBar', shape: 'arrowUp', color: '#12b76a' }
-    return { position: 'aboveBar', shape: 'arrowDown', color: '#f04438' }
+    if (side === 'sell') return { position: 'aboveBar', shape: 'arrowDown', color: '#f04438' }
+    if (side === 'low') return { position: 'belowBar', shape: 'circle', color: '#12b76a' }
+    return { position: 'aboveBar', shape: 'circle', color: '#f79009' }
 }
 
 export function toChartPoints(rows: { at: string; price: number }[]): PricePoint[] {

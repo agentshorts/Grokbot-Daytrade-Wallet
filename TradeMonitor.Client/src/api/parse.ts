@@ -12,6 +12,12 @@ import type {
     PositionRow,
     PositionsResponse,
     PriceMarkRow,
+    ContractDetail,
+    ContractFill,
+    ContractHolding,
+    ContractMark,
+    ContractPoint,
+    ContractResponse,
     OscillationResponse,
     OscillationRow,
     PredictionPnlResponse,
@@ -651,6 +657,15 @@ function parseOscillationRow(value: unknown): OscillationRow | null {
         name: text(row, 'name') ?? ticker,
         qty: amount(row, 'qty'),
         priceCents: maybe(row, 'priceCents'),
+        yesCents: maybe(row, 'yesCents'),
+        yesBidCents: maybe(row, 'yesBidCents'),
+        yesAskCents: maybe(row, 'yesAskCents'),
+        yesLabel: text(row, 'yesLabel') ?? '',
+        noCents: maybe(row, 'noCents'),
+        noBidCents: maybe(row, 'noBidCents'),
+        noAskCents: maybe(row, 'noAskCents'),
+        noLabel: text(row, 'noLabel') ?? '',
+        noImplied: flag(row, 'noImplied'),
         highCents: maybe(row, 'highCents'),
         lowCents: maybe(row, 'lowCents'),
         rangeCents: amount(row, 'rangeCents'),
@@ -674,6 +689,99 @@ export function parseOscillation(body: unknown): OscillationResponse {
         lookup: parseOscillationRow(pick(row, 'lookup')),
         lookupError: text(row, 'lookupError'),
     }
+}
+
+function parseContractPoint(row: Record<string, unknown>): ContractPoint | null {
+    const at = readTime(pick(row, 'at'))
+    const yes = maybe(row, 'yesCents')
+    const no = maybe(row, 'noCents')
+    if (!at || yes == null || no == null) return null
+    return { at, yesCents: yes, noCents: no }
+}
+
+function parseContractMark(row: Record<string, unknown>): ContractMark | null {
+    const at = readTime(pick(row, 'at'))
+    if (!at) return null
+    return { at, kind: text(row, 'kind') ?? '', text: text(row, 'text') ?? '' }
+}
+
+function parseContractFill(row: Record<string, unknown>): ContractFill | null {
+    const at = readTime(pick(row, 'at'))
+    if (!at) return null
+    return {
+        tradeId: count(row, 'tradeId'),
+        side: side(pick(row, 'side')) ?? 'buy',
+        qty: amount(row, 'qty'),
+        price: amount(row, 'price'),
+        at,
+    }
+}
+
+function parseHolding(row: Record<string, unknown>): ContractHolding | null {
+    const wallet = text(row, 'wallet')
+    if (!wallet) return null
+    return {
+        wallet,
+        name: text(row, 'name') ?? wallet,
+        side: text(row, 'side') ?? 'YES',
+        qty: amount(row, 'qty'),
+        avgCost: amount(row, 'avgCost'),
+        unrealizedPnl: maybe(row, 'unrealizedPnl'),
+        fills: list(pick(row, 'fills'), parseContractFill),
+    }
+}
+
+function parseContractDetail(row: Record<string, unknown>): ContractDetail | null {
+    const ticker = text(row, 'ticker')
+    if (!ticker) return null
+    return {
+        ticker,
+        productId: text(row, 'productId') ?? '',
+        series: text(row, 'series') ?? '',
+        title: text(row, 'title') ?? ticker,
+        subtitle: text(row, 'subtitle'),
+        underlying: text(row, 'underlying'),
+        strike: maybe(row, 'strike'),
+        direction: text(row, 'direction') ?? '',
+        status: text(row, 'status'),
+        closeAt: readTime(pick(row, 'closeAt')),
+        closeCentral: text(row, 'closeCentral'),
+        closeEastern: text(row, 'closeEastern'),
+        yesCents: maybe(row, 'yesCents'),
+        yesBidCents: maybe(row, 'yesBidCents'),
+        yesAskCents: maybe(row, 'yesAskCents'),
+        yesLabel: text(row, 'yesLabel') ?? '',
+        noCents: maybe(row, 'noCents'),
+        noBidCents: maybe(row, 'noBidCents'),
+        noAskCents: maybe(row, 'noAskCents'),
+        noLabel: text(row, 'noLabel') ?? '',
+        noImplied: flag(row, 'noImplied'),
+        noLineImplied: flag(row, 'noLineImplied'),
+        highCents: maybe(row, 'highCents'),
+        lowCents: maybe(row, 'lowCents'),
+        rangeCents: amount(row, 'rangeCents'),
+        rangePercent: maybe(row, 'rangePercent'),
+        reversals: count(row, 'reversals'),
+        oscillating: flag(row, 'oscillating'),
+        volume: maybe(row, 'volume'),
+        openInterest: maybe(row, 'openInterest'),
+        lookbackHours: amount(row, 'lookbackHours') || 6,
+        thresholdCents: amount(row, 'thresholdCents') || 5,
+        allAvailable: flag(row, 'allAvailable'),
+        source: text(row, 'source') ?? 'none',
+        error: text(row, 'error'),
+        points: list(pick(row, 'points'), parseContractPoint),
+        marks: list(pick(row, 'marks'), parseContractMark),
+        holdings: list(pick(row, 'holdings'), parseHolding),
+    }
+}
+
+export function parseContract(body: unknown): ContractResponse {
+    const row = asRecord(body) ?? {}
+    const result = asRecord(pick(row, 'result'))
+    const detail = result ? parseContractDetail(result) : null
+    if (!detail) throw new LedgerReadError(500, 'ReadFailed', 'The contract response had no result.')
+    return { result: detail }
 }
 
 export function readFailure(body: unknown, status: number): LedgerReadError {

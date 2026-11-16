@@ -193,6 +193,10 @@ public class OscillationTests
 
         Assert.That(quote.Source, Is.EqualTo("kalshi"));
         Assert.That(quote.Price, Is.EqualTo(0.56m));
+        Assert.That(quote.Last, Is.EqualTo(0.56m));
+        Assert.That(quote.YesBid, Is.EqualTo(0.54m));
+        Assert.That(quote.YesAsk, Is.EqualTo(0.55m));
+        Assert.That(quote.NoImplied, Is.True);
         Assert.That(quote.CloseAt, Is.EqualTo(new DateTime(2026, 11, 16, 22, 0, 0, DateTimeKind.Utc)));
         Assert.That(quote.Bars.Select(bar => bar.Close), Is.EqualTo(new[] { 0.40m }));
         Assert.That(handler.Paths[0], Does.Contain("/candles"));
@@ -225,6 +229,8 @@ public class OscillationTests
 
         Assert.That(quote.Source, Is.EqualTo("coinbase"));
         Assert.That(quote.Price, Is.EqualTo(0.36m));
+        Assert.That(quote.Last, Is.EqualTo(0.36m));
+        Assert.That(quote.NoImplied, Is.True);
         Assert.That(quote.Bars[0].Low, Is.EqualTo(0.22m));
         Assert.That(quote.Bars[0].High, Is.EqualTo(0.40m));
         Assert.That(quote.CloseAt, Is.EqualTo(new DateTime(2026, 11, 16, 22, 0, 0, DateTimeKind.Utc)));

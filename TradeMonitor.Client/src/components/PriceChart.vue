@@ -18,6 +18,7 @@ import { markerStyle, type ChartMarker, type PricePoint } from '@/lib/priceSerie
 const props = withDefaults(
     defineProps<{
         points: PricePoint[]
+        compare?: PricePoint[]
         markers?: ChartMarker[]
         dark?: boolean
         loading?: boolean
@@ -25,12 +26,13 @@ const props = withDefaults(
         empty?: boolean
         emptyLabel?: string
     }>(),
-    { markers: () => [], emptyLabel: 'No price marks recorded' },
+    { compare: () => [], markers: () => [], emptyLabel: 'No price marks recorded' },
 )
 
 const host = ref<HTMLElement | null>(null)
 let chart: IChartApi | null = null
 let series: ISeriesApi<'Line'> | null = null
+let compareSeries: ISeriesApi<'Line'> | null = null
 let markerApi: ISeriesMarkersPluginApi<Time> | null = null
 let observer: ResizeObserver | null = null
 
@@ -57,6 +59,7 @@ function destroy() {
     observer?.disconnect()
     observer = null
     markerApi = null
+    compareSeries = null
     series = null
     if (chart) {
         chart.remove()
@@ -83,6 +86,18 @@ async function render() {
         chart.applyOptions(options(!!props.dark))
     }
     series?.setData(props.points.map((point) => ({ time: point.time as UTCTimestamp, value: point.value })))
+    const compare = props.compare ?? []
+    if (compare.length === 0) {
+        if (compareSeries && chart) {
+            chart.removeSeries(compareSeries)
+            compareSeries = null
+        }
+    } else if (chart) {
+        if (!compareSeries) {
+            compareSeries = chart.addSeries(LineSeries, { color: '#f79009', lineWidth: 2, priceLineVisible: false })
+        }
+        compareSeries.setData(compare.map((point) => ({ time: point.time as UTCTimestamp, value: point.value })))
+    }
     markerApi?.setMarkers(
         (props.markers ?? []).map((marker) => {
             const style = markerStyle(marker.side)
@@ -111,7 +126,7 @@ onMounted(() => {
 })
 
 watch(
-    () => [props.points, props.markers, props.dark, props.empty, props.loading, props.error],
+    () => [props.points, props.compare, props.markers, props.dark, props.empty, props.loading, props.error],
     () => {
         void render()
     },

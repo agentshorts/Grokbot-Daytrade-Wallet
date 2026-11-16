@@ -58,6 +58,38 @@ public class OscillationServices(ServiceStack.Data.IDbConnectionFactory dbFactor
         };
     }
 
+    public async Task<object> Any(GetPredictionContract request)
+    {
+        var mapped = OscillationTickers.Map(request.Ticker);
+        if (mapped == null)
+            throw new HttpError(400, "InvalidTicker", "Enter a prediction ticker or product id, such as KXBTCD-26NOV1617-T64999.99-KALSHI.");
+
+        var all = request.AllAvailable == true;
+        var hours = OscillationWindow.Span(request.LookbackHours, all);
+        var threshold = OscillationWindow.Cents(request.ThresholdCents);
+        var now = DateTime.SpecifyKind(clock.UtcNow, DateTimeKind.Utc);
+        var from = now.AddHours(-(double)hours);
+
+        List<WalletBook> books;
+        using (var db = dbFactory.Open())
+            books = LedgerData.Load(db, now);
+
+        PredictionQuote quote;
+        try
+        {
+            quote = await quotes.Load(mapped.Value, from, now, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            quote = PredictionQuote.Failed("Price history is unavailable.");
+        }
+
+        return new GetPredictionContractResponse
+        {
+            Result = ContractReport.Build(mapped.Value, quote, books, hours, threshold, all, from, now, SafeClose(mapped.Value.Ticker)),
+        };
+    }
+
     async Task<PredictionOscillationRow> Describe(OpenContract contract, DateTime from, DateTime to, decimal threshold, CancellationToken cancellationToken)
     {
         PredictionQuote quote;
