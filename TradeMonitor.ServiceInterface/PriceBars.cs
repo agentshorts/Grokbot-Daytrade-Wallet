@@ -15,7 +15,11 @@ public sealed class PriceBars(IDbConnectionFactory dbFactory, ILedgerClock clock
     readonly object gate = new();
     readonly object flushLock = new();
     readonly Dictionary<string, PriceBar> pending = new(StringComparer.Ordinal);
+    readonly Dictionary<string, CachedWindow> windows = new(StringComparer.Ordinal);
+    int generation;
     DateTime lastPrune = DateTime.MinValue;
+
+    sealed record CachedWindow(int Generation, DateTime Until, CandlePage Page);
 
     public void Record(LiveTick tick)
     {
@@ -27,6 +31,8 @@ public sealed class PriceBars(IDbConnectionFactory dbFactory, ILedgerClock clock
         var key = symbol + "|" + start;
         lock (gate)
         {
+            generation++;
+            windows.Clear();
             if (!pending.TryGetValue(key, out var bar))
             {
                 pending[key] = new PriceBar
@@ -71,6 +77,11 @@ public sealed class PriceBars(IDbConnectionFactory dbFactory, ILedgerClock clock
         symbol = symbol.Trim().ToUpperInvariant();
         if (symbol.Length == 0 || candles.Count == 0)
             return;
+        lock (gate)
+        {
+            generation++;
+            windows.Clear();
+        }
         lock (flushLock)
         {
             using var db = dbFactory.Open();
@@ -112,6 +123,11 @@ public sealed class PriceBars(IDbConnectionFactory dbFactory, ILedgerClock clock
                 using var db = dbFactory.Open();
                 foreach (var bar in batch)
                     Merge(db, bar);
+                lock (gate)
+                {
+                    generation++;
+                    windows.Clear();
+                }
             }
 
             if (clock.UtcNow - lastPrune >= TimeSpan.FromMinutes(1))
@@ -134,6 +150,11 @@ public sealed class PriceBars(IDbConnectionFactory dbFactory, ILedgerClock clock
         var deleteBefore = now - (long)Retention.TotalSeconds;
         var coarseBefore = now - (long)MinuteDetail.TotalSeconds;
         using var db = dbFactory.Open();
+        lock (gate)
+        {
+            generation++;
+            windows.Clear();
+        }
         db.Delete<PriceBar>(x => x.Start < deleteBefore);
         var coarse = db.Select<PriceBar>(x => x.Start < coarseBefore && x.Start >= deleteBefore);
         foreach (var group in coarse.GroupBy(x => (x.Symbol, Bucket: x.Start - (x.Start % CoarseSeconds))))
@@ -174,9 +195,47 @@ public sealed class PriceBars(IDbConnectionFactory dbFactory, ILedgerClock clock
     {
         Flush();
         symbol = symbol.Trim().ToUpperInvariant();
+        var cacheKey = symbol + "|" + requested.Seconds + "|" + (from?.ToString() ?? "") + "|" + (to?.ToString() ?? "") + "|" + cap;
+        int seen;
+        lock (gate)
+        {
+            seen = generation;
+            if (windows.TryGetValue(cacheKey, out var hit) && hit.Generation == seen && hit.Until > clock.UtcNow)
+                return hit.Page;
+        }
+
         using var db = dbFactory.Open();
-        var rows = db.Select<PriceBar>(x => x.Symbol == symbol).OrderBy(x => x.Start).ToList();
-        return Window(rows, requested, from, to, cap);
+        var rows = ReadSymbol(db, symbol, from, to, requested.Seconds);
+        var page = Window(rows, requested, from, to, cap);
+        lock (gate)
+        {
+            if (generation == seen)
+                windows[cacheKey] = new CachedWindow(seen, clock.UtcNow.AddSeconds(1), page);
+        }
+
+        return page;
+    }
+
+    static List<PriceBar> ReadSymbol(System.Data.IDbConnection db, string symbol, long? from, long? to, int seconds)
+    {
+        var size = Math.Max(1, seconds);
+        List<PriceBar> rows;
+        if (from is long begin && to is long end)
+        {
+            var aligned = begin - (begin % size);
+            rows = db.Select<PriceBar>(x => x.Symbol == symbol && x.Start >= aligned && x.Start < end);
+        }
+        else if (from is long beginOnly)
+        {
+            var aligned = beginOnly - (beginOnly % size);
+            rows = db.Select<PriceBar>(x => x.Symbol == symbol && x.Start >= aligned);
+        }
+        else if (to is long endOnly)
+            rows = db.Select<PriceBar>(x => x.Symbol == symbol && x.Start < endOnly);
+        else
+            rows = db.Select<PriceBar>(x => x.Symbol == symbol);
+        rows.Sort((a, b) => a.Start.CompareTo(b.Start));
+        return rows;
     }
 
     public static CandlePage Window(IReadOnlyList<PriceBar> rows, CandleInterval requested, long? from, long? to, int cap = CandleInterval.Cap)
