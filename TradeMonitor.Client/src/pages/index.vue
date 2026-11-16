@@ -3,8 +3,10 @@ import { computed, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import HideClosedContracts from '@/components/HideClosedContracts.vue'
 import ChartPending from '@/components/shell/ChartPending.vue'
+import CollapseSection from '@/components/shell/CollapseSection.vue'
 import KpiCard from '@/components/KpiCard.vue'
 import StatePanel from '@/components/shell/StatePanel.vue'
+import TextFilter from '@/components/shell/TextFilter.vue'
 import TradeList from '@/components/TradeList.vue'
 import WalletCard from '@/components/WalletCard.vue'
 import { equityOption, feesOption, pnlBarsOption, symbolPnlOption } from '@/lib/chartOptions'
@@ -13,7 +15,9 @@ import { useDashboard } from '@/composables/useDashboard'
 import { useFilterQuery } from '@/composables/useFilterQuery'
 import { useHideClosedContracts } from '@/composables/useHideClosedContracts'
 import { useTheme } from '@/composables/useTheme'
+import { useViewFilter } from '@/composables/useUiState'
 import { filterClosedContracts, groupPredictionWallets } from '@/lib/predictionContract'
+import { filterRows } from '@/lib/textFilter'
 
 const EChart = defineAsyncComponent({
     loader: () => import('@/components/EChart.vue'),
@@ -26,15 +30,21 @@ const { view, status, error, refresh } = useDashboard()
 const { filters, setWallet, shellLocation } = useFilterQuery()
 const { isDark } = useTheme()
 const hideClosed = useHideClosedContracts()
+const filterText = useViewFilter('overview')
 
 const walletRows = computed(() => view.value?.wallets ?? [])
 const closedCount = computed(() => walletRows.value.filter((wallet) => wallet.prediction && wallet.closed).length)
 const shownWallets = computed(() => filterClosedContracts(walletRows.value, hideClosed.value, (wallet) => !!(wallet.prediction && wallet.closed)))
-const sections = computed(() => groupPredictionWallets(shownWallets.value))
+const filteredWallets = computed(() =>
+    filterRows(shownWallets.value, filterText.value, (wallet) => [wallet.name, wallet.key, wallet.ticker, wallet.venue, wallet.mode, wallet.asset]),
+)
+const sections = computed(() => groupPredictionWallets(filteredWallets.value))
 const hiddenKeys = computed(
     () => new Set(walletRows.value.filter((wallet) => hideClosed.value && wallet.prediction && wallet.closed).map((wallet) => wallet.key)),
 )
-const recent = computed(() => view.value?.trades.slice(0, 20) ?? [])
+const recent = computed(() =>
+    filterRows(view.value?.trades.slice(0, 20) ?? [], filterText.value, (trade) => [trade.symbol, trade.side, trade.walletName, trade.title, trade.note]),
+)
 const equity = computed(() => {
     const series = (view.value?.equity ?? []).filter((row) => !hiddenKeys.value.has(row.key))
     return series.some((row) => row.points.length > 0) ? equityOption(series, isDark.value) : null
@@ -103,10 +113,18 @@ function openTrade(trade: TradeRecord) {
             <section class="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
                 <KpiCard v-for="kpi in view.kpis" :key="kpi.id" :kpi="kpi" />
             </section>
-            <div v-if="closedCount > 0" class="flex justify-end">
-                <HideClosedContracts v-model="hideClosed" :count="closedCount" />
+            <div class="flex flex-wrap items-end justify-between gap-3">
+                <TextFilter v-model="filterText" view="overview" placeholder="Filter wallets and recent trades" />
+                <HideClosedContracts v-if="closedCount > 0" v-model="hideClosed" :count="closedCount" />
             </div>
-            <p v-if="shownWallets.length === 0" class="text-sm text-gray-500 dark:text-gray-400">Closed contracts are hidden.</p>
+            <p v-if="shownWallets.length === 0 && closedCount > 0" class="text-sm text-gray-500 dark:text-gray-400">Closed contracts are hidden.</p>
+            <p
+                v-else-if="filterText.trim() && filteredWallets.length === 0"
+                class="text-sm text-gray-500 dark:text-gray-400"
+                data-testid="filter-empty-overview"
+            >
+                Nothing matches this filter.
+            </p>
             <template v-for="section in sections" :key="section.asset ?? 'wallets'">
                 <h2 v-if="section.asset" class="text-sm font-semibold text-gray-700 dark:text-gray-200" :data-testid="`contract-group-${section.asset}`">
                     {{ section.asset }}
@@ -121,39 +139,50 @@ function openTrade(trade: TradeRecord) {
                     />
                 </section>
             </template>
-            <section class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-                    <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Equity</h2>
-                    <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">Stacked by wallet. Scroll to zoom.</p>
-                    <EChart :option="equity" :empty="!equity" />
-                </article>
-                <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-                    <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">P&L</h2>
-                    <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">
-                        Green is up, red is down. Transfers are left out. A day with no mark is left blank.
-                    </p>
-                    <EChart :option="bars" :empty="!bars" />
-                </article>
-                <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-                    <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">P&L by symbol</h2>
-                    <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">Top moves in this range. Unknown P&L is left blank.</p>
-                    <EChart :option="bySymbol" :empty="!bySymbol" />
-                </article>
-                <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-                    <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Fees</h2>
-                    <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">Fees paid on fills in this range.</p>
-                    <EChart :option="fees" :empty="!fees" />
-                </article>
-            </section>
-            <section class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-                <div class="flex items-center justify-between gap-3 px-4 py-4 md:px-5">
-                    <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Recent trades</h2>
-                    <RouterLink :to="shellLocation('/trades')" class="text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">
-                        All trades
-                    </RouterLink>
-                </div>
+            <CollapseSection id="overview-charts" label="charts">
+                <template #heading>
+                    <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Charts</h2>
+                </template>
+                <section class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                    <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+                        <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Equity</h2>
+                        <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">Stacked by wallet. Scroll to zoom.</p>
+                        <EChart :option="equity" :empty="!equity" />
+                    </article>
+                    <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+                        <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">P&L</h2>
+                        <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">
+                            Green is up, red is down. Transfers are left out. A day with no mark is left blank.
+                        </p>
+                        <EChart :option="bars" :empty="!bars" />
+                    </article>
+                    <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+                        <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">P&L by symbol</h2>
+                        <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">Top moves in this range. Unknown P&L is left blank.</p>
+                        <EChart :option="bySymbol" :empty="!bySymbol" />
+                    </article>
+                    <article class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 md:p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+                        <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Fees</h2>
+                        <p class="mt-1 mb-4 text-sm text-gray-500 dark:text-gray-400">Fees paid on fills in this range.</p>
+                        <EChart :option="fees" :empty="!fees" />
+                    </article>
+                </section>
+            </CollapseSection>
+            <CollapseSection
+                id="overview-trades"
+                label="recent trades"
+                class="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]"
+            >
+                <template #heading>
+                    <div class="flex items-center justify-between gap-3 px-4 py-4 md:px-5">
+                        <h2 class="text-base font-semibold text-gray-800 dark:text-white/90">Recent trades</h2>
+                        <RouterLink :to="shellLocation('/trades')" class="text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">
+                            All trades
+                        </RouterLink>
+                    </div>
+                </template>
                 <TradeList :trades="recent" @select="openTrade" />
-            </section>
+            </CollapseSection>
         </template>
     </div>
 </template>

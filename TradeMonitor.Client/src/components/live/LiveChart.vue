@@ -19,6 +19,7 @@ import {
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { LiveOrder } from '@/api/live'
 import { hitTest, type ChartHit, type ChartLine } from '@/lib/chartMenu'
+import { captureChartView, logicalRangeToApply, timeRangeToApply, viewToRestore, type ChartView } from '@/lib/chartView'
 import { wantsOlderHistory } from '@/lib/chartRange'
 import { deltaPoints, priceBars, showsDeltaPane, usesOhlc, type CandleBar, type ChartType, type DeltaMode } from '@/lib/chartSeries'
 import { chartZone, formatChartCrosshair, formatChartTick, type ChartZoneMode } from '@/lib/chartTime'
@@ -104,6 +105,10 @@ let built = ''
 let drawnCount = 0
 let drawnFirst = 0
 let historyHooked = false
+let lastView: ChartView | null = null
+let restoring = false
+let suspendView = false
+let restoreFrame = 0
 const timeAxisHeight = 28
 const arrows = ref<{ id: number; x: number; y: number; side: 'buy' | 'sell'; simulated: boolean; text: string; color: string; clock: string }[]>([])
 const guideLabels = ref<{ id: string; y: number; text: string; color: string; title: string }[]>([])
@@ -157,14 +162,16 @@ function options(dark: boolean) {
 function sourceBars(): CandleBar[] {
     const rows = props.candles?.length
         ? props.candles.filter((bar) => bar.time > 0 && bar.close > 0)
-        : props.points.filter((point) => point.time > 0 && point.value > 0).map((point) => ({
-              time: point.time,
-              open: point.value,
-              high: point.value,
-              low: point.value,
-              close: point.value,
-              volume: 0,
-          }))
+        : props.points
+              .filter((point) => point.time > 0 && point.value > 0)
+              .map((point) => ({
+                  time: point.time,
+                  open: point.value,
+                  high: point.value,
+                  low: point.value,
+                  close: point.value,
+                  volume: 0,
+              }))
     if (rows.length > 0) return rows
     if (props.price == null || props.price <= 0) return []
     const bucket = Math.floor(Date.now() / 1000 / 60) * 60
@@ -343,12 +350,57 @@ function paint(data: CandleBar[]) {
     drawnFirst = data[0]?.time ?? 0
 }
 
+function numericTime(range: { from: Time; to: Time } | null | undefined): { from: number; to: number } | null {
+    if (!range || typeof range.from !== 'number' || typeof range.to !== 'number') return null
+    return { from: range.from, to: range.to }
+}
+
+function readView(): ChartView | null {
+    if (!chart) return null
+    const timeScale = chart.timeScale()
+    const logical = typeof timeScale.getVisibleLogicalRange === 'function' ? timeScale.getVisibleLogicalRange() : null
+    const time = typeof timeScale.getVisibleRange === 'function' ? numericTime(timeScale.getVisibleRange()) : null
+    return captureChartView(logical, time)
+}
+
+function rememberView() {
+    if (!chart || restoring || suspendView) return
+    const current = readView()
+    if (current) lastView = current
+}
+
+function applyView(view: ChartView) {
+    const paint = () => {
+        if (!chart) return
+        const timeScale = chart.timeScale()
+        const logical = logicalRangeToApply(view)
+        const time = timeRangeToApply(view)
+        restoring = true
+        if (logical && typeof timeScale.setVisibleLogicalRange === 'function') timeScale.setVisibleLogicalRange(logical)
+        else if (time && typeof timeScale.setVisibleRange === 'function') {
+            timeScale.setVisibleRange({ from: time.from as UTCTimestamp, to: time.to as UTCTimestamp })
+        }
+        restoring = false
+    }
+    paint()
+    lastView = view
+    if (typeof requestAnimationFrame !== 'function') return
+    cancelAnimationFrame(restoreFrame)
+    restoreFrame = requestAnimationFrame(() => {
+        paint()
+    })
+}
+
 function hookHistory() {
     const scale = chart?.timeScale() as { subscribeVisibleLogicalRangeChange?: (cb: (range: { from: number; to: number } | null) => void) => void } | undefined
     if (!scale || historyHooked || typeof scale.subscribeVisibleLogicalRangeChange !== 'function') return
     historyHooked = true
     scale.subscribeVisibleLogicalRangeChange((range) => {
-        if (wantsOlderHistory(range)) emit('history')
+        if (!restoring && !suspendView) {
+            const captured = captureChartView(range, chart ? numericTime(chart.timeScale().getVisibleRange?.()) : null)
+            if (captured) lastView = captured
+        }
+        if (!restoring && !suspendView && wantsOlderHistory(range)) emit('history')
     })
 }
 
@@ -525,7 +577,14 @@ function drawLines() {
                 lineWidth: 1,
                 lineStyle: order.type === 'Limit' || stop ? LineStyle.Dashed : LineStyle.Solid,
                 axisLabelVisible: true,
-                title: order.type === 'StopLoss' || order.type === 'StopBuy' ? 'Stop' : order.type === 'TakeProfit' ? 'Target' : order.side === 'Buy' ? 'Limit buy' : 'Limit sell',
+                title:
+                    order.type === 'StopLoss' || order.type === 'StopBuy'
+                        ? 'Stop'
+                        : order.type === 'TakeProfit'
+                          ? 'Target'
+                          : order.side === 'Buy'
+                            ? 'Limit buy'
+                            : 'Limit sell',
             }),
         )
         marks.push({ kind: 'order', id: order.id, price: order.triggerPrice })
@@ -558,6 +617,12 @@ function placeBaselineHandle() {
 }
 
 async function render() {
+    if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(restoreFrame)
+    const refit = fitted !== props.fitKey
+    const shape = seriesShape()
+    const rebuilding = !main || built !== shape
+    rememberView()
+    const kept = viewToRestore(rebuilding ? lastView : null, refit)
     await nextTick()
     const data = sourceBars()
     if (!host.value || data.length === 0) return
@@ -571,10 +636,11 @@ async function render() {
     } else {
         chart.applyOptions(options(!!props.dark))
     }
-    const shape = seriesShape()
     if (!main || built !== shape) {
+        suspendView = true
         buildSeries(data)
         built = shape
+        suspendView = false
     } else {
         paint(data)
     }
@@ -585,6 +651,8 @@ async function render() {
     if (fitted !== props.fitKey) {
         fitted = props.fitKey
         chart.timeScale().fitContent()
+    } else if (kept) {
+        applyView(kept)
     }
 }
 
@@ -653,7 +721,28 @@ onMounted(() => {
 })
 
 watch(
-    () => [props.points, props.candles, props.price, props.lots, props.orders, props.markers, props.guides, props.zones, props.forecast, props.study, props.showStudy, props.dark, props.fitKey, props.chartType, props.showVolume, props.baselinePrice, props.deltaMode, props.timeZone, props.zoneName, props.intervalSeconds],
+    () => [
+        props.points,
+        props.candles,
+        props.price,
+        props.lots,
+        props.orders,
+        props.markers,
+        props.guides,
+        props.zones,
+        props.forecast,
+        props.study,
+        props.showStudy,
+        props.dark,
+        props.fitKey,
+        props.chartType,
+        props.showVolume,
+        props.baselinePrice,
+        props.deltaMode,
+        props.timeZone,
+        props.zoneName,
+        props.intervalSeconds,
+    ],
     () => {
         void render()
     },
@@ -661,6 +750,7 @@ watch(
 )
 
 onUnmounted(() => {
+    if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(restoreFrame)
     observer?.disconnect()
     chart?.remove()
     chart = null
@@ -672,7 +762,13 @@ onUnmounted(() => {
     <div class="relative h-full w-full" :data-chart-type="chartType">
         <div ref="host" data-testid="live-chart" class="h-full w-full" @contextmenu="onMenu" @wheel="nudgeOverlay" @pointerup="nudgeOverlay" />
         <div class="pointer-events-none absolute inset-0 overflow-hidden">
-            <div v-for="zone in zoneRects" :key="zone.id" data-testid="atr-zone" class="absolute inset-x-0" :style="{ top: `${zone.top}px`, height: `${zone.height}px`, background: zone.color }" />
+            <div
+                v-for="zone in zoneRects"
+                :key="zone.id"
+                data-testid="atr-zone"
+                class="absolute inset-x-0"
+                :style="{ top: `${zone.top}px`, height: `${zone.height}px`, background: zone.color }"
+            />
         </div>
         <svg class="pointer-events-none absolute inset-0 h-full w-full overflow-hidden">
             <polygon v-if="forecastCones.outer" data-testid="forecast-outer" :points="forecastCones.outer" fill="rgba(122,90,248,0.12)" />

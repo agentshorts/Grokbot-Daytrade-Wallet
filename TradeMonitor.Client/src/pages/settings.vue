@@ -12,7 +12,11 @@ import { chartTypes, type ChartType } from '@/lib/chartSeries'
 import type { StepLadderInputs } from '@/lib/stepLadder'
 import StepLadderFields from '@/components/live/StepLadderFields.vue'
 import OscillationFields from '@/components/OscillationFields.vue'
+import CollapseSection from '@/components/shell/CollapseSection.vue'
+import TextFilter from '@/components/shell/TextFilter.vue'
 import { readOscillationPrefs, writeOscillationPrefs, type OscillationPrefs } from '@/lib/oscillationPrefs'
+import { useViewFilter } from '@/composables/useUiState'
+import { filterRows } from '@/lib/textFilter'
 
 const live = useLive()
 const chart = ref<ChartPrefs>(readChartPrefs(localStorage))
@@ -22,6 +26,7 @@ const intervalError = ref('')
 const rows = ref<TrackedSymbol[]>([])
 const catalog = ref<LiveProduct[]>([])
 const query = ref('')
+const symbolFilter = useViewFilter('settings')
 const error = ref('')
 const open = ref(false)
 
@@ -33,6 +38,11 @@ const matches = computed(() => {
         .filter((item) => !needle || item.productId.toLowerCase().includes(needle) || item.name.toLowerCase().includes(needle))
         .slice(0, 50)
 })
+const shownSymbols = computed(() => filterRows(rows.value, symbolFilter.value, (row) => [row.productId, row.name]))
+
+function symbolIndex(productId: string) {
+    return rows.value.findIndex((row) => row.productId === productId)
+}
 
 function fail(err: unknown) {
     error.value = explainLedgerError(err).message
@@ -136,7 +146,9 @@ onMounted(() => {
     <div data-testid="settings-page" class="mx-auto max-w-xl space-y-6">
         <div>
             <h1 class="text-xl font-semibold text-gray-900 dark:text-white/90">Settings</h1>
-            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Symbols on the live chart, in the order they appear. The feed follows this list, plus any symbol with an open paper order or a held position.</p>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Symbols on the live chart, in the order they appear. The feed follows this list, plus any symbol with an open paper order or a held position.
+            </p>
         </div>
         <p v-if="error" class="rounded-xl border border-error-200 bg-error-25 px-4 py-3 text-sm text-error-700" role="alert">{{ error }}</p>
         <div class="relative">
@@ -169,45 +181,95 @@ onMounted(() => {
                 <li v-if="matches.length === 0" class="px-2 py-2 text-sm text-gray-500">No matching USD product.</li>
             </ul>
         </div>
-        <ol data-testid="settings-symbols" class="divide-y divide-gray-200 rounded-xl border border-gray-200 dark:divide-gray-800 dark:border-gray-800">
-            <li v-for="(row, index) in rows" :key="row.productId" class="flex items-center gap-2 px-3 py-2" :data-product="row.productId">
-                <span class="min-w-0 flex-1">
-                    <span class="font-medium text-gray-900 dark:text-white">{{ row.productId }}</span>
-                    <span v-if="!row.listed" class="ms-2 text-xs text-gray-500">Not on Coinbase</span>
-                </span>
-                <button type="button" data-testid="settings-up" class="rounded-md px-2 py-1 text-sm text-gray-500 disabled:opacity-30" :disabled="index === 0" @click="move(index, -1)">Up</button>
-                <button type="button" data-testid="settings-down" class="rounded-md px-2 py-1 text-sm text-gray-500 disabled:opacity-30" :disabled="index === rows.length - 1" @click="move(index, 1)">Down</button>
-                <button type="button" data-testid="settings-remove" class="rounded-md px-2 py-1 text-sm text-error-500" @click="remove(row.productId)">Remove</button>
-            </li>
-            <li v-if="rows.length === 0" class="px-3 py-4 text-sm text-gray-500">No symbols yet.</li>
-        </ol>
-        <section data-testid="chart-settings" class="space-y-4">
-            <div>
-                <h2 class="text-sm font-semibold text-gray-900 dark:text-white">Chart</h2>
-                <p class="mt-1 text-sm text-gray-500">Defaults for the live chart on this browser. Favorites stay one click away in the header.</p>
-            </div>
+        <CollapseSection id="settings-symbols" label="symbols">
+            <template #heading>
+                <h2 class="text-sm font-semibold text-gray-900 dark:text-white">Tracked symbols</h2>
+            </template>
+            <TextFilter v-model="symbolFilter" view="settings" :collapsible="false" placeholder="Filter tracked symbols" />
+            <ol
+                data-testid="settings-symbols"
+                class="mt-3 divide-y divide-gray-200 rounded-xl border border-gray-200 dark:divide-gray-800 dark:border-gray-800"
+            >
+                <li v-for="row in shownSymbols" :key="row.productId" class="flex items-center gap-2 px-3 py-2" :data-product="row.productId">
+                    <span class="min-w-0 flex-1">
+                        <span class="font-medium text-gray-900 dark:text-white">{{ row.productId }}</span>
+                        <span v-if="!row.listed" class="ms-2 text-xs text-gray-500">Not on Coinbase</span>
+                    </span>
+                    <button
+                        type="button"
+                        data-testid="settings-up"
+                        class="rounded-md px-2 py-1 text-sm text-gray-500 disabled:opacity-30"
+                        :disabled="symbolIndex(row.productId) <= 0"
+                        @click="move(symbolIndex(row.productId), -1)"
+                    >
+                        Up
+                    </button>
+                    <button
+                        type="button"
+                        data-testid="settings-down"
+                        class="rounded-md px-2 py-1 text-sm text-gray-500 disabled:opacity-30"
+                        :disabled="symbolIndex(row.productId) < 0 || symbolIndex(row.productId) >= rows.length - 1"
+                        @click="move(symbolIndex(row.productId), 1)"
+                    >
+                        Down
+                    </button>
+                    <button type="button" data-testid="settings-remove" class="rounded-md px-2 py-1 text-sm text-error-500" @click="remove(row.productId)">
+                        Remove
+                    </button>
+                </li>
+                <li v-if="rows.length === 0" class="px-3 py-4 text-sm text-gray-500">No symbols yet.</li>
+                <li v-else-if="shownSymbols.length === 0" class="px-3 py-4 text-sm text-gray-500">Nothing matches this filter.</li>
+            </ol>
+        </CollapseSection>
+        <CollapseSection id="settings-chart" label="chart settings" data-testid="chart-settings" class="space-y-4">
+            <template #heading>
+                <div>
+                    <h2 class="text-sm font-semibold text-gray-900 dark:text-white">Chart</h2>
+                    <p class="mt-1 text-sm text-gray-500">Defaults for the live chart on this browser. Favorites stay one click away in the header.</p>
+                </div>
+            </template>
             <div class="grid gap-3 sm:grid-cols-2">
                 <label class="text-xs font-medium text-gray-500">
                     Default type
-                    <select data-testid="chart-default-type" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" :value="chart.type" @change="saveChart({ ...chart, type: ($event.target as HTMLSelectElement).value as ChartType })">
+                    <select
+                        data-testid="chart-default-type"
+                        class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                        :value="chart.type"
+                        @change="saveChart({ ...chart, type: ($event.target as HTMLSelectElement).value as ChartType })"
+                    >
                         <option v-for="item in chartTypes" :key="item.id" :value="item.id">{{ item.label }}</option>
                     </select>
                 </label>
                 <label class="text-xs font-medium text-gray-500">
                     Default interval
-                    <select data-testid="chart-default-interval" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" :value="chart.interval" @change="saveChart({ ...chart, interval: ($event.target as HTMLSelectElement).value })">
+                    <select
+                        data-testid="chart-default-interval"
+                        class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                        :value="chart.interval"
+                        @change="saveChart({ ...chart, interval: ($event.target as HTMLSelectElement).value })"
+                    >
                         <option v-for="item in [...intervalPresets, ...chart.customIntervals]" :key="item" :value="item">{{ item }}</option>
                     </select>
                 </label>
                 <label class="text-xs font-medium text-gray-500">
                     Default range
-                    <select data-testid="chart-default-range" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" :value="chart.range === 'custom' ? 'All' : chart.range" @change="saveChart({ ...chart, range: ($event.target as HTMLSelectElement).value as ChartPrefs['range'] })">
+                    <select
+                        data-testid="chart-default-range"
+                        class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                        :value="chart.range === 'custom' ? 'All' : chart.range"
+                        @change="saveChart({ ...chart, range: ($event.target as HTMLSelectElement).value as ChartPrefs['range'] })"
+                    >
                         <option v-for="item in quickRanges" :key="item" :value="item">{{ item }}</option>
                     </select>
                 </label>
                 <label class="text-xs font-medium text-gray-500">
                     Time zone
-                    <select data-testid="chart-timezone" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" :value="chart.timeZone" @change="saveChart({ ...chart, timeZone: ($event.target as HTMLSelectElement).value === 'utc' ? 'utc' : 'local' })">
+                    <select
+                        data-testid="chart-timezone"
+                        class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                        :value="chart.timeZone"
+                        @change="saveChart({ ...chart, timeZone: ($event.target as HTMLSelectElement).value === 'utc' ? 'utc' : 'local' })"
+                    >
                         <option value="local">Local time</option>
                         <option value="utc">UTC</option>
                     </select>
@@ -233,7 +295,12 @@ onMounted(() => {
             </fieldset>
             <div class="flex flex-wrap items-center gap-4">
                 <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-                    <input data-testid="chart-swing" type="checkbox" :checked="chart.showSwing" @change="saveChart({ ...chart, showSwing: !chart.showSwing })" />
+                    <input
+                        data-testid="chart-swing"
+                        type="checkbox"
+                        :checked="chart.showSwing"
+                        @change="saveChart({ ...chart, showSwing: !chart.showSwing })"
+                    />
                     Targets: Swing
                 </label>
                 <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
@@ -242,41 +309,81 @@ onMounted(() => {
                 </label>
                 <label class="text-xs font-medium text-gray-500">
                     ATR horizon
-                    <select data-testid="chart-atr-horizon" class="ms-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" :value="chart.atrHorizon" @change="onHorizon(($event.target as HTMLSelectElement).value)">
+                    <select
+                        data-testid="chart-atr-horizon"
+                        class="ms-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                        :value="chart.atrHorizon"
+                        @change="onHorizon(($event.target as HTMLSelectElement).value)"
+                    >
                         <option v-for="item in atrHorizons" :key="item.id" :value="item.id">{{ item.label }}</option>
                     </select>
                 </label>
                 <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-                    <input data-testid="chart-forecast" type="checkbox" :checked="chart.showForecast" @change="saveChart({ ...chart, showForecast: !chart.showForecast })" />
+                    <input
+                        data-testid="chart-forecast"
+                        type="checkbox"
+                        :checked="chart.showForecast"
+                        @change="saveChart({ ...chart, showForecast: !chart.showForecast })"
+                    />
                     Targets: Forecast
                 </label>
                 <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-                    <input data-testid="chart-step-ladder" type="checkbox" :checked="chart.showStepLadder" @change="saveChart({ ...chart, showStepLadder: !chart.showStepLadder })" />
+                    <input
+                        data-testid="chart-step-ladder"
+                        type="checkbox"
+                        :checked="chart.showStepLadder"
+                        @change="saveChart({ ...chart, showStepLadder: !chart.showStepLadder })"
+                    />
                     Step ladder
                 </label>
                 <label class="text-xs font-medium text-gray-500">
                     Forecast horizon
-                    <select data-testid="chart-forecast-horizon" class="ms-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" :value="chart.forecastHorizon" @change="onForecastHorizon(($event.target as HTMLSelectElement).value)">
+                    <select
+                        data-testid="chart-forecast-horizon"
+                        class="ms-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                        :value="chart.forecastHorizon"
+                        @change="onForecastHorizon(($event.target as HTMLSelectElement).value)"
+                    >
                         <option v-for="item in forecastHorizons" :key="item.id" :value="item.id">{{ item.label }}</option>
                     </select>
                 </label>
             </div>
             <div class="max-w-xs">
-                <StepLadderFields :step-increase="chart.stepIncrease" :dormant-threshold="chart.dormantThreshold" :dormant-period="chart.dormantPeriod" @change="onStepLadderInputs" />
+                <StepLadderFields
+                    :step-increase="chart.stepIncrease"
+                    :dormant-threshold="chart.dormantThreshold"
+                    :dormant-period="chart.dormantPeriod"
+                    @change="onStepLadderInputs"
+                />
             </div>
             <form class="flex flex-wrap items-center gap-2" @submit.prevent="addCustom">
-                <input v-model="customInterval" data-testid="settings-custom-interval" class="w-28 rounded-lg border border-gray-200 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" placeholder="7m" />
+                <input
+                    v-model="customInterval"
+                    data-testid="settings-custom-interval"
+                    class="w-28 rounded-lg border border-gray-200 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                    placeholder="7m"
+                />
                 <button type="submit" class="rounded-lg px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200">Save interval</button>
-                <button v-for="item in chart.customIntervals" :key="item" type="button" class="text-sm text-error-500" @click="saveChart(removeCustomInterval(chart, item))">Remove {{ item }}</button>
+                <button
+                    v-for="item in chart.customIntervals"
+                    :key="item"
+                    type="button"
+                    class="text-sm text-error-500"
+                    @click="saveChart(removeCustomInterval(chart, item))"
+                >
+                    Remove {{ item }}
+                </button>
             </form>
             <p v-if="intervalError" class="text-sm text-error-500">{{ intervalError }}</p>
-        </section>
-        <section data-testid="oscillation-settings" class="space-y-3">
-            <div>
-                <h2 class="text-sm font-semibold text-gray-900 dark:text-white">Prediction oscillation</h2>
-                <p class="mt-1 text-sm text-gray-500">Lookback and reversal size for the Oscillation view on this browser.</p>
-            </div>
+        </CollapseSection>
+        <CollapseSection id="settings-oscillation" label="oscillation settings" data-testid="oscillation-settings" class="space-y-3">
+            <template #heading>
+                <div>
+                    <h2 class="text-sm font-semibold text-gray-900 dark:text-white">Prediction oscillation</h2>
+                    <p class="mt-1 text-sm text-gray-500">Lookback and reversal size for the Oscillation view on this browser.</p>
+                </div>
+            </template>
             <OscillationFields :lookback-hours="oscillation.lookbackHours" :threshold-cents="oscillation.thresholdCents" @change="saveOscillation" />
-        </section>
+        </CollapseSection>
     </div>
 </template>
