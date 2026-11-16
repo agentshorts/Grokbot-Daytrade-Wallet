@@ -113,13 +113,15 @@ public sealed class PredictionBookingStore : IPredictionBookings
 public static class PredictionBooking
 {
     public const string FillPrefix = "cbpm-fill-";
+    public const string SettlePrefix = "cbpm-settle-";
     public const string WalletNote = "Coinbase prediction contract booked by WalletSync.";
 
-    public static string? ClientIdFor(string? tradeId)
+    public static string? ClientIdFor(string? tradeId, TradeKind kind = TradeKind.Fill)
     {
         if (string.IsNullOrWhiteSpace(tradeId))
             return null;
-        var id = FillPrefix + tradeId.Trim();
+        var prefix = kind == TradeKind.Settlement ? SettlePrefix : FillPrefix;
+        var id = prefix + tradeId.Trim();
         return id.Length <= 128 ? id : null;
     }
 

@@ -41,6 +41,7 @@ public class LedgerMcpTools(IHttpContextAccessor httpContextAccessor) : McpServi
         "for example pm-KXBTCD-26NOV1210-T71199.99-KALSHI. Omit kind on a pm- key and it is stored as PredictionMarket. " +
         "Record the buy, the sell or a settlement at 1 or 0, and the fee with trade_record on that wallet. " +
         "Coinbase sync books each prediction fill into pm-<product id> with client_id cbpm-fill-<fill id>. " +
+        "A settlement uses cbpm-settle-<fill id>, so it does not collide with the opening fill. " +
         "A fill already stored on that wallet, an archived copy, or a -2 key is left as it is. " +
         "The same key and the same values returns the existing wallet. The same key with different values is rejected. " +
         "This does not open an account or place an order.")]

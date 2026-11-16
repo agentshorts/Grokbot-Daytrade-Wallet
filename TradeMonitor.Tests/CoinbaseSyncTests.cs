@@ -587,10 +587,25 @@ public class CoinbaseSyncTests
             ExecutedAt = T1,
             Note = "hand",
         });
+        svc.Any(new RecordTrade
+        {
+            Wallet = copy,
+            ClientId = "cbpm-settle-hand1",
+            Symbol = product,
+            Side = TradeSide.Sell,
+            Qty = 4m,
+            Price = 1m,
+            Fee = 0m,
+            Kind = TradeKind.Settlement,
+            ExecutedAt = T1,
+            Note = "hand settle",
+        });
 
         using var rig = Open();
         rig.Handler.Contracts.Add(new ContractFill(
             "hand1", "2026-11-12T15:10:00.000Z", "BUY", "0.60", "4", product, "", "4.50", "NO", "0.50"));
+        rig.Handler.Contracts.Add(new ContractFill(
+            "hand1", "2026-11-12T15:11:00.000Z", "SELL", "1", "4", product, "", "4", "YES", "0", "SETTLEMENT"));
         rig.Handler.Contracts.Add(new ContractFill(
             "new1", "2026-11-12T15:12:00.000Z", "BUY", "0.60", "10", product, "", "4.50", "YES", "0.50"));
         await rig.Syncer.CycleAsync(CancellationToken.None);
@@ -600,11 +615,15 @@ public class CoinbaseSyncTests
         Assert.That(handTrades, Has.Count.EqualTo(1));
         Assert.That(handTrades[0].Price, Is.EqualTo(0.25m));
         Assert.That(handTrades[0].Note, Is.EqualTo("hand"));
+        var handSettlements = db.Select<Trade>(trade => trade.ClientId == "cbpm-settle-hand1");
+        Assert.That(handSettlements, Has.Count.EqualTo(1));
+        Assert.That(handSettlements[0].Price, Is.EqualTo(1m));
+        Assert.That(handSettlements[0].Note, Is.EqualTo("hand settle"));
         var copyWallet = db.Single<Wallet>(wallet => wallet.Key == copy);
         Assert.That(copyWallet.IsArchived, Is.True);
         Assert.That(copyWallet.Name, Is.EqualTo("hand copy"));
         Assert.That(copyWallet.Note, Is.EqualTo("logged by hand"));
-        Assert.That(db.Select<Trade>(trade => trade.WalletId == copyWallet.Id), Has.Count.EqualTo(1));
+        Assert.That(db.Select<Trade>(trade => trade.WalletId == copyWallet.Id), Has.Count.EqualTo(2));
 
         var booked = db.Single<Trade>(trade => trade.ClientId == "cbpm-fill-new1");
         var canonical = db.Single<Wallet>(wallet => wallet.Key == "pm-" + product);
@@ -684,7 +703,7 @@ public class CoinbaseSyncTests
         svc.Any(new RecordTrade
         {
             Wallet = key,
-            ClientId = "hand-open",
+            ClientId = "cbpm-fill-open1",
             Symbol = product,
             Side = TradeSide.Buy,
             Qty = 10m,
@@ -696,7 +715,7 @@ public class CoinbaseSyncTests
 
         using var rig = Open();
         rig.Handler.Contracts.Add(new ContractFill(
-            "set1", "2026-11-12T15:10:00.000Z", "SELL", "1", "10", product, "", "9.80", "YES", "0.20", "SETTLEMENT"));
+            "open1", "2026-11-12T15:10:00.000Z", "SELL", "1", "10", product, "", "9.80", "YES", "0.20", "SETTLEMENT"));
         await rig.Syncer.CycleAsync(CancellationToken.None);
         await rig.Syncer.CycleAsync(CancellationToken.None);
 
@@ -704,11 +723,13 @@ public class CoinbaseSyncTests
         var wallet = db.Single<Wallet>(row => row.Key == key);
         Assert.That(wallet.Name, Is.EqualTo("already open"));
         Assert.That(wallet.Note, Is.EqualTo("left alone"));
-        var open = db.Single<Trade>(trade => trade.ClientId == "hand-open");
+        var open = db.Single<Trade>(trade => trade.ClientId == "cbpm-fill-open1");
         Assert.That(open.Price, Is.EqualTo(0.40m));
         Assert.That(open.Note, Is.EqualTo("open"));
-        var settled = db.Select<Trade>(trade => trade.ClientId == "cbpm-fill-set1");
+        Assert.That(open.Kind, Is.EqualTo(TradeKind.Fill));
+        var settled = db.Select<Trade>(trade => trade.ClientId == "cbpm-settle-open1");
         Assert.That(settled, Has.Count.EqualTo(1));
+        Assert.That(settled[0].ClientId, Is.Not.EqualTo(open.ClientId));
         Assert.That(settled[0].WalletId, Is.EqualTo(wallet.Id));
         Assert.That(settled[0].Kind, Is.EqualTo(TradeKind.Settlement));
         Assert.That(settled[0].Price, Is.EqualTo(1.00m));

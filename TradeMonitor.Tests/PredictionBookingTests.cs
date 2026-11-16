@@ -42,6 +42,14 @@ public class PredictionBookingTests
     }
 
     [Test]
+    public void Settlement_client_id_is_distinct_from_the_opening_fill()
+    {
+        Assert.That(PredictionBooking.ClientIdFor("open1"), Is.EqualTo("cbpm-fill-open1"));
+        Assert.That(PredictionBooking.ClientIdFor("open1", TradeKind.Settlement), Is.EqualTo("cbpm-settle-open1"));
+        Assert.That(PredictionBooking.ClientIdFor("open1", TradeKind.Settlement), Is.Not.EqualTo(PredictionBooking.ClientIdFor("open1")));
+    }
+
+    [Test]
     public void Copy_suffix_counts_as_the_same_contract()
     {
         const string product = "KXBTCD-26NOV1617-T63749.99-KALSHI";

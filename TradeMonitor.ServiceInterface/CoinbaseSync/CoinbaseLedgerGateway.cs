@@ -84,7 +84,9 @@ public sealed class CoinbaseLedgerGateway(IDbConnectionFactory dbFactory, ILedge
             .Select(wallet => wallet.Id));
         if (handIds.Count == 0)
             return fills;
-        foreach (var trade in db.Select<Trade>(trade => trade.ClientId.StartsWith(PredictionBooking.FillPrefix)))
+        foreach (var trade in db.Select<Trade>(trade =>
+            trade.ClientId.StartsWith(PredictionBooking.FillPrefix)
+            || trade.ClientId.StartsWith(PredictionBooking.SettlePrefix)))
         {
             if (!handIds.Contains(trade.WalletId))
                 continue;

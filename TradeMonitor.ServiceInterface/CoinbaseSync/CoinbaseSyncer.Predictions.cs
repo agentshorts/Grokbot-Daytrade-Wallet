@@ -15,7 +15,8 @@ public sealed partial class CoinbaseSyncer
         }
 
         bookings?.Seen(productId, clock.UtcNow);
-        var clientId = PredictionBooking.ClientIdFor(fill.TradeId);
+        var kind = PredictionBooking.KindOf(fill.TradeType);
+        var clientId = PredictionBooking.ClientIdFor(fill.TradeId, kind);
         if (clientId == null)
         {
             FailPrediction(productId, "fill id is missing or too long");
@@ -79,7 +80,7 @@ public sealed partial class CoinbaseSyncer
                 Qty = fill.Size,
                 Price = quote.Price,
                 Fee = fill.Commission,
-                Kind = quote.Kind,
+                Kind = kind,
                 ExecutedAt = fill.TradeTimeUtc,
                 Title = PredictionBooking.TradeTitle(quote.ContractSide, side, fill.Size),
                 OrderRef = fill.OrderId,

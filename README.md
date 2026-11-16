@@ -168,7 +168,8 @@ Wallets are one per holding, looked up by key: `coinbase-sbit`, `coinbase-ethd`,
 - `cb-proceeds-<trade_id>` and `cb-proceeds-dst-<trade_id>`
 - `cb-mark-<asset>-<symbol>-<yyyyMMddTHHmm>`
 - `cb-cash-reconcile-<yyyyMMddTHHmm>`
-- `cbpm-fill-<trade_id>` for a prediction contract, on wallet `pm-<product id>`
+- `cbpm-fill-<trade_id>` for a prediction fill, on wallet `pm-<product id>`
+- `cbpm-settle-<trade_id>` for a prediction settlement, on that same wallet
 
 Run only one Coinbase writer at a time. Stop the Python wallet sync before enabling this job, or leave this job disabled while the Python process is running. The shared client ids stop a second copy from inserting the same fill, but the two writers will still race. Prediction fills are booked by this job. MCP stays the write path for every other wallet.
 
