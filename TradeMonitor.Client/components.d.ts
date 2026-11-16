@@ -37,6 +37,7 @@ declare module 'vue' {
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SegmentedControl: typeof import('./src/components/shell/SegmentedControl.vue')['default']
+    ShowArchived: typeof import('./src/components/ShowArchived.vue')['default']
     Sparkline: typeof import('./src/components/Sparkline.vue')['default']
     StatePanel: typeof import('./src/components/shell/StatePanel.vue')['default']
     StepLadderFields: typeof import('./src/components/live/StepLadderFields.vue')['default']

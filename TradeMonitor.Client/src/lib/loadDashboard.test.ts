@@ -70,8 +70,8 @@ function recording(partial: Partial<LedgerClient> = {}) {
         async trade() {
             throw new Error('trade detail is not part of the overview load')
         },
-        async wallets() {
-            calls.push({ method: 'wallets' })
+        async wallets(query?: LedgerQuery) {
+            calls.push({ method: 'wallets', query })
             return { results: [] }
         },
         async wallet() {
@@ -120,6 +120,21 @@ describe('loadDashboard', () => {
         expect(calls.find((call) => call.method === 'trades')?.query).toMatchObject({ take: 200, orderBy: 'time', descending: true })
         expect(calls.find((call) => call.method === 'positions')?.query).toEqual({ mode: 'paper', wallet: 'paper', status: 'open' })
         expect(calls.every((call) => call.method !== 'trade')).toBe(true)
+    })
+
+    it('asks for archived wallets only when show archived is on', async () => {
+        const hidden = recording()
+        await loadDashboard({ mode: 'all', range: 'all', wallet: null }, now, hidden.client, false)
+        expect(hidden.calls.find((call) => call.method === 'summary')?.query?.includeArchived).toBeUndefined()
+        expect(hidden.calls.find((call) => call.method === 'wallets')?.query?.includeArchived).toBeUndefined()
+        expect(hidden.calls.find((call) => call.method === 'positions')?.query).toEqual({ mode: 'all', wallet: null, status: 'open' })
+
+        const shown = recording()
+        await loadDashboard({ mode: 'all', range: 'all', wallet: null }, now, shown.client, true)
+        expect(shown.calls.find((call) => call.method === 'summary')?.query?.includeArchived).toBe(true)
+        expect(shown.calls.find((call) => call.method === 'wallets')?.query?.includeArchived).toBe(true)
+        expect(shown.calls.find((call) => call.method === 'positions')?.query?.includeArchived).toBe(true)
+        expect(shown.calls.find((call) => call.method === 'trades')?.query?.includeArchived).toBe(true)
     })
 
     it('omits the date bounds for the all range', async () => {

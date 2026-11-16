@@ -9,12 +9,13 @@ export interface UiState {
     navCollapsed: boolean
     hidden: string[]
     filters: Record<string, string>
+    showArchived: boolean
 }
 
 const idPattern = /^[a-z0-9-]{1,64}$/
 
 export function defaultUiState(): UiState {
-    return { navCollapsed: false, hidden: [], filters: {} }
+    return { navCollapsed: false, hidden: [], filters: {}, showArchived: false }
 }
 
 export function readUiState(storage: UiStorage): UiState {
@@ -68,6 +69,16 @@ export function writeViewFilter(storage: UiStorage, view: string, text: string) 
     writeUiState(storage, state)
 }
 
+export function readShowArchived(storage: UiStorage): boolean {
+    return readUiState(storage).showArchived
+}
+
+export function writeShowArchived(storage: UiStorage, showArchived: boolean) {
+    const state = readUiState(storage)
+    state.showArchived = showArchived
+    writeUiState(storage, state)
+}
+
 function isId(value: string): boolean {
     return idPattern.test(value)
 }
@@ -93,5 +104,6 @@ function sanitize(value: unknown): UiState {
         navCollapsed: record.navCollapsed === true,
         hidden,
         filters,
+        showArchived: record.showArchived === true,
     }
 }

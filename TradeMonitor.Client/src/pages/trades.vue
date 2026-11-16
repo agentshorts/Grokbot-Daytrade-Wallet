@@ -10,12 +10,13 @@ import TradesTable from '@/components/TradesTable.vue'
 import { useFilterQuery } from '@/composables/useFilterQuery'
 import { rangeBounds, type LedgerQuery, type TradeRow, type WalletInfo } from '@/api'
 import { explainLedgerError, useLedger } from '@/composables/useLedger'
-import { useViewFilter } from '@/composables/useUiState'
+import { useShowArchived, useViewFilter } from '@/composables/useUiState'
 import { serializeFilters, type Filters, type LedgerMode } from '@/lib/filters'
 import { filterRows } from '@/lib/textFilter'
 import { buildTradeCsv, downloadCsv } from '@/lib/tradeCsv'
 import { modeLabel, parseTradeQuery, writeTradeQuery, type TradeQueryState, type TradeSort } from '@/lib/tradeQuery'
 import { REFRESH_MS, startPolling } from '@/lib/refresh'
+import { includeArchivedQuery, visibleWallets } from '@/lib/visibleWallets'
 
 const PAGE_SIZE = 25
 const EXPORT_TAKE = 1000
@@ -27,6 +28,7 @@ const router = useRouter()
 const client = useLedger()
 const { filters, setRange } = useFilterQuery()
 const filterText = useViewFilter('trades')
+const showArchived = useShowArchived()
 
 const rows = ref<TradeRow[]>([])
 const total = ref(0)
@@ -53,7 +55,9 @@ const filtered = computed(() => {
     const state = tradeState.value
     return !!(state.symbol || state.side || state.outcome || state.q || filters.wallet || filters.mode !== 'all' || filters.range !== 'all')
 })
-const walletChoices = computed(() => wallets.value.filter((wallet) => filters.mode === 'all' || wallet.mode === filters.mode))
+const walletChoices = computed(() =>
+    visibleWallets(wallets.value, showArchived.value).filter((wallet) => filters.mode === 'all' || wallet.mode === filters.mode),
+)
 const walletOptions = computed(() => {
     const options = walletChoices.value.map((wallet) => ({ value: wallet.key, label: walletOptionLabel(wallet) }))
     const selected = filters.wallet
@@ -258,7 +262,7 @@ async function loadSymbols() {
 async function loadWallets() {
     const mine = ++walletTicket
     try {
-        const page = await client.wallets({ includeArchived: true })
+        const page = await client.wallets(includeArchivedQuery(showArchived.value))
         if (mine !== walletTicket) return
         wallets.value = page.results
     } catch {
@@ -322,6 +326,10 @@ watch(
 
 watch(wallets, () => {
     if (walletFallsOutOfMode(wallets.value, filters.mode, filters.wallet)) replaceQuery({ page: 1 }, { wallet: null })
+})
+
+watch(showArchived, () => {
+    void loadWallets()
 })
 
 watch(

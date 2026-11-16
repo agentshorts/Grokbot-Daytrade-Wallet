@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test'
 import { changePercent } from '@/api'
 import type { HistoryEntry, PnlDay, PositionRow, WalletCardModel, WalletInfo } from '@/api/types'
-import { buildWalletDetail, buildWalletList, DASH, distanceToTarget, markIsStale } from './walletView'
+import { buildWalletDetail, buildWalletList, DASH, distanceToTarget, markIsStale, summaryQuery } from './walletView'
 
 const now = new Date('2026-11-12T16:30:00.000Z')
 
@@ -228,24 +228,23 @@ describe('buildWalletDetail', () => {
 })
 
 describe('buildWalletList', () => {
-    it('keeps archived wallets and the real or paper mode', () => {
-        const list = buildWalletList(
-            [
-                wallet({ key: 'paper', name: 'Paper', mode: 'paper', sortOrder: 1 }),
-                wallet({ key: 'coinbase', name: 'Coinbase', mode: 'real', venue: 'Coinbase', sortOrder: 2 }),
-                wallet({ key: 'old-book', name: 'Old book', mode: 'paper', isArchived: true, sortOrder: 3 }),
-            ],
-            [
-                card({ key: 'paper' }),
-                card({ key: 'coinbase', name: 'Coinbase', mode: 'real', totalValue: 52, unrealizedPnl: 2, valuedAtCost: false, unmarkedCost: 0 }),
-                card({ key: 'old-book', isArchived: true, totalValue: 5 }),
-            ],
-            { mode: 'all', range: 'all', wallet: null },
-        )
+    const directory = [
+        wallet({ key: 'paper', name: 'Paper', mode: 'paper', sortOrder: 1 }),
+        wallet({ key: 'coinbase', name: 'Coinbase', mode: 'real', venue: 'Coinbase', sortOrder: 2 }),
+        wallet({ key: 'old-book', name: 'Old book', mode: 'paper', isArchived: true, sortOrder: 3 }),
+    ]
+    const cards = [
+        card({ key: 'paper' }),
+        card({ key: 'coinbase', name: 'Coinbase', mode: 'real', totalValue: 52, unrealizedPnl: 2, valuedAtCost: false, unmarkedCost: 0 }),
+        card({ key: 'old-book', isArchived: true, totalValue: 5 }),
+    ]
+
+    it('hides archived wallets by default and keeps the real or paper mode', () => {
+        const list = buildWalletList(directory, cards, { mode: 'all', range: 'all', wallet: null })
         expect(list.emptyBook).toBe(false)
-        expect(list.wallets.map((row) => row.key)).toEqual(['paper', 'coinbase', 'old-book'])
+        expect(list.wallets.map((row) => row.key)).toEqual(['paper', 'coinbase'])
         expect(list.wallets[1]?.mode).toBe('real')
-        expect(list.wallets[2]?.isArchived).toBe(true)
+        expect(list.wallets.some((row) => row.isArchived)).toBe(false)
 
         const paper = buildWalletList([wallet({ key: 'paper', mode: 'paper' }), wallet({ key: 'coinbase', mode: 'real' })], [], {
             mode: 'paper',
@@ -254,5 +253,20 @@ describe('buildWalletList', () => {
         })
         expect(paper.wallets.map((row) => row.key)).toEqual(['paper'])
         expect(paper.noMatches).toBe(false)
+    })
+
+    it('includes archived wallets when show archived is on', () => {
+        const list = buildWalletList(directory, cards, { mode: 'all', range: 'all', wallet: null }, [], now, true)
+        expect(list.wallets.map((row) => row.key)).toEqual(['paper', 'coinbase', 'old-book'])
+        expect(list.wallets[2]?.isArchived).toBe(true)
+        expect(list.wallets[2]?.value).toBe(5)
+    })
+})
+
+describe('summaryQuery', () => {
+    it('leaves archived wallets out of summary totals unless show archived is on', () => {
+        const filters = { mode: 'all' as const, range: 'all' as const, wallet: null }
+        expect(summaryQuery(filters, now).includeArchived).toBeUndefined()
+        expect(summaryQuery(filters, now, true).includeArchived).toBe(true)
     })
 })

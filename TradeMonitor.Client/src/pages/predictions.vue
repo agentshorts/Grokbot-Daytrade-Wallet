@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { PredictionPnlResponse, PredictionPnlRow } from '@/api'
 import HideClosedContracts from '@/components/HideClosedContracts.vue'
@@ -10,12 +10,13 @@ import StatePanel from '@/components/shell/StatePanel.vue'
 import TextFilter from '@/components/shell/TextFilter.vue'
 import { explainLedgerError, useLedger } from '@/composables/useLedger'
 import { useHideClosedContracts } from '@/composables/useHideClosedContracts'
-import { useViewFilter } from '@/composables/useUiState'
+import { useShowArchived, useViewFilter } from '@/composables/useUiState'
 import { formatQty } from '@/lib/format'
 import { contractName, filterClosedContracts, isContractClosed, readContractTicker, viewerTimeZone } from '@/lib/predictionContract'
 import { settlementLabel } from '@/lib/predictionView'
 import { filterRows } from '@/lib/textFilter'
 import { REFRESH_MS, startPolling } from '@/lib/refresh'
+import { includeArchivedQuery } from '@/lib/visibleWallets'
 
 const client = useLedger()
 const route = useRoute()
@@ -25,6 +26,7 @@ const error = ref<string | null>(null)
 const model = ref<PredictionPnlResponse | null>(null)
 const hideClosed = useHideClosedContracts()
 const filterText = useViewFilter('predictions')
+const showArchived = useShowArchived()
 let stop = () => {}
 
 function rowClosed(row: PredictionPnlRow): boolean {
@@ -67,7 +69,7 @@ const shownTotal = computed(() => {
 
 async function refresh() {
     try {
-        model.value = await client.predictions()
+        model.value = await client.predictions(includeArchivedQuery(showArchived.value))
         status.value = 'ready'
         error.value = null
     } catch (err) {
@@ -75,6 +77,10 @@ async function refresh() {
         if (!model.value) status.value = 'error'
     }
 }
+
+watch(showArchived, () => {
+    void refresh()
+})
 
 onMounted(() => {
     void refresh()

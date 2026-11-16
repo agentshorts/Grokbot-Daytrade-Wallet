@@ -268,18 +268,19 @@ afterEach(() => {
 })
 
 describe('wallets list', () => {
-    it('renders a real wallet, a paper wallet, and an archived badge from the read API', async () => {
+    it('renders a real wallet and a paper wallet and hides archived wallets', async () => {
         const urls = installFetch()
         const { router, wrapper } = await mountAt('/wallets?range=all', WalletsPage)
         expect(wrapper.get('h1').text()).toBe('Wallets')
         expect(wrapper.text()).toContain('Paper')
         expect(wrapper.text()).toContain('Coinbase')
         expect(wrapper.text()).toContain('Real')
-        expect(wrapper.text()).toContain('Archived')
+        expect(wrapper.text()).not.toContain('Old book')
+        expect(wrapper.text()).not.toContain('Archived')
         expect(wrapper.text()).toContain('$214.00')
         expect(wrapper.text()).toContain('$52.00')
-        expect(urls.some((url) => ledgerPath(url) === '/summary' && url.includes('includeArchived=true'))).toBe(true)
-        expect(urls.some((url) => ledgerPath(url) === '/wallets' && url.includes('includeArchived=true'))).toBe(true)
+        expect(urls.some((url) => ledgerPath(url) === '/summary' && url.includes('includeArchived=true'))).toBe(false)
+        expect(urls.some((url) => ledgerPath(url) === '/wallets' && url.includes('includeArchived=true'))).toBe(false)
 
         const paperLive = wrapper.get('[data-testid="wallet-paper"] [data-testid="open-in-live"]')
         expect(paperLive.attributes('href')).toBe('/live?wallet=paper&symbol=BTC-USD')
@@ -287,7 +288,7 @@ describe('wallets list', () => {
         expect(paperLive.attributes('rel')).toBe('noopener')
         expect(wrapper.get('[data-testid="wallet-paper"] [data-testid="wallet-live-name"]').attributes('href')).toBe('/live?wallet=paper&symbol=BTC-USD')
         expect(wrapper.get('[data-testid="wallet-coinbase"] [data-testid="open-in-live"]').attributes('href')).toBe('/live?wallet=coinbase&symbol=SOL-USD')
-        expect(wrapper.get('[data-testid="wallet-old-book"] [data-testid="open-in-live"]').attributes('href')).toBe('/live?wallet=old-book')
+        expect(wrapper.find('[data-testid="wallet-old-book"]').exists()).toBe(false)
 
         await wrapper.get('[data-testid="wallet-paper"]').trigger('click')
         await flushPromises()

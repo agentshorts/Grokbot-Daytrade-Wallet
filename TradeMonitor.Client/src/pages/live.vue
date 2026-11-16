@@ -14,6 +14,7 @@ import type {
 } from '@/api/live'
 import type { WalletInfo } from '@/api/types'
 import { useRoute, useRouter } from 'vue-router'
+import ShowArchived from '@/components/ShowArchived.vue'
 import ChartMenu from '@/components/live/ChartMenu.vue'
 import ChartToolbar from '@/components/live/ChartToolbar.vue'
 import LiveChart from '@/components/live/LiveChart.vue'
@@ -23,7 +24,7 @@ import { explainLedgerError, useLedger } from '@/composables/useLedger'
 import { useLive } from '@/composables/useLive'
 import { useLiveStream } from '@/composables/useLiveStream'
 import { useTheme } from '@/composables/useTheme'
-import { useSectionCollapsed } from '@/composables/useUiState'
+import { useSectionCollapsed, useShowArchived } from '@/composables/useUiState'
 import { formatMenuPrice } from '@/lib/chartMenu'
 import type { ChartHit } from '@/lib/chartMenu'
 import { readChartPrefs, rememberInterval, removeCustomInterval, writeChartPrefs, type ChartPrefs } from '@/lib/chartPrefs'
@@ -38,6 +39,7 @@ import { chartZone, formatChartCrosshair, unixFromWall, wallInput, zoneAbbrev, t
 import { applyCandleTick, bucketSeconds, toCandleBars } from '@/lib/liveSeries'
 import { quoteLots } from '@/lib/lotQuote'
 import { readPanelTab, readPanelWidth, readShowTrades, writePanelTab, writePanelWidth, writeShowTrades, type PanelTab, type PanelWidth } from '@/lib/livePanel'
+import { includeArchivedQuery, visibleWallets } from '@/lib/visibleWallets'
 import { liveQuery, readLiveSelection } from '@/lib/liveQuery'
 import { toTradeMarks } from '@/lib/tradeMarkers'
 
@@ -58,6 +60,7 @@ const bucket = ref(bucketSeconds(prefs.value.interval))
 const hint = ref('')
 const price = ref<number | null>(null)
 const wallets = ref<WalletInfo[]>([])
+const showArchived = useShowArchived()
 const walletKey = ref('')
 const unknownWallet = ref('')
 const walletNotice = ref('')
@@ -289,8 +292,8 @@ function follow(next: string) {
 }
 
 async function loadWallets() {
-    const listed = await ledger.wallets()
-    wallets.value = listed.results.filter((item) => !item.isArchived)
+    const listed = await ledger.wallets(includeArchivedQuery(showArchived.value))
+    wallets.value = visibleWallets(listed.results, showArchived.value)
 }
 
 async function refreshBook() {
@@ -772,6 +775,10 @@ watch(stream.link, (value) => {
     }
 })
 
+watch(showArchived, () => {
+    void loadWallets()
+})
+
 onMounted(async () => {
     width.value = readPanelWidth(localStorage)
     tab.value = readPanelTab(localStorage)
@@ -825,9 +832,12 @@ onUnmounted(() => {
                         @change="onWallet(($event.target as HTMLSelectElement).value)"
                     >
                         <option value="">Choose a wallet</option>
-                        <option v-for="item in wallets" :key="item.key" :value="item.key">{{ item.name }} · {{ item.mode }}</option>
+                        <option v-for="item in wallets" :key="item.key" :value="item.key">
+                            {{ item.name }} · {{ item.mode }}{{ item.isArchived ? ' · Archived' : '' }}
+                        </option>
                     </select>
                 </label>
+                <ShowArchived v-model="showArchived" />
                 <ProductSelect :products="products" :product="product" @select="onProduct" />
                 <p class="text-lg font-semibold text-gray-900 dark:text-white" data-testid="live-price">
                     {{ price == null ? 'Waiting for a public price' : formatMenuPrice(price) }}

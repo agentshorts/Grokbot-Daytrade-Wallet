@@ -28,6 +28,7 @@ import {
 import { UNKNOWN_AMOUNT, formatChartLabel } from '@/lib/format'
 import type { DateRangeKey } from '@/lib/filters'
 import { clipContractChart, presentWalletCard } from '@/lib/predictionContract'
+import { visibleWallets } from '@/lib/visibleWallets'
 
 const SYMBOL_LIMIT = 10
 
@@ -257,13 +258,15 @@ function blank(emptyBook: boolean, now: Date, range: DateRangeKey, walletNames: 
     }
 }
 
-export function toDashboardView(input: OverviewInput, options: { range: DateRangeKey; now: Date }): DashboardView {
-    const cards = input.summary.wallets
-    const venues = new Map(input.catalog.map((wallet) => [wallet.key, wallet.venue]))
+export function toDashboardView(input: OverviewInput, options: { range: DateRangeKey; now: Date; showArchived?: boolean }): DashboardView {
+    const showArchived = options.showArchived === true
+    const catalog = visibleWallets(input.catalog, showArchived)
+    const cards = visibleWallets(input.summary.wallets, showArchived)
+    const venues = new Map(catalog.map((wallet) => [wallet.key, wallet.venue]))
     const symbols = new Map(input.positions.results.map((row) => [row.wallet, row.symbol]))
     const walletNames: Record<string, string> = {}
-    for (const wallet of input.catalog) walletNames[wallet.key] = wallet.name
-    const emptyBook = input.catalog.length === 0 && cards.length === 0
+    for (const wallet of catalog) walletNames[wallet.key] = wallet.name
+    const emptyBook = catalog.length === 0 && cards.length === 0
     if (emptyBook || cards.length === 0) return blank(emptyBook, options.now, options.range, walletNames)
 
     const presented = cards.map((card) => walletSummary(card, venues.get(card.key) ?? '', symbols.get(card.key) ?? null, options.now))

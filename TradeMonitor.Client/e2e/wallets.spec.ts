@@ -12,7 +12,8 @@ test('paper and real wallets read the ledger', async ({ page }) => {
     await expect(page.getByTestId('wallets')).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Paper' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Coinbase' })).toBeVisible()
-    await expect(page.getByText('Archived').first()).toBeVisible()
+    await expect(page.getByRole('checkbox', { name: 'Show archived' })).not.toBeChecked()
+    await expect(page.getByText('Archived', { exact: true })).toHaveCount(0)
     await page.screenshot({ path: '/opt/cursor/artifacts/wallets-list.png', fullPage: true })
 
     await page.getByTestId('wallet-paper').click()

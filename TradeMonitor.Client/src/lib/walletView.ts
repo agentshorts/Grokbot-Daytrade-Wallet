@@ -1,4 +1,5 @@
 import { changePercent, rangeBounds } from '@/api'
+import { includeArchivedQuery, visibleWallets } from '@/lib/visibleWallets'
 import { primarySymbol } from '@/lib/liveQuery'
 import { clipContractChart, presentWalletCard, viewerTimeZone } from '@/lib/predictionContract'
 import type { EquityPoint, HistoryEntry, LedgerQuery, PnlDay, PositionRow, TradeRow, WalletBalances, WalletCardModel, WalletInfo } from '@/api/types'
@@ -110,14 +111,14 @@ export function markIsStale(at: string | null | undefined, asOf: Date, minutes =
     return asOf.getTime() - marked > minutes * 60_000
 }
 
-export function summaryQuery(filters: Filters, now: Date): LedgerQuery {
+export function summaryQuery(filters: Filters, now: Date, showArchived = false): LedgerQuery {
     const bounds = rangeBounds(filters.range, now)
     return {
         wallet: filters.wallet,
         mode: filters.mode === 'all' ? null : filters.mode,
         from: bounds.from ?? null,
         to: bounds.to ?? null,
-        includeArchived: true,
+        ...includeArchivedQuery(showArchived),
     }
 }
 
@@ -145,9 +146,10 @@ export function buildWalletList(
     filters: Filters,
     positions: PositionRow[] = [],
     now = new Date(),
+    showArchived = false,
 ): WalletListModel {
     const emptyBook = directory.length === 0
-    const shown = allowed(directory, filters.mode, filters.wallet)
+    const shown = allowed(visibleWallets(directory, showArchived), filters.mode, filters.wallet)
     const cardsByKey = byKey(cards)
     const wallets: WalletSummary[] = shown.map((wallet) => {
         const card = cardsByKey.get(wallet.key)

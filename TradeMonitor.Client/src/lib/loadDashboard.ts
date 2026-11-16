@@ -1,6 +1,7 @@
 import { isUnknownWallet, ledger, rangeBounds, toDashboardView, type LedgerClient, type LedgerQuery } from '@/api'
 import type { DashboardView, SeriesGrain } from '@/lib/book'
 import type { Filters } from '@/lib/filters'
+import { includeArchivedQuery } from '@/lib/visibleWallets'
 
 const TRADE_TAKE = 200
 const SYMBOL_TAKE = 100
@@ -28,8 +29,9 @@ function unmatched(catalog: { key: string; name: string }[], now: Date, grain: S
 }
 
 /** Reads the ledger for the current URL filters. An unknown wallet slug is an empty match, not a thrown error. */
-export async function loadDashboard(filters: Filters, now = new Date(), client: LedgerClient = ledger): Promise<DashboardView> {
-    const listed = await client.wallets()
+export async function loadDashboard(filters: Filters, now = new Date(), client: LedgerClient = ledger, showArchived = false): Promise<DashboardView> {
+    const archived = includeArchivedQuery(showArchived)
+    const listed = await client.wallets(archived)
     const catalog = listed.results
     const bounds = rangeBounds(filters.range, now)
     const query: LedgerQuery = {
@@ -37,6 +39,7 @@ export async function loadDashboard(filters: Filters, now = new Date(), client: 
         wallet: filters.wallet,
         from: bounds.from,
         to: bounds.to,
+        ...archived,
     }
     const grain: SeriesGrain = filters.range === 'today' ? 'hour' : 'day'
     try {
@@ -46,11 +49,11 @@ export async function loadDashboard(filters: Filters, now = new Date(), client: 
             client.pnlDaily(query),
             client.pnlBySymbol({ ...query, take: SYMBOL_TAKE }),
             client.fees(query),
-            client.positions({ mode: filters.mode, wallet: filters.wallet, status: 'open' }),
+            client.positions({ mode: filters.mode, wallet: filters.wallet, status: 'open', ...archived }),
             client.trades({ ...query, take: TRADE_TAKE, orderBy: 'time', descending: true }),
             client.priceMarks({ wallet: filters.wallet, from: bounds.from, to: bounds.to, take: MARK_TAKE }),
         ])
-        return toDashboardView({ catalog, summary, equity, daily, symbols, fees, positions, trades, marks }, { range: filters.range, now })
+        return toDashboardView({ catalog, summary, equity, daily, symbols, fees, positions, trades, marks }, { range: filters.range, now, showArchived })
     } catch (err) {
         if (isUnknownWallet(err)) return unmatched(catalog, now, grain)
         throw err
