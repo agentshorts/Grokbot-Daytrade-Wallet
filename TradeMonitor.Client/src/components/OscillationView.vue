@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import type { OscillationResponse } from '@/api'
+import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue'
+import type { OscillationResponse, OscillationRow } from '@/api'
 import OscillationFields from '@/components/OscillationFields.vue'
 import OscillationTable from '@/components/OscillationTable.vue'
 import CollapseSection from '@/components/shell/CollapseSection.vue'
@@ -11,6 +11,8 @@ import { useViewFilter } from '@/composables/useUiState'
 import { readOscillationPrefs, writeOscillationPrefs, type OscillationPrefs } from '@/lib/oscillationPrefs'
 import { browserStorage } from '@/lib/predictionContract'
 import { REFRESH_MS, startPolling } from '@/lib/refresh'
+import { createAbortGate, isAbortError } from '@/lib/abort'
+import { sameRows } from '@/lib/pollGuard'
 import { filterRows } from '@/lib/textFilter'
 
 const client = useLedger()
@@ -22,8 +24,13 @@ const popover = ref(false)
 const popoverRoot = ref<HTMLElement | null>(null)
 const status = ref<'loading' | 'ready' | 'error'>('loading')
 const error = ref<string | null>(null)
-const model = ref<OscillationResponse | null>(null)
+const model = shallowRef<OscillationResponse | null>(null)
 let stop = () => {}
+const reads = createAbortGate()
+
+function oscillationSig(row: OscillationRow): string {
+    return `${row.ticker}:${row.reversals}:${row.priceCents ?? ''}:${row.yesCents ?? ''}:${row.noCents ?? ''}:${row.rangeCents ?? ''}`
+}
 
 const rows = computed(() => model.value?.results ?? [])
 const matchedRows = computed(() =>
@@ -48,15 +55,24 @@ function clearLookup() {
 }
 
 async function refresh() {
+    const signal = reads.next()
     try {
-        model.value = await client.oscillation({
-            lookbackHours: prefs.value.lookbackHours,
-            thresholdCents: prefs.value.thresholdCents,
-            ticker: activeTicker.value || undefined,
-        })
+        const next = await client.oscillation(
+            {
+                lookbackHours: prefs.value.lookbackHours,
+                thresholdCents: prefs.value.thresholdCents,
+                ticker: activeTicker.value || undefined,
+            },
+            signal,
+        )
+        if (signal.aborted) return
+        const sameLookup = (model.value?.lookup?.ticker ?? '') === (next.lookup?.ticker ?? '') && (model.value?.lookup?.reversals ?? null) === (next.lookup?.reversals ?? null)
+        if (!model.value || !sameLookup || model.value.lookupError !== next.lookupError || !sameRows(model.value.results, next.results, oscillationSig))
+            model.value = next
         status.value = 'ready'
         error.value = null
     } catch (err) {
+        if (signal.aborted || isAbortError(err)) return
         error.value = explainLedgerError(err).message
         if (!model.value) status.value = 'error'
     }
@@ -81,6 +97,7 @@ onMounted(() => {
 onUnmounted(() => {
     document.removeEventListener('pointerdown', onPointerDown)
     stop()
+    reads.abort()
 })
 </script>
 

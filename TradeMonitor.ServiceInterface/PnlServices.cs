@@ -18,8 +18,7 @@ public class PnlServices(ServiceStack.Data.IDbConnectionFactory dbFactory, ILedg
         var to = At(request.To);
         Range(from, to);
         var mode = Mode(request.Mode);
-        using var db = dbFactory.Open();
-        var books = LedgerData.Load(db, Now());
+        var books = LedgerData.Load(dbFactory, Now());
         var universe = Universe(books, request.Wallet, request.IncludeArchived);
         var shown = mode == null ? universe : universe.Where(x => x.Wallet.Mode == mode.Value).ToList();
         var wallets = shown
@@ -48,8 +47,7 @@ public class PnlServices(ServiceStack.Data.IDbConnectionFactory dbFactory, ILedg
         var to = At(request.To);
         Range(from, to);
         var mode = Mode(request.Mode);
-        using var db = dbFactory.Open();
-        var shown = Shown(LedgerData.Load(db, Now()), request.Wallet, request.IncludeArchived, mode);
+        var shown = Shown(LedgerData.Load(dbFactory, Now()), request.Wallet, request.IncludeArchived, mode);
         var series = shown.Select(x => new WalletEquity
         {
             Wallet = x.Wallet.Key,
@@ -73,8 +71,7 @@ public class PnlServices(ServiceStack.Data.IDbConnectionFactory dbFactory, ILedg
         var to = At(request.To);
         Range(from, to);
         var mode = Mode(request.Mode);
-        using var db = dbFactory.Open();
-        var shown = Shown(LedgerData.Load(db, Now()), request.Wallet, request.IncludeArchived, mode);
+        var shown = Shown(LedgerData.Load(dbFactory, Now()), request.Wallet, request.IncludeArchived, mode);
         var wallets = shown.Select(book => new WalletPnlDays
         {
             Wallet = book.Wallet.Key,
@@ -96,8 +93,7 @@ public class PnlServices(ServiceStack.Data.IDbConnectionFactory dbFactory, ILedg
         Range(from, to);
         var take = Take(request.Take, allowAll: true);
         var mode = Mode(request.Mode);
-        using var db = dbFactory.Open();
-        var shown = Shown(LedgerData.Load(db, Now()), request.Wallet, request.IncludeArchived, mode);
+        var shown = Shown(LedgerData.Load(dbFactory, Now()), request.Wallet, request.IncludeArchived, mode);
         return new GetPnlBySymbolResponse
         {
             Results = PnlReport.Symbols(shown, from, to, take),
@@ -128,8 +124,7 @@ public class PnlServices(ServiceStack.Data.IDbConnectionFactory dbFactory, ILedg
         var symbol = Clean(request.Symbol)?.ToUpperInvariant();
         if (symbol?.Length > 64)
             throw Fail(400, "InvalidRequest", "Symbol cannot be longer than 64 characters.");
-        using var db = dbFactory.Open();
-        var shown = Shown(LedgerData.Load(db, Now()), request.Wallet, request.IncludeArchived, mode);
+        var shown = Shown(LedgerData.Load(dbFactory, Now()), request.Wallet, request.IncludeArchived, mode);
         return new QueryPositionsResponse
         {
             MarkStaleAfterMinutes = PnlReport.MarkStaleMinutes,
@@ -139,8 +134,7 @@ public class PnlServices(ServiceStack.Data.IDbConnectionFactory dbFactory, ILedg
 
     public object Any(GetPredictionPnl request)
     {
-        using var db = dbFactory.Open();
-        var rows = LedgerData.Load(db, Now())
+        var rows = LedgerData.Load(dbFactory, Now())
             .Where(book => book.Wallet.Kind == WalletKind.PredictionMarket)
             .Where(book => request.IncludeArchived || !book.Wallet.IsArchived)
             .OrderBy(book => book.Wallet.SortOrder)
@@ -243,7 +237,7 @@ public class PnlServices(ServiceStack.Data.IDbConnectionFactory dbFactory, ILedg
         using var db = dbFactory.Open();
         var trade = db.SingleById<Trade>(request.Id)
             ?? throw Fail(404, "UnknownTrade", $"Unknown trade '{request.Id}'.");
-        var books = LedgerData.Load(db, Now());
+        var books = LedgerData.Load(dbFactory, Now());
         var book = books.FirstOrDefault(x => x.Wallet.Id == trade.WalletId)
             ?? throw Fail(500, "LedgerCorrupt", $"Trade '{request.Id}' has no wallet.");
         var lot = book.Replay.LotTrades.FirstOrDefault(x => x.TradeId == trade.Id)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { ContractDetail } from '@/api'
 import ChartPending from '@/components/shell/ChartPending.vue'
@@ -16,6 +16,7 @@ import { readOscillationPrefs } from '@/lib/oscillationPrefs'
 import { browserStorage } from '@/lib/predictionContract'
 import { REFRESH_MS, startPolling } from '@/lib/refresh'
 import { useViewFilter } from '@/composables/useUiState'
+import { createAbortGate, isAbortError } from '@/lib/abort'
 import { filterRows } from '@/lib/textFilter'
 
 const PriceChart = defineAsyncComponent({
@@ -41,9 +42,10 @@ const cents = ref(5)
 const all = ref(false)
 const status = ref<'loading' | 'ready' | 'error'>('loading')
 const error = ref<string | null>(null)
-const model = ref<ContractDetail | null>(null)
+const model = shallowRef<ContractDetail | null>(null)
 let ticket = 0
 let stop = () => {}
+const reads = createAbortGate()
 
 const ticker = computed(() => {
     const params = route.params
@@ -138,19 +140,23 @@ async function refresh() {
         return
     }
     const mine = ++ticket
+    const signal = reads.next()
     try {
-        const response = await client.contract({
-            ticker: current,
-            lookbackHours: all.value ? undefined : hours.value,
-            thresholdCents: cents.value,
-            allAvailable: all.value || undefined,
-        })
-        if (mine !== ticket) return
+        const response = await client.contract(
+            {
+                ticker: current,
+                lookbackHours: all.value ? undefined : hours.value,
+                thresholdCents: cents.value,
+                allAvailable: all.value || undefined,
+            },
+            signal,
+        )
+        if (mine !== ticket || signal.aborted) return
         model.value = response.result
         status.value = 'ready'
         error.value = null
     } catch (err) {
-        if (mine !== ticket) return
+        if (mine !== ticket || signal.aborted || isAbortError(err)) return
         error.value = explainLedgerError(err).message
         if (!model.value) status.value = 'error'
     }
@@ -167,7 +173,10 @@ onMounted(() => {
         void refresh()
     }, REFRESH_MS)
 })
-onUnmounted(() => stop())
+onUnmounted(() => {
+    stop()
+    reads.abort()
+})
 </script>
 
 <template>

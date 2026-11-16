@@ -15,9 +15,7 @@ public class OscillationServices(ServiceStack.Data.IDbConnectionFactory dbFactor
         var now = DateTime.SpecifyKind(clock.UtcNow, DateTimeKind.Utc);
         var from = now.AddHours(-(double)hours);
 
-        List<OpenContract> contracts;
-        using (var db = dbFactory.Open())
-            contracts = OscillationContracts.Select(LedgerData.Load(db, now));
+        var contracts = OscillationContracts.Select(LedgerData.Load(dbFactory, now));
 
         var rows = new PredictionOscillationRow[contracts.Count];
         await Parallel.ForEachAsync(
@@ -70,9 +68,7 @@ public class OscillationServices(ServiceStack.Data.IDbConnectionFactory dbFactor
         var now = DateTime.SpecifyKind(clock.UtcNow, DateTimeKind.Utc);
         var from = now.AddHours(-(double)hours);
 
-        List<WalletBook> books;
-        using (var db = dbFactory.Open())
-            books = LedgerData.Load(db, now);
+        var books = LedgerData.Load(dbFactory, now);
 
         PredictionQuote quote;
         try
