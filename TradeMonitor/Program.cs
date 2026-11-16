@@ -112,10 +112,21 @@ if (app.Environment.IsDevelopment())
     app.RunNodeProcess(nodeProxy, "../TradeMonitor.Client"); // Start Node if not running
     app.UseWebSockets();
     app.MapViteHmr(nodeProxy);
+    // Kalshi tickers include a dot (KXBTCD-26NOV1617-T64999.99). The default
+    // {*path:nonfile} fallback treats that as a static file and never reaches Node.
+    app.MapFallback("/predictions/{**rest}", nodeProxy.HttpToNode)
+        .WithOrder(int.MaxValue - 1)
+        .WithMetadata(new HttpMethodMetadata(["GET", "HEAD"]));
     app.MapFallbackToNode(nodeProxy); // Fallback to Node dev server in development
 }
 else
 {
+    // Same dotted-ticker case. The pattern is used as written, so the dot stays
+    // in the route. An existing file under /predictions is served as itself.
+    // /api stays on the API fallbacks registered above.
+    app.MapFallback("/predictions/{**rest}", PredictionShell(app))
+        .WithOrder(int.MaxValue - 1)
+        .WithMetadata(new HttpMethodMetadata(["GET", "HEAD"]));
     app.MapFallbackToFile("index.html"); // Fallback to index.html in production (TradeMonitor.Client/dist > wwwroot)
 }
 
@@ -125,6 +136,25 @@ app.Run();
 
 public partial class Program
 {
+    // Routing matches this fallback before the static-file middleware, which then
+    // skips the request. Serve a real file when one exists, otherwise index.html.
+    static RequestDelegate PredictionShell(IEndpointRouteBuilder endpoints)
+    {
+        var branch = endpoints.CreateApplicationBuilder();
+        branch.Use(next => context =>
+        {
+            var env = context.RequestServices.GetRequiredService<IWebHostEnvironment>();
+            var relative = (context.Request.Path.Value ?? "/").TrimStart('/');
+            var file = env.WebRootFileProvider.GetFileInfo(relative);
+            if (!file.Exists || file.IsDirectory)
+                context.Request.Path = "/index.html";
+            context.SetEndpoint(null);
+            return next(context);
+        });
+        branch.UseStaticFiles();
+        return branch.Build();
+    }
+
     static Task ApiMiss(HttpContext context)
     {
         context.Response.StatusCode = StatusCodes.Status404NotFound;

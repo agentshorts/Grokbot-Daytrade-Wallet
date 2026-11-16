@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test'
-import { formatAvgCost, formatSideQuote, formatStrikeLabel, noLineNote, rowNo, rowYes, toContractMarkers, toContractSeries } from './contractChart'
+import { contractPath, formatAvgCost, formatSideQuote, formatStrikeLabel, noLineNote, rowNo, rowYes, toContractMarkers, toContractSeries } from './contractChart'
 import type { OscillationRow } from '@/api'
 
 const row = {
@@ -31,6 +31,17 @@ const row = {
     source: 'kalshi',
     error: null,
 } satisfies OscillationRow
+
+describe('contract path', () => {
+    it('keeps a dotted ticker in one encoded segment', () => {
+        expect(contractPath('KXBTCD-26NOV1617-T64999.99', 6, 5)).toEqual({
+            path: '/predictions/contract/KXBTCD-26NOV1617-T64999.99',
+            query: { hours: '6', cents: '5' },
+        })
+        expect(contractPath('A B/C?D#E%F').path).toBe('/predictions/contract/A%20B%2FC%3FD%23E%25F')
+        expect(contractPath('KXBTCD-26NOV1617-T64999.99').query).toEqual({})
+    })
+})
 
 describe('contract quotes', () => {
     it('labels bid and ask, and falls back to last and implied NO', () => {
