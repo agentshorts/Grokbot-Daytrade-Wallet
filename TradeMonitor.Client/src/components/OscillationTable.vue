@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import type { OscillationRow } from '@/api'
 import Sparkline from '@/components/Sparkline.vue'
+import { contractPath, formatSideQuote, rowNo, rowYes } from '@/lib/contractChart'
 import { formatQty } from '@/lib/format'
 import { contractName } from '@/lib/predictionContract'
 
-defineProps<{ rows: OscillationRow[] }>()
+const props = withDefaults(defineProps<{ rows: OscillationRow[]; lookbackHours?: number | null; thresholdCents?: number | null }>(), {
+    lookbackHours: null,
+    thresholdCents: null,
+})
 
 function cents(value: number | null): string {
     if (value == null || !Number.isFinite(value)) return 'n/a'
@@ -41,6 +45,10 @@ function sourceLabel(source: string): string {
     return 'No market data'
 }
 
+function detailTo(row: OscillationRow) {
+    return contractPath(row.ticker, props.lookbackHours, props.thresholdCents)
+}
+
 function rising(row: OscillationRow): boolean {
     const line = row.sparkline
     if (line.length < 2) return true
@@ -54,7 +62,8 @@ function rising(row: OscillationRow): boolean {
             <thead class="text-start text-gray-500 dark:text-gray-400">
                 <tr>
                     <th class="px-4 py-3 font-medium">Contract</th>
-                    <th class="px-4 py-3 font-medium">Price</th>
+                    <th class="px-4 py-3 font-medium">YES</th>
+                    <th class="px-4 py-3 font-medium">NO</th>
                     <th class="px-4 py-3 font-medium">High</th>
                     <th class="px-4 py-3 font-medium">Low</th>
                     <th class="px-4 py-3 font-medium">Range</th>
@@ -73,13 +82,12 @@ function rising(row: OscillationRow): boolean {
                     <td class="px-4 py-3">
                         <div class="flex flex-wrap items-center gap-2">
                             <RouterLink
-                                v-if="row.wallet"
-                                :to="`/wallet/${encodeURIComponent(row.wallet)}`"
+                                :to="detailTo(row)"
+                                data-testid="oscillation-contract"
                                 class="font-medium text-gray-900 hover:text-brand-600 dark:text-white/90"
                             >
                                 {{ rowName(row) }}
                             </RouterLink>
-                            <span v-else class="font-medium text-gray-900 dark:text-white/90">{{ rowName(row) }}</span>
                             <span
                                 v-if="row.oscillating"
                                 data-testid="oscillation-flag"
@@ -91,7 +99,8 @@ function rising(row: OscillationRow): boolean {
                         <p v-if="row.qty > 0" class="text-xs text-gray-500 dark:text-gray-400">Open {{ formatQty(row.qty) }}</p>
                         <p v-if="row.error" class="text-xs text-error-600">{{ row.error }}</p>
                     </td>
-                    <td class="px-4 py-3 tabular-nums">{{ cents(row.priceCents) }}</td>
+                    <td class="px-4 py-3 tabular-nums" data-testid="oscillation-yes">{{ formatSideQuote(rowYes(row)) }}</td>
+                    <td class="px-4 py-3 tabular-nums" data-testid="oscillation-no">{{ formatSideQuote(rowNo(row)) }}</td>
                     <td class="px-4 py-3 tabular-nums">{{ cents(row.highCents) }}</td>
                     <td class="px-4 py-3 tabular-nums">{{ cents(row.lowCents) }}</td>
                     <td class="px-4 py-3 tabular-nums">{{ cents(row.rangeCents) }} ({{ percent(row.rangePercent) }})</td>

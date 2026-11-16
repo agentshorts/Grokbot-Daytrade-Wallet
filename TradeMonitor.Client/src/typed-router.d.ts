@@ -65,6 +65,13 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/prediction-contract/[ticker]': RouteRecordInfo<
+      '/prediction-contract/[ticker]',
+      '/predictions/contract/:ticker',
+      { ticker: ParamValue<true> },
+      { ticker: ParamValue<false> },
+      | never
+    >,
     '/predictions': RouteRecordInfo<
       '/predictions',
       '/predictions',
@@ -174,6 +181,12 @@ declare module 'vue-router/auto-routes' {
     'src/pages/live.vue': {
       routes:
         | '/live'
+      views:
+        | never
+    }
+    'src/pages/prediction-contract/[ticker].vue': {
+      routes:
+        | '/prediction-contract/[ticker]'
       views:
         | never
     }

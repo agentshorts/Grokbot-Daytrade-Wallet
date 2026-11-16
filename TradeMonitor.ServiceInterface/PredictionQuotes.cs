@@ -17,11 +17,42 @@ public sealed class PredictionQuote
 {
     public string Source { get; init; } = "none";
     public decimal? Price { get; init; }
+    public decimal? YesBid { get; init; }
+    public decimal? YesAsk { get; init; }
+    public decimal? NoBid { get; init; }
+    public decimal? NoAsk { get; init; }
+    public decimal? Last { get; init; }
+    public decimal? Volume { get; init; }
+    public decimal? OpenInterest { get; init; }
+    public string? Title { get; init; }
+    public string? Subtitle { get; init; }
+    public string? Status { get; init; }
+    public decimal? Strike { get; init; }
+
+    // True when the source has no NO bid or ask. The NO price is then 1 minus YES.
+    public bool NoImplied { get; init; }
+
     public DateTime? CloseAt { get; init; }
     public List<PredictionBar> Bars { get; init; } = [];
     public string? Error { get; init; }
 
-    public static PredictionQuote Failed(string error) => new() { Source = "none", Error = error };
+    public static PredictionQuote Failed(string error) => new() { Source = "none", Error = error, NoImplied = true };
+}
+
+public sealed record MarketBook(
+    decimal? YesBid,
+    decimal? YesAsk,
+    decimal? NoBid,
+    decimal? NoAsk,
+    decimal? Last,
+    decimal? Volume,
+    decimal? OpenInterest,
+    string? Title,
+    string? Subtitle,
+    string? Status,
+    decimal? Strike)
+{
+    public static MarketBook Empty { get; } = new(null, null, null, null, null, null, null, null, null, null, null);
 }
 
 public interface IPredictionQuotes
@@ -101,19 +132,34 @@ public sealed class PublicPredictionQuotes : IPredictionQuotes
             return null;
 
         decimal? price = null;
+        decimal? bid = null;
+        decimal? ask = null;
         var tickerBody = await Get(CoinbaseRoot + ticker.ProductId + "/ticker?limit=1", cancellationToken).ConfigureAwait(false);
         if (tickerBody.Status == 200 && tickerBody.Body != null)
+        {
             price = PredictionBars.CoinbasePrice(tickerBody.Body);
+            (bid, ask) = PredictionBars.CoinbaseBook(tickerBody.Body);
+        }
 
         DateTime? close = null;
+        string? title = null;
         var product = await Get(CoinbaseRoot + ticker.ProductId, cancellationToken).ConfigureAwait(false);
         if (product.Status == 200 && product.Body != null)
+        {
             close = ContractCloseReader.ReadCoinbase(product.Body);
+            title = PredictionBars.CoinbaseTitle(product.Body);
+        }
 
+        var last = price ?? bars[^1].Close;
         return new PredictionQuote
         {
             Source = "coinbase",
-            Price = price ?? bars[^1].Close,
+            Price = last,
+            Last = price,
+            YesBid = bid,
+            YesAsk = ask,
+            NoImplied = true,
+            Title = title,
             CloseAt = close,
             Bars = bars,
         };
@@ -130,20 +176,29 @@ public sealed class PublicPredictionQuotes : IPredictionQuotes
             return null;
 
         var bars = candles.Status == 200 && candles.Body != null ? PredictionBars.FromKalshi(candles.Body) : [];
-        decimal? price = null;
-        DateTime? close = null;
-        if (market.Status == 200 && market.Body != null)
-        {
-            price = PredictionBars.KalshiLastPrice(market.Body);
-            close = ContractCloseReader.ReadKalshi(market.Body);
-        }
-
+        var body = market.Status == 200 ? market.Body : null;
+        var book = body != null ? PredictionBars.KalshiMarket(body) : MarketBook.Empty;
+        decimal? price = book.Last;
+        if (price == null && body != null)
+            price = PredictionBars.KalshiLastPrice(body);
         price ??= bars.Count == 0 ? null : bars[^1].Close;
         return new PredictionQuote
         {
             Source = "kalshi",
             Price = price,
-            CloseAt = close,
+            Last = book.Last,
+            YesBid = book.YesBid,
+            YesAsk = book.YesAsk,
+            NoBid = book.NoBid,
+            NoAsk = book.NoAsk,
+            Volume = book.Volume,
+            OpenInterest = book.OpenInterest,
+            Title = book.Title,
+            Subtitle = book.Subtitle,
+            Status = book.Status,
+            Strike = book.Strike,
+            NoImplied = book.NoBid == null && book.NoAsk == null,
+            CloseAt = body == null ? null : ContractCloseReader.ReadKalshi(body),
             Bars = bars,
             Error = bars.Count == 0 ? "No price history in this window." : null,
         };
@@ -323,6 +378,60 @@ public static class PredictionBars
         }
     }
 
+    public static MarketBook KalshiMarket(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("market", out var market) && market.ValueKind == JsonValueKind.Object)
+                root = market;
+            return new MarketBook(
+                Quote(root, "yes_bid_dollars", "yes_bid"),
+                Quote(root, "yes_ask_dollars", "yes_ask"),
+                Quote(root, "no_bid_dollars", "no_bid"),
+                Quote(root, "no_ask_dollars", "no_ask"),
+                Quote(root, "last_price_dollars", "last_price"),
+                Count(root, "volume_fp", "volume"),
+                Count(root, "open_interest_fp", "open_interest"),
+                Text(root, "title"),
+                Text(root, "subtitle") ?? Text(root, "yes_sub_title"),
+                Text(root, "status"),
+                First(root, "floor_strike") ?? First(root, "cap_strike"));
+        }
+        catch (JsonException)
+        {
+            return MarketBook.Empty;
+        }
+    }
+
+    public static (decimal? Bid, decimal? Ask) CoinbaseBook(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            return (QuotePrice(First(root, "best_bid")), QuotePrice(First(root, "best_ask")));
+        }
+        catch (JsonException)
+        {
+            return (null, null);
+        }
+    }
+
+    public static string? CoinbaseTitle(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return FindTitle(doc.RootElement, 0);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     public static decimal? KalshiLastPrice(string json)
     {
         try
@@ -379,6 +488,50 @@ public static class PredictionBars
         if (value.ValueKind == JsonValueKind.String
             && decimal.TryParse(value.GetString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed))
             return parsed;
+        return null;
+    }
+
+    static decimal? Quote(JsonElement node, string dollarsName, string centsName) => QuotePrice(Dollars(node, dollarsName, centsName));
+
+    static decimal? QuotePrice(decimal? value) => value is > 0 and <= 1.5m ? value : null;
+
+    static decimal? Count(JsonElement node, string fpName, string legacyName)
+    {
+        var fp = First(node, fpName);
+        if (fp is >= 0)
+            return fp;
+        var legacy = First(node, legacyName);
+        return legacy is >= 0 ? legacy : null;
+    }
+
+    static string? Text(JsonElement node, string name)
+    {
+        if (node.ValueKind != JsonValueKind.Object || !node.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.String)
+            return null;
+        var text = value.GetString();
+        return string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+    }
+
+    static string? FindTitle(JsonElement node, int depth)
+    {
+        if (node.ValueKind != JsonValueKind.Object || depth > 3)
+            return null;
+        foreach (var name in new[] { "title", "display_name", "name" })
+        {
+            var text = Text(node, name);
+            if (text != null)
+                return text;
+        }
+
+        foreach (var name in new[] { "product", "prediction_market_product_details" })
+        {
+            if (!node.TryGetProperty(name, out var child))
+                continue;
+            var found = FindTitle(child, depth + 1);
+            if (found != null)
+                return found;
+        }
+
         return null;
     }
 

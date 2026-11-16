@@ -9,15 +9,23 @@ namespace TradeMonitor.ServiceInterface;
 // Prices and the threshold use the same unit. Callers pass cents.
 public static class OscillationMath
 {
-    public static int CountReversals(IReadOnlyList<decimal>? prices, decimal threshold)
+    public static int CountReversals(IReadOnlyList<decimal>? prices, decimal threshold) =>
+        Turns(prices, threshold).Count;
+
+    // Each turn is the extreme that price left by at least `threshold`.
+    // Extreme is "high" when an upswing reversed, and "low" when a downswing reversed.
+    // The first move that establishes a direction is not a turn.
+    public static List<PriceTurn> Turns(IReadOnlyList<decimal>? prices, decimal threshold)
     {
+        var turns = new List<PriceTurn>();
         if (prices == null || prices.Count < 2 || threshold <= 0)
-            return 0;
+            return turns;
 
         var runHigh = prices[0];
         var runLow = prices[0];
+        var highIndex = 0;
+        var lowIndex = 0;
         var direction = 0;
-        var reversals = 0;
 
         for (var i = 1; i < prices.Count; i++)
         {
@@ -28,12 +36,14 @@ public static class OscillationMath
                 if (price >= runHigh)
                 {
                     runHigh = price;
+                    highIndex = i;
                     extreme = 1;
                 }
 
                 if (price <= runLow)
                 {
                     runLow = price;
+                    lowIndex = i;
                     extreme = -1;
                 }
 
@@ -47,15 +57,18 @@ public static class OscillationMath
                 if (price >= runHigh)
                 {
                     runHigh = price;
+                    highIndex = i;
                     continue;
                 }
 
                 if (runHigh - price >= threshold)
                 {
-                    reversals++;
+                    turns.Add(new PriceTurn(highIndex, runHigh, "high"));
                     direction = -1;
                     runHigh = price;
                     runLow = price;
+                    highIndex = i;
+                    lowIndex = i;
                 }
 
                 continue;
@@ -64,19 +77,22 @@ public static class OscillationMath
             if (price <= runLow)
             {
                 runLow = price;
+                lowIndex = i;
                 continue;
             }
 
             if (price - runLow >= threshold)
             {
-                reversals++;
+                turns.Add(new PriceTurn(lowIndex, runLow, "low"));
                 direction = 1;
                 runHigh = price;
                 runLow = price;
+                highIndex = i;
+                lowIndex = i;
             }
         }
 
-        return reversals;
+        return turns;
     }
 
     public static bool IsOscillating(int reversals) => reversals >= 2;
@@ -118,6 +134,8 @@ public static class OscillationMath
 
 public readonly record struct SwingRange(decimal? High, decimal? Low, decimal Cents, decimal? Percent);
 
+public readonly record struct PriceTurn(int Index, decimal Price, string Extreme);
+
 // Coinbase product ids end in -KALSHI. Kalshi's ticker is that id without the suffix,
 // and the series is the segment before the first hyphen.
 public static class OscillationTickers
@@ -152,6 +170,11 @@ public static class OscillationWindow
         return decimal.Round(value.Value, 2);
     }
 
+    public const decimal AllHours = 168;
+
+    public static decimal Span(decimal? value, bool allAvailable) =>
+        allAvailable ? AllHours : Hours(value);
+
     public static decimal Cents(decimal? value)
     {
         if (value is null or <= 0)
@@ -183,14 +206,19 @@ public static class OscillationWindow
 
 public static class CentralTime
 {
-    public static string? Format(DateTime? utc)
+    public static string? Format(DateTime? utc) => ZonedClock.Format(utc, "America/Chicago", "CDT", "CST", TimeSpan.FromHours(-5));
+}
+
+static class ZonedClock
+{
+    public static string? Format(DateTime? utc, string zoneId, string daylight, string standard, TimeSpan daylightOffset)
     {
         if (utc == null)
             return null;
         TimeZoneInfo zone;
         try
         {
-            zone = TimeZoneInfo.FindSystemTimeZoneById("America/Chicago");
+            zone = TimeZoneInfo.FindSystemTimeZoneById(zoneId);
         }
         catch (TimeZoneNotFoundException)
         {
@@ -203,11 +231,16 @@ public static class CentralTime
 
         var instant = DateTime.SpecifyKind(utc.Value, DateTimeKind.Utc);
         var local = TimeZoneInfo.ConvertTimeFromUtc(instant, zone);
-        var abbr = zone.GetUtcOffset(instant) == TimeSpan.FromHours(-5) ? "CDT" : "CST";
+        var abbr = zone.GetUtcOffset(instant) == daylightOffset ? daylight : standard;
         var clock = local.ToString("h:mm tt", CultureInfo.InvariantCulture);
         var day = local.ToString("MMM d", CultureInfo.InvariantCulture);
         return clock + " " + abbr + ", " + day;
     }
+}
+
+public static class EasternTime
+{
+    public static string? Format(DateTime? utc) => ZonedClock.Format(utc, "America/New_York", "EDT", "EST", TimeSpan.FromHours(-4));
 }
 
 public sealed record OpenContract(MappedTicker Ticker, string? Wallet, string Name, decimal Qty);
@@ -256,6 +289,8 @@ public static class OscillationReport
         var swing = OscillationMath.Measure(quote.Bars.Select(bar => bar.High).ToList(), quote.Bars.Select(bar => bar.Low).ToList());
         var reversals = OscillationMath.CountReversals(closes.Select(price => price * 100m).ToList(), thresholdCents);
         var price = quote.Price ?? (closes.Count == 0 ? null : closes[^1]);
+        var yes = SideQuotes.Yes(quote);
+        var no = SideQuotes.No(quote);
         return new PredictionOscillationRow
         {
             Ticker = contract.Ticker.Ticker,
@@ -265,6 +300,15 @@ public static class OscillationReport
             Name = contract.Name,
             Qty = contract.Qty,
             PriceCents = Cents(price),
+            YesCents = yes.Cents,
+            YesBidCents = yes.BidCents,
+            YesAskCents = yes.AskCents,
+            YesLabel = yes.Label,
+            NoCents = no.Cents,
+            NoBidCents = no.BidCents,
+            NoAskCents = no.AskCents,
+            NoLabel = no.Label,
+            NoImplied = no.Implied,
             HighCents = Cents(swing.High),
             LowCents = Cents(swing.Low),
             RangeCents = swing.Cents,
