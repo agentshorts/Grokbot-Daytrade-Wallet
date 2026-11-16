@@ -214,5 +214,6 @@ describe('ledger client', () => {
         expect(bookings.results[0]?.detail).toContain('missing cash total')
         expect(bookings.results[1]?.wallet).toBe('pm-OTHER-KALSHI-2')
         expect(bookings.results[1]?.status).toBe('booked')
+        expect(bookings.mode).toBe('dryrun')
     })
 })

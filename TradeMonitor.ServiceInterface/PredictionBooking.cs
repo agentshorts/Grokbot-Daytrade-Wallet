@@ -3,12 +3,25 @@ using TradeMonitor.ServiceModel.Types;
 
 namespace TradeMonitor.ServiceInterface;
 
+public enum PredictionBookingMode
+{
+    Off,
+    DryRun,
+    On,
+}
+
+public readonly record struct PredictionTradeMark(string ClientId, string? OrderRef, TradeKind Kind);
+
 // In memory. The sync loop sees open contracts again each cycle, so a restart refills this list.
 public interface IPredictionBookings
 {
+    PredictionBookingMode Mode { get; set; }
+
     void Seen(string? productId, DateTime seenUtc);
 
     void Booked(string? productId, DateTime seenUtc, string? walletKey);
+
+    void WouldBook(string? productId, DateTime seenUtc, string detail);
 
     void Problem(string? productId, DateTime seenUtc, string detail);
 
@@ -35,10 +48,15 @@ public sealed class PredictionBookingStore : IPredictionBookings
     readonly object gate = new();
     readonly Dictionary<string, PredictionSighting> rows = new(StringComparer.OrdinalIgnoreCase);
 
+    public PredictionBookingMode Mode { get; set; } = PredictionBookingMode.DryRun;
+
     public void Seen(string? productId, DateTime seenUtc) => Touch(productId, seenUtc, "seen", null, null);
 
     public void Booked(string? productId, DateTime seenUtc, string? walletKey) =>
         Touch(productId, seenUtc, "booked", null, walletKey);
+
+    public void WouldBook(string? productId, DateTime seenUtc, string detail) =>
+        Touch(productId, seenUtc, "would-book", detail, null);
 
     public void Problem(string? productId, DateTime seenUtc, string detail) =>
         Touch(productId, seenUtc, "problem", detail, null);
@@ -67,7 +85,7 @@ public sealed class PredictionBookingStore : IPredictionBookings
                     FirstSeenUtc = at,
                     LastSeenUtc = at,
                     Status = status,
-                    Detail = status == "problem" ? detail : null,
+                    Detail = status is "problem" or "would-book" ? detail : null,
                     Wallet = wallet,
                 };
                 return;
@@ -79,15 +97,30 @@ public sealed class PredictionBookingStore : IPredictionBookings
                 row.LastSeenUtc = at;
             if (status == "seen")
                 return;
-            row.Status = status;
             if (status == "booked")
             {
+                if (row.Status is "would-book" or "problem")
+                {
+                    if (!string.IsNullOrEmpty(wallet))
+                        row.Wallet = wallet;
+                    return;
+                }
+
+                row.Status = "booked";
                 row.Detail = null;
                 if (!string.IsNullOrEmpty(wallet))
                     row.Wallet = wallet;
                 return;
             }
 
+            if (status == "would-book" && row.Status == "would-book")
+            {
+                if (!string.IsNullOrEmpty(detail) && (row.Detail == null || !row.Detail.Contains(detail, StringComparison.Ordinal)))
+                    row.Detail = string.IsNullOrEmpty(row.Detail) ? detail : row.Detail + " | " + detail;
+                return;
+            }
+
+            row.Status = status;
             row.Detail = detail;
         }
     }
@@ -123,6 +156,62 @@ public static class PredictionBooking
         var prefix = kind == TradeKind.Settlement ? SettlePrefix : FillPrefix;
         var id = prefix + tradeId.Trim();
         return id.Length <= 128 ? id : null;
+    }
+
+    public static PredictionBookingMode ParseMode(string? value)
+    {
+        if (string.Equals(value, "On", StringComparison.OrdinalIgnoreCase))
+            return PredictionBookingMode.On;
+        if (string.Equals(value, "Off", StringComparison.OrdinalIgnoreCase))
+            return PredictionBookingMode.Off;
+        return PredictionBookingMode.DryRun;
+    }
+
+    // A NO order is a short on the YES book, so Coinbase reports the opposite side.
+    public static bool? LedgerIsBuy(string? reportedSide, string contractSide)
+    {
+        if (string.IsNullOrWhiteSpace(reportedSide))
+            return null;
+        bool reportedBuy;
+        if (reportedSide.Equals("BUY", StringComparison.OrdinalIgnoreCase))
+            reportedBuy = true;
+        else if (reportedSide.Equals("SELL", StringComparison.OrdinalIgnoreCase))
+            reportedBuy = false;
+        else
+            return null;
+        return contractSide == "NO" ? !reportedBuy : reportedBuy;
+    }
+
+    public static bool IsAlreadyBooked(PredictionTradeMark row, TradeKind kind, string? tradeId, string? orderId, string productId)
+    {
+        if (kind == TradeKind.Settlement)
+            return row.Kind == TradeKind.Settlement || SameClient(row.ClientId, SettlePrefix, tradeId, orderId, productId);
+        if (row.Kind == TradeKind.Settlement)
+            return false;
+        return SameOrder(row.OrderRef, orderId) || SameClient(row.ClientId, FillPrefix, tradeId, orderId, null);
+    }
+
+    public static string Proposal(string clientId, string contractSide, string side, decimal qty, decimal price, decimal fee, string? orderId)
+    {
+        var order = string.IsNullOrWhiteSpace(orderId) ? "(none)" : orderId.Trim();
+        return clientId + " " + contractSide + " " + side + " " + CoinbaseWallets.PythonG(qty)
+            + " @ " + CoinbaseWallets.PythonG(price)
+            + " fee " + CoinbaseWallets.PythonG(fee)
+            + " order " + order;
+    }
+
+    static bool SameOrder(string? orderRef, string? orderId) =>
+        !string.IsNullOrEmpty(orderId) && string.Equals(orderRef, orderId, StringComparison.Ordinal);
+
+    static bool SameClient(string? clientId, string prefix, string? tradeId, string? orderId, string? productId)
+    {
+        if (string.IsNullOrEmpty(clientId))
+            return false;
+        if (!string.IsNullOrEmpty(tradeId) && clientId == prefix + tradeId)
+            return true;
+        if (!string.IsNullOrEmpty(orderId) && clientId == prefix + orderId)
+            return true;
+        return !string.IsNullOrEmpty(productId) && clientId == prefix + productId;
     }
 
     public static string? ContractSide(string? value)
@@ -189,7 +278,8 @@ public static class PredictionBookingReport
     {
         var wallet = PredictionMarkets.MatchingKey(row.ProductId, keys) ?? row.Wallet;
         var status = row.Status;
-        if (!string.Equals(status, "problem", StringComparison.Ordinal) && !string.IsNullOrEmpty(wallet))
+        var keepDetail = status is "problem" or "would-book";
+        if (!keepDetail && !string.IsNullOrEmpty(wallet))
             status = "booked";
         return new PredictionBookingRow
         {
@@ -198,14 +288,15 @@ public static class PredictionBookingReport
             LastSeen = row.LastSeenUtc,
             Status = status,
             Wallet = wallet,
-            Detail = string.Equals(status, "problem", StringComparison.Ordinal) ? row.Detail : null,
+            Detail = keepDetail ? row.Detail : null,
         };
     }
 
     static int Rank(string status) => status switch
     {
         "problem" => 0,
-        "seen" => 1,
-        _ => 2,
+        "would-book" => 1,
+        "seen" => 2,
+        _ => 3,
     };
 }

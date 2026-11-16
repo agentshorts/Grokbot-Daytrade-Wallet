@@ -75,8 +75,17 @@ const shownTotal = computed(() => {
 
 function bookingLabel(status: string): string {
     if (status === 'booked') return 'Booked'
+    if (status === 'would-book') return 'Would book'
     if (status === 'problem') return 'Problem'
     return 'Seen'
+}
+
+function bookingModeLabel(mode: string): string {
+    const value = mode.toLowerCase()
+    if (value === 'dryrun') return 'Dry run'
+    if (value === 'on') return 'On'
+    if (value === 'off') return 'Off'
+    return mode
 }
 
 async function refresh() {
@@ -234,7 +243,10 @@ onUnmounted(() => stop())
             </p>
             <CollapseSection v-else id="prediction-booking" label="contract booking" data-testid="prediction-booking-section">
                 <template #heading>
-                    <h2 class="text-sm font-semibold text-gray-900 dark:text-white">Contract booking</h2>
+                    <h2 class="text-sm font-semibold text-gray-900 dark:text-white">
+                        Contract booking
+                        <span v-if="bookings?.mode" class="font-normal text-gray-500 dark:text-gray-400" data-testid="prediction-booking-mode">{{ bookingModeLabel(bookings.mode) }}</span>
+                    </h2>
                 </template>
                 <section class="overflow-x-auto rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
                     <table class="min-w-full text-sm" data-testid="prediction-booking-table">

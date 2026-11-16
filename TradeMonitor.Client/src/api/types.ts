@@ -409,6 +409,7 @@ export interface PredictionBookingRow {
 }
 
 export interface PredictionBookingResponse {
+    mode?: string
     results: PredictionBookingRow[]
 }
 

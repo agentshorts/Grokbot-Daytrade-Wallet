@@ -13,6 +13,9 @@ public class GetPredictionBookings : IGet, IReturn<GetPredictionBookingsResponse
 
 public class GetPredictionBookingsResponse
 {
+    [Description("Off, DryRun, or On. DryRun lists fills that would be booked and writes nothing.")]
+    public string Mode { get; set; } = "DryRun";
+
     public List<PredictionBookingRow> Results { get; set; } = [];
 
     public ResponseStatus? ResponseStatus { get; set; }
@@ -26,12 +29,12 @@ public class PredictionBookingRow
 
     public DateTime LastSeen { get; set; }
 
-    [Description("booked, problem, or seen.")]
+    [Description("booked, would-book, problem, or seen.")]
     public string Status { get; set; } = "";
 
     [Description("pm- wallet that books this product, including an archived wallet or a -2 copy.")]
     public string? Wallet { get; set; }
 
-    [Description("Why the latest fill was not booked. Empty when the status is not problem.")]
+    [Description("Why the latest fill was not booked, or the fill a dry run would book.")]
     public string? Detail { get; set; }
 }
