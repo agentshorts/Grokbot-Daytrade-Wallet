@@ -33,6 +33,12 @@ public class SpaRouteTests
             <body><div id="app" data-spa-shell="trademonitor"></div></body>
             </html>
             """);
+        Directory.CreateDirectory(Path.Combine(webRoot, "assets"));
+        File.WriteAllText(Path.Combine(webRoot, "assets", "app.js"), "console.log('asset');");
+        File.WriteAllText(Path.Combine(webRoot, "assets", "app.css"), "body{color:#111}");
+        File.WriteAllBytes(Path.Combine(webRoot, "assets", "mark.gif"), Convert.FromBase64String("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"));
+        Directory.CreateDirectory(Path.Combine(webRoot, "predictions"));
+        File.WriteAllText(Path.Combine(webRoot, "predictions", "keep.js"), "console.log('keep');");
 
         factory = new SpaAppFactory(dbPath, webRoot);
         using var _ = factory.CreateClient();
@@ -110,6 +116,63 @@ public class SpaRouteTests
         var mcpBody = await mcp.Content.ReadAsStringAsync();
         Assert.That((int)mcp.StatusCode, Is.EqualTo(401), mcpBody);
         Assert.That(mcpBody, Does.Not.Contain(ShellMarker));
+    }
+
+    [Test]
+    public async Task Dotted_prediction_contract_returns_the_shell()
+    {
+        using var http = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        await AssertShell(http, "/predictions/contract/KXBTCD-26NOV1617-T64999.99");
+        await AssertShell(http, "/predictions/contract/KXBTCD-26NOV1617-T64999.99?hours=6&cents=5");
+        await AssertShell(http, "/predictions/contract/KXBTCD-26NOV1617-T64999.99/");
+        await AssertShell(http, "/predictions/contract/KXBTCD-26NOV1617-T65000");
+        await AssertShell(http, "/predictions");
+        await AssertShell(http, "/predictions?view=oscillation");
+
+        await AssertFile(http, "/assets/app.js", "console.log('asset');", "javascript");
+        await AssertFile(http, "/assets/app.css", "body{color:#111}", "css");
+        await AssertFile(http, "/predictions/keep.js", "console.log('keep');", "javascript");
+
+        var image = await Send(http, HttpMethod.Get, "/assets/mark.gif", "image/gif,*/*", null);
+        var imageBody = await image.Content.ReadAsByteArrayAsync();
+        Assert.That((int)image.StatusCode, Is.EqualTo(200));
+        Assert.That(Media(image), Does.Contain("gif"));
+        Assert.That(imageBody, Has.Length.GreaterThan(0));
+        Assert.That(System.Text.Encoding.UTF8.GetString(imageBody), Does.Not.Contain(ShellMarker));
+
+        var missing = await Send(http, HttpMethod.Get, "/assets/missing.js", "text/html,*/*", null);
+        var missingBody = await missing.Content.ReadAsStringAsync();
+        Assert.That((int)missing.StatusCode, Is.EqualTo(404), missingBody);
+        Assert.That(missingBody, Does.Not.Contain(ShellMarker));
+
+        var api = await Send(http, HttpMethod.Get, "/api/predictions/contract?ticker=KXBTCD-26NOV1617-T64999.99", "application/json", null);
+        var apiBody = await api.Content.ReadAsStringAsync();
+        Assert.That((int)api.StatusCode, Is.EqualTo(302), apiBody);
+        Assert.That(api.Headers.Location?.OriginalString, Does.Contain("Account/Login").And.Contain("%2Fapi%2Fpredictions%2Fcontract"));
+        Assert.That(apiBody, Does.Not.Contain(ShellMarker));
+
+        var browserApi = await Send(http, HttpMethod.Get, "/api/predictions/contract?ticker=KXBTCD-26NOV1617-T64999.99", "text/html,application/xhtml+xml", null);
+        var browserApiBody = await browserApi.Content.ReadAsStringAsync();
+        Assert.That((int)browserApi.StatusCode, Is.EqualTo(302), browserApiBody);
+        Assert.That(browserApi.Headers.Location?.OriginalString, Does.Contain("Account/Login").And.Contain("%2Fapi%2Fpredictions%2Fcontract"));
+        Assert.That(browserApiBody, Does.Not.Contain(ShellMarker));
+
+        var apiDot = await Send(http, HttpMethod.Get, "/api/does-not-exist.js", "text/html,*/*", null);
+        var apiDotBody = await apiDot.Content.ReadAsStringAsync();
+        Assert.That((int)apiDot.StatusCode, Is.EqualTo(404), apiDotBody);
+        Assert.That(apiDotBody, Does.Not.Contain(ShellMarker));
+        Assert.That(Media(apiDot), Does.Contain("json"));
+    }
+
+    static async Task AssertFile(HttpClient http, string path, string body, string media)
+    {
+        var response = await Send(http, HttpMethod.Get, path, "*/*", null);
+        var text = await response.Content.ReadAsStringAsync();
+        Assert.That((int)response.StatusCode, Is.EqualTo(200), path + " " + text);
+        Assert.That(text, Is.EqualTo(body), path);
+        Assert.That(text, Does.Not.Contain(ShellMarker), path);
+        Assert.That(Media(response), Does.Contain(media), path);
     }
 
     static async Task AssertShell(HttpClient http, string path)
